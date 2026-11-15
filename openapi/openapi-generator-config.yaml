@@ -1,0 +1,6 @@
+# Configuration for swift-openapi-generator, which runs as a build plugin of the
+# Seasign app target and reads openapi.json from this folder.
+generate:
+  - types
+  - client
+accessModifier: internal

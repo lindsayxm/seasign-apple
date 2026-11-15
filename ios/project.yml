@@ -1,0 +1,76 @@
+name: Seasign
+
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+
+# Bundle ID and team ID come from the one identity file at the repository root.
+configFiles:
+  Debug: ../app-identity.xcconfig
+  Release: ../app-identity.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  swift-openapi-generator:
+    url: https://github.com/apple/swift-openapi-generator
+    from: 1.14.4
+  swift-openapi-runtime:
+    url: https://github.com/apple/swift-openapi-runtime
+    from: 1.13.4
+  swift-openapi-urlsession:
+    url: https://github.com/apple/swift-openapi-urlsession
+    from: 1.4.0
+
+targets:
+  Seasign:
+    type: application
+    platform: iOS
+    sources:
+      - path: Seasign
+      # The contract. The generator plugin reads both files and writes the Swift
+      # client into the build folder on every build; nothing generated is committed.
+      - path: ../openapi/openapi.json
+        group: OpenAPI
+        buildPhase: sources
+      - path: ../openapi/openapi-generator-config.yaml
+        group: OpenAPI
+        buildPhase: sources
+    buildToolPlugins:
+      - plugin: OpenAPIGenerator
+        package: swift-openapi-generator
+    dependencies:
+      - package: swift-openapi-runtime
+        product: OpenAPIRuntime
+      - package: swift-openapi-urlsession
+        product: OpenAPIURLSession
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Seasign
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+    scheme:
+      testTargets:
+        - SeasignTests
+
+  SeasignTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: SeasignTests
+    dependencies:
+      - target: Seasign
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID).tests
+        GENERATE_INFOPLIST_FILE: YES

@@ -1,0 +1,38 @@
+/**
+ * Wrangler configuration for the Seasign API.
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "seasign-api",
+	"main": "src/index.ts",
+	// Held at 2026-08-22: the newest date the workerd bundled with
+	// @cloudflare/vitest-pool-workers 0.23.0 (the last release under that name)
+	// accepts. Raise it once the tests move to @cloudflare/vitest-plugin.
+	"compatibility_date": "2026-08-22",
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"vars": {
+		// Must equal APP_BUNDLE_ID in ../app-identity.xcconfig.
+		// `npm test` runs scripts/check-identity.mjs and fails when they differ.
+		"APPLE_APP_BUNDLE_ID": "com.example.seasign"
+	},
+	// Placeholder IDs: enough for `wrangler dev` and the tests, which run locally.
+	// The real resources are created only with the user's go-ahead (see AGENTS.md).
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "seasign",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "CACHE",
+			"id": "00000000000000000000000000000000"
+		}
+	]
+}

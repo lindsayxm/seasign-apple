@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "lib": ["ESNext"],
+    "types": [
+      "./worker-configuration.d.ts",
+      "node",
+      "@cloudflare/vitest-pool-workers/types"
+    ]
+  },
+  "include": ["src", "test", "scripts", "*.ts", "worker-configuration.d.ts"]
+}
