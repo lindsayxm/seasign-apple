@@ -29,4 +29,37 @@ struct SeasignAPI: Sendable {
     func health() async throws -> Components.Schemas.Health {
         try await client.getHealth().ok.body.json
     }
+
+    /// Why `sky(zip:)` failed.
+    enum SkyFailure: Error, Equatable {
+        /// The zip is not five digits (400).
+        case invalidZip
+        /// No US place is known for the zip (404). Some real zips are missing
+        /// from the geocoder, such as PO-box-only zips.
+        case unknownZip
+        /// The server or the weather provider could not be reached or failed.
+        case unavailable
+    }
+
+    /// `GET /v1/sky`: weather now, and sun and moon times for today and
+    /// tomorrow, for a 5-digit US zip. Throws a `SkyFailure`.
+    func sky(zip: String) async throws -> Components.Schemas.Sky {
+        let output: Operations.getSky.Output
+        do {
+            output = try await client.getSky(query: .init(zip: zip))
+        } catch {
+            throw SkyFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let sky = try? response.body.json else { throw SkyFailure.unavailable }
+            return sky
+        case .badRequest:
+            throw SkyFailure.invalidZip
+        case .notFound:
+            throw SkyFailure.unknownZip
+        default:
+            throw SkyFailure.unavailable
+        }
+    }
 }

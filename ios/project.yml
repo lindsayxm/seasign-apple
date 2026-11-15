@@ -46,6 +46,18 @@ targets:
     buildToolPlugins:
       - plugin: OpenAPIGenerator
         package: swift-openapi-generator
+    # Bundled fonts (OFL; licence files sit next to them in Seasign/Resources/Fonts).
+    # XcodeGen writes Seasign/Info.plist from these properties; Xcode merges the
+    # INFOPLIST_KEY_* settings below into it at build time.
+    info:
+      path: Seasign/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIAppFonts:
+          - Jost-400-Book.ttf
+          - Jost-500-Medium.ttf
+          - PTSansNarrow-Bold.ttf
     dependencies:
       - package: swift-openapi-runtime
         product: OpenAPIRuntime

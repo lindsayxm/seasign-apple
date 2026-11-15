@@ -1,0 +1,134 @@
+#if DEBUG
+import Foundation
+
+/// Debug-only: forces the time of day, moon phase and weather so every state of
+/// the scene can be looked at and screenshotted. Not compiled into Release.
+///
+/// The override rewrites the scene's *inputs* (the clock and the sky snapshot),
+/// so what is drawn still goes through the real maths in `SceneState.make`.
+///
+/// Set it in Settings (Debug scene), or with launch arguments, which
+/// `UserDefaults` reads as `-key value`:
+///
+///     -debugTime sunrise|midday|sunset|night
+///     -debugMoon 0.35            (phase fraction; implies night unless -debugTime is given)
+///     -debugWeather clear|cloudy|windy|rain|snow
+struct SceneDebugOverride: Equatable, Sendable {
+    enum Time: String, CaseIterable, Sendable {
+        case sunrise, midday, sunset, night
+    }
+
+    enum Weather: String, CaseIterable, Sendable {
+        case clear, cloudy, windy, rain, snow
+    }
+
+    static let timeKey = "debugTime"
+    static let moonKey = "debugMoon"
+    static let weatherKey = "debugWeather"
+
+    var time: Time?
+    var moonPhase: Double?
+    var weather: Weather?
+
+    var isActive: Bool {
+        time != nil || moonPhase != nil || weather != nil
+    }
+
+    /// From the raw strings stored in `UserDefaults`; anything unrecognised is ignored.
+    init(time: String = "", moon: String = "", weather: String = "") {
+        self.time = Time(rawValue: time)
+        self.moonPhase = Double(moon).map { min(1, max(0, $0)) }
+        self.weather = Weather(rawValue: weather)
+    }
+
+    /// The snapshot and clock to draw instead of the real ones.
+    func apply(
+        to snapshot: SkySnapshot?,
+        now: Date,
+        deviceTimeZone: TimeZone
+    ) -> (snapshot: SkySnapshot?, now: Date) {
+        guard isActive else { return (snapshot, now) }
+
+        // Start from the real sky when it covers today, else from the neutral one.
+        var sky: SkySnapshot
+        if let snapshot, snapshot.day(containing: now) != nil {
+            sky = snapshot
+        } else {
+            let zone = snapshot?.timeZone ?? deviceTimeZone
+            sky = .neutral(now: now, timeZone: zone)
+            // Keep a temperature on screen for screenshots of the neutral sky.
+            sky.zip = "00000"
+            sky.current.temperatureF = 53
+        }
+        var clock = now
+
+        if let time = time ?? (moonPhase != nil ? .night : nil) {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = sky.timeZone
+            let today = sky.day(containing: now)
+            let startOfDay = calendar.startOfDay(for: now)
+            let sunrise = today?.sunrise ?? startOfDay.addingTimeInterval(6 * 3600)
+            let sunset = today?.sunset ?? startOfDay.addingTimeInterval(18 * 3600)
+            switch time {
+            case .sunrise:
+                clock = sunrise.addingTimeInterval(1)
+            case .midday:
+                clock = sunrise.addingTimeInterval(sunset.timeIntervalSince(sunrise) / 2)
+            case .sunset:
+                clock = sunset.addingTimeInterval(-1)
+            case .night:
+                // Four hours after sunset, with the moon at the top of its arc.
+                clock = sunset.addingTimeInterval(4 * 3600)
+                let half = RiseSetTimeline.moonTimeUp / 2
+                for index in sky.days.indices {
+                    sky.days[index].moonrise = nil
+                    sky.days[index].moonset = nil
+                }
+                if let index = sky.days.firstIndex(where: { $0.date == today?.date }) ?? sky.days.indices.first {
+                    sky.days[index].moonrise = clock.addingTimeInterval(-half)
+                    sky.days[index].moonset = clock.addingTimeInterval(half)
+                }
+            }
+            sky.current.isDay = time != .night
+        }
+
+        if let moonPhase {
+            for index in sky.days.indices {
+                sky.days[index].moonPhase = moonPhase
+            }
+        }
+
+        if let weather {
+            switch weather {
+            case .clear:
+                sky.current.weatherCode = 0
+                sky.current.cloudCoverPercent = 0
+                sky.current.windSpeedMph = 4
+                sky.current.windGustsMph = 8
+            case .cloudy:
+                sky.current.weatherCode = 3
+                sky.current.cloudCoverPercent = 92
+                sky.current.windSpeedMph = 4
+                sky.current.windGustsMph = 8
+            case .windy:
+                sky.current.weatherCode = 0
+                sky.current.cloudCoverPercent = 0
+                sky.current.windSpeedMph = 22
+                sky.current.windGustsMph = 34
+            case .rain:
+                sky.current.weatherCode = 63
+                sky.current.cloudCoverPercent = 95
+                sky.current.windSpeedMph = 6
+                sky.current.windGustsMph = 12
+            case .snow:
+                sky.current.weatherCode = 73
+                sky.current.cloudCoverPercent = 95
+                sky.current.windSpeedMph = 6
+                sky.current.windGustsMph = 12
+            }
+        }
+
+        return (sky, clock)
+    }
+}
+#endif
