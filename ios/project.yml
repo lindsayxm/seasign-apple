@@ -1,7 +1,6 @@
 name: Seasign
 
 options:
-  bundleIdPrefix: com.example
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true

@@ -115,7 +115,8 @@ CLIs:
 | `npx auth@latest` | Better Auth schema generation (Drizzle output) |
 | `npm run openapi` | write `openapi/openapi.json` from the API routes |
 | `xcodegen` | generate the Xcode project from `ios/project.yml` |
-| `xcodebuild` | build and test the iOS app, e.g. `xcodebuild -scheme Seasign -destination 'platform=iOS Simulator,name=iPhone 16' test` |
+| `npx -y npm@11 install` | adding or upgrading a package in `api/`: the installed npm 10.9.2 crashes when it has to change the dependency tree. `npm ci` and `npm test` work as normal |
+| `xcodebuild` | build and test the iOS app, e.g. `xcodebuild -project ios/Seasign.xcodeproj -scheme Seasign -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -skipPackagePluginValidation test` (use `name=iPhone 17` for iOS 27.2; without `OS=` xcodebuild looks only in the newest runtime). The flag is required, or the OpenAPI build plugin is refused |
 | `xcrun simctl` | boot, install to, and control the Simulator |
 | `git` | local version control (no remote; never push) |
 
