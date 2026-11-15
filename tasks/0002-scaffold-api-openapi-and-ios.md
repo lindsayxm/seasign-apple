@@ -1,11 +1,11 @@
 ---
 id: 2
 title: Scaffold api/, openapi/ and ios/
-status: in-progress
+status: review
 owner: implementer-1
 depends_on: [1]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:53:01Z
+updated: 2026-11-15T22:56:36Z
 ---
 
 ## Goal
@@ -40,3 +40,5 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Crea
 - 2026-11-15T22:42:27Z [implementer-1] tried: npm 10.9.2 (the installed npm) crashes resolving vitest 4.1 peers: 'Cannot read properties of null (reading edgesOut)' in arborist loadPeerSet, also on a clean install with no lockfile. Outcome: ran the install once with 'npx -y npm@11 install' (no global change); the resulting package-lock works.
 - 2026-11-15T22:44:07Z [implementer-1] api/ scaffolded with create-cloudflare (Hono template, no deploy, no git); removed the template's static-assets folder, editor settings and pnpm file. OpenAPIHono app in src/app.ts, GET /v1/health in src/routes/health.ts, placeholder D1 (DB) and KV (CACHE) bindings, empty Drizzle schema. npm run openapi uses Node type stripping, so no extra package. Kept the listed @cloudflare/vitest-pool-workers although Cloudflare renamed it to @cloudflare/vitest-plugin in Aug 2026 (old name is deprecated, final release 0.23.0); its bundled workerd only accepts compatibility dates up to 2026-08-22, so compatibility_date is held there. Verified: npm test passes (1 test), npx tsc --noEmit exits 0, wrangler dev answers GET /v1/health with 200, and npm test exits 1 with a mismatch message when the bundle ID in wrangler.jsonc is changed (reverted afterwards).
 - 2026-11-15T22:53:01Z [implementer-1] ios/ and openapi/ scaffolded: project.yml loads ../app-identity.xcconfig (showBuildSettings gives PRODUCT_BUNDLE_IDENTIFIER = com.example.seasign, deployment target 18.0, Swift 6.0, no team), swift-openapi-generator runs as a build plugin on openapi/openapi.json, placeholder Today screen calls GET /v1/health through the generated client. xcodegen generate succeeds. XcodeBuildMCP test_sim: 4 passed, 0 failed on iPhone 16 / iOS 18.3 and on iPhone 17 / iOS 27.2 (needs extraArgs -skipPackagePluginValidation; without it xcodebuild fails at 'Validate plug-in OpenAPIGenerator'). No App Transport Security exception was needed for localhost on either runtime, so none is set. Screenshots of the launched app showing 'API reachable' against local wrangler dev: /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/task2-seasign-ios18.3-iphone16.jpg and /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/task2-seasign-ios27.2-iphone17.jpg. AGENTS.md SUBDIRECTORIES and memory/architecture.md updated.
+- 2026-11-15T22:56:36Z [implementer-1] For the reviewer: plain xcodebuild needs -skipPackagePluginValidation. Ran: xcodebuild -project ios/Seasign.xcodeproj -scheme Seasign -destination 'platform=iOS Simulator,id=BEA28589-4A98-4118-AFD0-61901CB22BD3' -skipPackagePluginValidation test (iPhone 16, iOS 18.3) and the same with id=993C00FB-1F8C-4AA9-9383-C35460DDAA38 (iPhone 17, iOS 27.2); both: 4 tests passed, TEST SUCCEEDED. Run 'cd ios && xcodegen generate' first, the project file is git-ignored. Also removed the template's deploy script from api/package.json, and confirmed a clean 'npm ci' with the stock npm 10.9.2 followed by npm test, npx tsc --noEmit and npm run openapi all succeed (openapi.json unchanged).
+- 2026-11-15T22:56:36Z [implementer-1] status: in-progress → review
