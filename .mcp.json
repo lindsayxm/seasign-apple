@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "XcodeBuildMCP": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "xcodebuildmcp@latest", "mcp"],
+      "env": {
+        "XCODEBUILDMCP_SENTRY_DISABLED": "true",
+        "XCODEBUILDMCP_ENABLED_WORKFLOWS": "simulator,simulator-management,ui-automation,project-discovery,utilities,debugging,coverage,swift-package"
+      }
+    },
+    "sosumi": {
+      "type": "http",
+      "url": "https://sosumi.ai/mcp"
+    },
+    "cloudflare-api": {
+      "type": "http",
+      "url": "https://mcp.cloudflare.com/mcp"
+    },
+    "cloudflare-docs": {
+      "type": "http",
+      "url": "https://docs.mcp.cloudflare.com/mcp"
+    },
+    "better-auth": {
+      "type": "http",
+      "url": "https://mcp.better-auth.com/mcp"
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "advisorModel": "fable",
+  "enabledMcpjsonServers": ["XcodeBuildMCP", "sosumi", "cloudflare-api", "cloudflare-docs", "better-auth"],
+  "permissions": {
+    "allow": [
+      "Bash(./tasks/task *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(xcodegen generate*)",
+      "Bash(xcodebuild *)",
+      "Bash(xcrun simctl *)",
+      "mcp__XcodeBuildMCP",
+      "mcp__sosumi",
+      "mcp__cloudflare-docs",
+      "mcp__better-auth"
+    ],
+    "ask": [
+      "Bash(wrangler deploy)",
+      "Bash(wrangler deploy *)",
+      "Bash(npx wrangler deploy)",
+      "Bash(npx wrangler deploy *)",
+      "Bash(wrangler versions *)",
+      "Bash(npx wrangler versions *)",
+      "Bash(wrangler pages deploy*)",
+      "Bash(npx wrangler pages deploy*)",
+      "Bash(wrangler * create*)",
+      "Bash(npx wrangler * create*)",
+      "Bash(wrangler * delete*)",
+      "Bash(npx wrangler * delete*)",
+      "Bash(wrangler d1 * --remote*)",
+      "Bash(npx wrangler d1 * --remote*)",
+      "Bash(wrangler secret *)",
+      "Bash(npx wrangler secret *)",
+      "Bash(fastlane *)",
+      "Bash(xcrun altool *)",
+      "Bash(xcrun devicectl *)",
+      "Bash(xcrun notarytool *)"
+    ],
+    "deny": [
+      "Bash(git push)",
+      "Bash(git push *)",
+      "Read(**/.env)",
+      "Edit(**/.env)",
+      "Read(**/.env.local)",
+      "Edit(**/.env.local)",
+      "Read(**/.env.*.local)",
+      "Edit(**/.env.*.local)",
+      "Read(**/.env.development)",
+      "Edit(**/.env.development)",
+      "Read(**/.env.production)",
+      "Edit(**/.env.production)",
+      "Read(**/.env.staging)",
+      "Edit(**/.env.staging)",
+      "Read(**/.env.test)",
+      "Edit(**/.env.test)",
+      "Read(**/.dev.vars*)",
+      "Edit(**/.dev.vars*)",
+      "Read(**/.wrangler/**)",
+      "Edit(**/.wrangler/**)",
+      "Read(**/*.toml)",
+      "Edit(**/*.toml)",
+      "Read(**/*.p8)",
+      "Edit(**/*.p8)",
+      "Read(**/*.p12)",
+      "Edit(**/*.p12)",
+      "Read(**/*.cer)",
+      "Edit(**/*.cer)",
+      "Read(**/*.mobileprovision)",
+      "Edit(**/*.mobileprovision)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/hooks/session-start.mjs\"" }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Bash",
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/hooks/guard-secret-files.mjs\"" }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/hooks/guard-task-files.mjs\"" }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/hooks/require-task-id.mjs\"" }
+        ]
+      }
+    ]
+  }
+}

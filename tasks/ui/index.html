@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task board</title>
+<style>
+  :root {
+    --bg: #f5f5f2; --panel: #ffffff; --ink: #1c1c1a; --muted: #6b6b66; --line: #deded8;
+    --accent: #2f6f5e; --warn: #a8442f; --chip: #ecece6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161715; --panel: #20211f; --ink: #ecece6; --muted: #9a9a92; --line: #33342f;
+            --accent: #7fc4ae; --warn: #e08a73; --chip: #2b2c29; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 16px 20px 8px; flex-wrap: wrap; }
+  h1 { font-size: 17px; margin: 0; }
+  #meta { color: var(--muted); font-size: 12px; }
+  #meta.down { color: var(--warn); }
+  #errors { margin: 0 20px; color: var(--warn); font-size: 12px; white-space: pre-wrap; }
+  #board { display: grid; grid-template-columns: repeat(7, minmax(180px, 1fr)); gap: 12px;
+           padding: 12px 20px 24px; overflow-x: auto; align-items: start; }
+  .col { min-width: 0; }
+  .col h2 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+            margin: 0 0 8px; display: flex; justify-content: space-between; }
+  .card { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+          background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+          padding: 10px; margin-bottom: 8px; }
+  .card:hover, .card:focus-visible { border-color: var(--accent); outline: none; }
+  .card .id { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .card .title { display: block; margin: 2px 0 6px; overflow-wrap: anywhere; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 11px; color: var(--muted); }
+  .chip.owner { color: var(--accent); }
+  .chip.wait { color: var(--warn); }
+  .chip.met { color: var(--accent); }
+  .empty { color: var(--muted); font-size: 12px; padding: 6px 2px; }
+  dialog { width: min(760px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; color: var(--ink);
+           background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+  dialog::backdrop { background: rgba(0, 0, 0, .45); }
+  dialog h2 { margin: 0 0 4px; font-size: 17px; overflow-wrap: anywhere; }
+  dialog h3 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 16px 0 4px; }
+  dialog pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
+               font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  dialog .sub { color: var(--muted); font-size: 12px; }
+  dialog form { position: sticky; top: 0; float: right; }
+  dialog button { font: inherit; color: var(--ink); background: var(--chip); border: 1px solid var(--line);
+                  border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Task board</h1>
+  <span id="meta">loading…</span>
+</header>
+<div id="errors"></div>
+<main id="board"></main>
+<dialog id="detail"></dialog>
+
+<script>
+const board = document.getElementById('board');
+const meta = document.getElementById('meta');
+const errors = document.getElementById('errors');
+const detail = document.getElementById('detail');
+let tasks = [];
+let openId = null;
+let lastJson = '';
+
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+};
+
+function render(states) {
+  board.replaceChildren();
+  const done = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
+  for (const s of states) {
+    const col = el('section', 'col');
+    const items = tasks.filter((t) => t.status === s).sort((a, b) => a.id - b.id);
+    const h = el('h2', null, s);
+    h.append(el('span', null, String(items.length)));
+    col.append(h);
+    if (!items.length) col.append(el('div', 'empty', '—'));
+    for (const t of items) {
+      const card = el('button', 'card');
+      card.type = 'button';
+      card.append(el('span', 'id', '#' + t.id), el('span', 'title', t.title));
+      const chips = el('div', 'chips');
+      if (t.owner) chips.append(el('span', 'chip owner', t.owner));
+      if (t.criteria_total) {
+        chips.append(el('span', 'chip' + (t.criteria_done === t.criteria_total ? ' met' : ''),
+          t.criteria_done + '/' + t.criteria_total + ' criteria'));
+      }
+      for (const d of t.depends_on) chips.append(el('span', 'chip' + (done.has(d) ? '' : ' wait'), 'needs #' + d));
+      card.append(chips);
+      card.onclick = () => { openId = t.id; showDetail(); detail.showModal(); };
+      col.append(card);
+    }
+    board.append(col);
+  }
+}
+
+function showDetail() {
+  const t = tasks.find((x) => x.id === openId);
+  if (!t) return;
+  const scroll = detail.scrollTop;
+  detail.replaceChildren();
+  const form = el('form');
+  form.method = 'dialog';
+  form.append(el('button', null, 'Close'));
+  detail.append(form, el('h2', null, '#' + t.id + ' ' + t.title),
+    el('div', 'sub', [t.status, t.owner || 'unowned', t.file, 'updated ' + t.updated].join(' · ')));
+  const sections = [['Goal', t.goal], ['Acceptance criteria', t.criteria], ['Relevant files', t.files],
+                    ["What's been tried", t.tried], ['Log', t.log]];
+  for (const [name, text] of sections) {
+    detail.append(el('h3', null, name), el('pre', null, text || '—'));
+  }
+  detail.scrollTop = scroll;
+}
+
+async function poll() {
+  try {
+    const res = await fetch('/api/tasks', { cache: 'no-store' });
+    const data = await res.json();
+    const json = JSON.stringify([data.tasks, data.errors]);
+    if (json !== lastJson) {
+      lastJson = json;
+      tasks = data.tasks;
+      render(data.states);
+      errors.textContent = data.errors.join('\n');
+      if (detail.open) showDetail();
+    }
+    meta.className = '';
+    meta.textContent = tasks.length + ' task' + (tasks.length === 1 ? '' : 's') + ' · live';
+  } catch {
+    meta.className = 'down';
+    meta.textContent = 'server not reachable — run ./tasks/task serve';
+  }
+}
+detail.addEventListener('close', () => { openId = null; });
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>
