@@ -10,6 +10,24 @@ LOCATION: The Today horizon follows the real sun, moon and weather over the user
 
 LIST STORAGE: tables in D1 synced through the API (works for a later Android client. STACK: SwiftData-then-sync model) 
 
+SIGN-IN: The app works without signing in. Until the user signs in with Apple, their data (lists, sites, calendar links, saved items, settings) lives on the device. Signing in uploads it to D1 and turns on sync.
+
+CALENDARS: Events come from calendar links the user pastes in Settings - Google's "Secret address in iCal format", an Apple published calendar link, or an Outlook published calendar link. The API fetches and reads the links. The app does not ask for permission to read the phone's calendars.
+
+SITES: In Settings the user enters the URL of a page to follow (for example https://www.wired.com/category/science/) and a category they name themselves (for example "Sci"). The category is never taken from the URL.
+
+AI SEARCH: In Settings the user can enter an API key for an LLM (Anthropic, OpenAI, Google Gemini or Perplexity), a comma-separated list of interests, and a maximum number of searches per day to cap API spend. A pill-shaped toggle reads "Use My List" on the left and "Let AI Search" on the right. When AI search is on, publications the LLM finds across the web on those interests are blended into the feed alongside the user's own sites, and each one is labelled as AI-found. The key is kept in the phone's Keychain.
+
+BUTTONS ON TODAY (see ref-img/00-button-meanings.png): settings; do/get; saved (the asterisk); and >> which opens the last 7 days of everything that has been in the feed, so an article that was not saved can still be found after the feed refreshes. History and Saved can be searched by keyword and filtered by category. Saved items can carry notes.
+
+TODAY FEED: shows only the newest headlines that fit below the waterline; it does not scroll. Tapping a headline opens a reading view with the site's own excerpt and a link to read on the original site.
+
+DO/GET: one screen, DO on top and GET on the bottom, each with its own add field (ref-img/00-do-get-list.png).
+
+NOT IN V1: voice input, Siri/Shortcuts, home-screen widget, notifications, AI summaries.
+
+REFERENCE IMAGES: mockups and colour references are in ref-img/.
+
 ## External data sources 
 The app uses Open-Meteo, a free weather API that needs no key. It supplies:
 

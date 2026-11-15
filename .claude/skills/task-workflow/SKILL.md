@@ -13,11 +13,11 @@ Write each task so an agent with no other context can do it:
 
 ```sh
 ./tasks/task new "Today screen: date and next three events" \
-  --goal "Show today's date and the next three EventKit events on the Today screen." \
-  --accept "Events come from EventKit, soonest first, at most three" \
-  --accept "Calendar permission denied shows an explanation, not an empty list" \
+  --goal "Show today's date and the next three events from the user's calendar links on the Today screen." \
+  --accept "Events come from POST /v1/calendar/events, soonest first, at most three" \
+  --accept "A failing calendar link shows a message in Settings, not an empty list" \
   --accept "xcodebuild test passes" \
-  --files ios/Seasign/Today/TodayView.swift,ios/Seasign/Calendar/EventStore.swift \
+  --files ios/Seasign/Today/TodayView.swift,ios/Seasign/Calendar/CalendarStore.swift \
   --depends 6 --todo
 ```
 

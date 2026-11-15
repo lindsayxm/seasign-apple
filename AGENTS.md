@@ -46,7 +46,7 @@ Hooks and the permissions in `.claude/settings.json` enforce several of these. I
 
 ## STACK
 
-Native iOS app talking to a JSON API on Cloudflare. Business logic (news, summarization, voice-command parsing) lives in the API so a later Android client can reuse it; the iOS app is UI plus platform integrations.
+Native iOS app talking to a JSON API on Cloudflare. Business logic (weather, calendar links, followed sites, AI search) lives in the API so a later Android client can reuse it; the iOS app is UI plus local storage. The app works signed out: data stays in SwiftData until the user signs in, and the v1 routes need no account.
 
 **API (`api/`)**
 
@@ -59,7 +59,11 @@ Native iOS app talking to a JSON API on Cloudflare. Business logic (news, summar
 | Cache / jobs | Workers KV for fetched news; Cron Triggers for the morning refresh |
 | Tests | Vitest with `@cloudflare/vitest-pool-workers` |
 | Package manager | npm |
-| Weather and sun/moon, temp, conditions | Open-Meteo |
+| Weather and sun/moon, temp, conditions | Open-Meteo, including its geocoder (5-digit US zip → place and timezone) |
+| Calendars | `.ics` links pasted by the user (Google secret iCal address, Apple and Outlook published links), fetched by the Worker and parsed with `ical.js` |
+| Followed sites | The page's advertised RSS/Atom feed parsed with `fast-xml-parser`; otherwise article links read from the HTML with the built-in `HTMLRewriter` |
+| AI search | One adapter per provider (Anthropic, OpenAI, Google Gemini, Perplexity) called with plain `fetch`, no SDKs. The user's key arrives in a request header and is never stored or logged |
+| Outbound fetches | User-supplied URLs go through one helper: https only, no private or local hosts, size and time caps. KV keys for calendar links are hashes, since a link is a credential |
 
 **Contract (`openapi/`)**
 
@@ -76,7 +80,10 @@ Native iOS app talking to a JSON API on Cloudflare. Business logic (news, summar
 | Project | XcodeGen (`ios/project.yml`) |
 | Local store | SwiftData; the UI reads local data first, then syncs from the API |
 | Auth | AuthenticationServices (Sign in with Apple) → Apple ID token sent to Better Auth → session token stored in the Keychain |
-| Platform features | EventKit (calendars), Speech (voice input), App Intents (Siri / Shortcuts), WidgetKit (stretch goal), BackgroundTasks + UserNotifications |
+| Identity | Bundle ID and team ID come from `app-identity.xcconfig` at the repository root, loaded by `ios/project.yml`. `api/wrangler.jsonc` repeats the bundle ID; a check in `npm test` fails if they differ |
+| Secrets on device | Keychain for the session token and the user's LLM API key |
+| Fonts | Bundled open-licence fonts: Jost (caps text) and a condensed bold face for the day name |
+| Platform features | None in v1. The app asks for no location or calendar permission. Later ideas, not v1: Speech (voice input), App Intents (Siri / Shortcuts), WidgetKit, BackgroundTasks + UserNotifications |
 | Tests | Swift Testing, run with `xcodebuild test` |
 | Packages | Swift Package Manager |
 
@@ -137,5 +144,6 @@ Managing subagents: one task per subagent, and the task file is the brief. Run t
 | `tasks/` | kanban board | one file per task, the `task` CLI, the board UI |
 | `.claude/` | Claude Code configuration | `settings.json`, subagent definitions in `agents/` |
 | `.claude/skills/` | reusable procedures to pull in for a task | one folder per skill with a `SKILL.md` |
+| `ref-img/` | the user's design references; compare Simulator screenshots against these | screen mockups (`00-*` screens, `01`–`11` scene states), `palette.png`, mood photos, a design-system PDF |
 
 Add a row here whenever a directory is created (for example `api/`, `openapi/`, and `ios/` once the app is scaffolded).

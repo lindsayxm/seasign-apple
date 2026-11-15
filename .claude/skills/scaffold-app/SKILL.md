@@ -7,7 +7,7 @@ description: Create the initial api/, openapi/ and ios/ folders for Seasign as d
 
 Run this under a claimed task. Stop and ask the user before anything on the "Ask the user first" list in AGENTS.md (creating cloud resources, signing, new dependencies outside STACK). Check `cloudflare-docs`, `better-auth` and `sosumi` for current APIs before writing framework code; do not rely on memory for versions or config shapes.
 
-Ask the user for two values first: the **bundle identifier** (for example `com.example.seasign`) and the **Apple Developer team ID** (may be left empty for Simulator-only work).
+The **bundle identifier** and **Apple Developer team ID** come from `app-identity.xcconfig` at the repository root (`APP_BUNDLE_ID`, `DEVELOPMENT_TEAM`). It holds test values until the user's developer account is approved; do not ask for them and do not hard-code them elsewhere.
 
 ## 1. `api/` — Cloudflare Worker
 
@@ -26,6 +26,7 @@ Ask the user for two values first: the **bundle identifier** (for example `com.e
 5. First route: `GET /v1/health`. First test: it returns 200.
 6. `npm run openapi` script that writes `../openapi/openapi.json` from the app's `getOpenAPIDocument`.
 7. Add `api/.env.example` with placeholder names only.
+8. Put the bundle ID in `wrangler.jsonc` as `vars.APPLE_APP_BUNDLE_ID`, and add `api/scripts/check-identity.mjs`, run by `npm test`, which fails when it differs from `APP_BUNDLE_ID` in `../app-identity.xcconfig`.
 
 Verify: `npm test`, `npx tsc --noEmit`, `npx wrangler dev` answers `/v1/health`.
 
@@ -37,11 +38,11 @@ Verify: `npm test`, `npx tsc --noEmit`, `npx wrangler dev` answers `/v1/health`.
 ## 3. `ios/` — SwiftUI app
 
 1. `ios/project.yml` for XcodeGen:
-   - app target `Seasign`, iOS 18.0, Swift 6, bundle ID and team from the user;
+   - app target `Seasign`, iOS 18.0, Swift 6; `configFiles` loads `../app-identity.xcconfig`, and `PRODUCT_BUNDLE_IDENTIFIER` is `$(APP_BUNDLE_ID)`;
    - unit-test target `SeasignTests` (Swift Testing);
    - packages `swift-openapi-generator` (build plugin), `swift-openapi-runtime`, `swift-openapi-urlsession`;
    - the spec and generator config from `openapi/` referenced into the target so the client regenerates on build;
-   - Info.plist usage strings for calendar and speech only when those features land, not now.
+   - no Info.plist usage strings: v1 asks for no location, calendar or speech permission (calendars are links read by the API).
 2. Layout:
    ```
    ios/Seasign/SeasignApp.swift     @main, model container
