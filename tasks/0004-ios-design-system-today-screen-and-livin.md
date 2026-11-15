@@ -5,7 +5,7 @@ status: todo
 owner: 
 depends_on: [3]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:33:55Z
+updated: 2026-11-15T23:20:23Z
 ---
 
 ## Goal
@@ -33,3 +33,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Buil
 ## Log
 
 - 2026-11-15T22:33:55Z [li] created (todo)
+- 2026-11-15T23:20:23Z [li] From the task 3 review, for the client: (1) pick today's entry in Sky.days by its date field, not by index; days[0] can be yesterday for up to 15 minutes after local midnight. (2) Place the sun and moon from the UTC instants; a sunset or moonset can fall on the next local date, and sunrise/sunset/moonrise/moonset can each be null (polar days, or no moonrise that day; use current.isDay to tell polar day from polar night). (3) Some real zips are missing from Open-Meteo's geocoder and return 404 unknown_zip (for example PO-box-only zips and Puerto Rico); Settings needs a clear message such as 'We couldn't find that zip code. Try a nearby one.' (4) Start with a stub-transport Swift test that decodes a real /v1/sky payload into Components.Schemas.Sky (dates are second-precision UTC ISO 8601).

@@ -1,11 +1,11 @@
 ---
 id: 3
 title: API: GET /v1/sky (zip to weather, sun and moon)
-status: review
+status: done
 owner: implementer-1
 depends_on: [2]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T23:13:25Z
+updated: 2026-11-15T23:20:23Z
 ---
 
 ## Goal
@@ -14,10 +14,10 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Add 
 
 ## Acceptance criteria
 
-- [ ] Route defined with createRoute and Zod; invalid zip returns 400, unknown zip 404
-- [ ] Tests use recorded Open-Meteo fixtures and cover cache hit and miss
-- [ ] npm test and npx tsc --noEmit pass; wrangler dev returns live data for a sample zip
-- [ ] openapi/openapi.json regenerated and the iOS app still builds
+- [x] Route defined with createRoute and Zod; invalid zip returns 400, unknown zip 404
+- [x] Tests use recorded Open-Meteo fixtures and cover cache hit and miss
+- [x] npm test and npx tsc --noEmit pass; wrangler dev returns live data for a sample zip
+- [x] openapi/openapi.json regenerated and the iOS app still builds
 
 ## Relevant files
 
@@ -39,3 +39,10 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Add 
 - 2026-11-15T23:10:58Z [implementer-1] Tests (api/test/sky.test.ts) mock outbound fetch with vi.spyOn(globalThis, 'fetch'), the mechanism the docs give for vitest-pool-workers 0.23.0 (fetchMock was removed); unmatched requests throw. Fixtures in api/test/fixtures recorded 2026-11-15 for zip 10001 and 00000 with the exact URLs the code builds; null-moonset, polar and loose-match cases are derived from them in the test and marked synthetic. Added resolveJsonModule to api/tsconfig.json for the JSON fixtures. KV persists across tests in a file, so keys are deleted in beforeEach.
 - 2026-11-15T23:13:25Z [implementer-1] Correction to the DST note, from two more live probes. (1) With timeformat=unixtime the daily day starts are 86400 s apart at today's fixed offset (NYC, past_days=16 across the 1 Nov fall-back: every delta 86400), so they are not true local midnights; days[].date is now read at day start + 12 h in the IANA zone, with a synthetic fall-back test. Sun and moon values are exact instants and unaffected. (2) Midnight sun (lat -80) uses a different sentinel from polar night: sunrise = day start, sunset = next day start. Both cases now map to null sunrise and sunset (sunrise == sunset, or sunset - sunrise >= 86400); the client tells them apart with current.isDay.
 - 2026-11-15T23:13:25Z [implementer-1] status: in-progress → review
+- 2026-11-15T23:17:58Z [implementer-1] criterion 1 met: Route defined with createRoute and Zod; invalid zip returns 400, unknown zip 404
+- 2026-11-15T23:17:58Z [implementer-1] criterion 2 met: Tests use recorded Open-Meteo fixtures and cover cache hit and miss
+- 2026-11-15T23:17:58Z [implementer-1] criterion 3 met: npm test and npx tsc --noEmit pass; wrangler dev returns live data for a sample zip
+- 2026-11-15T23:17:58Z [implementer-1] criterion 4 met: openapi/openapi.json regenerated and the iOS app still builds
+- 2026-11-15T23:17:58Z [implementer-1] review: pass. All four criteria verified by running them: npm test 24/24 and tsc clean; npm run openapi leaves openapi/openapi.json with no diff; wrangler dev gave live data for 10001 and 94103, 400 for 1234 (also repeated param, trailing newline, full-width digits, missing), 404 for 00000 twice (not cached); xcodegen + xcodebuild test on iPhone 16 / iOS 18.3.1 succeeded. Route output for 10001, 94103, 96813, 99501, 99762, 99723 matched Open-Meteo queried directly in local time: every sun and moon instant within the truncated minute, every days[].date equal, null moon times agree. Polar mapping cannot null an ordinary day; no one-sided sentinel seen on transition days (Utqiagvik 15-22 Nov, lat -66..-72). 50 ordinary zips all matched at count=1. No new dependencies, no ios source changes, 60647 absent. Non-blocking notes: (a) some real zips are missing from the geocoder and 404 (82190, 88901, Puerto Rico 00901); (b) forecast cache is keyed by zip, so days[0] can be yesterday for up to 15 min after local midnight and zips of one city refetch the same coordinates; (c) sunset after local midnight (far-west Alaska in June) could not be probed in November, task 4 should not assume sunset falls inside days[i].date.
+- 2026-11-15T23:19:44Z [implementer-1] review: follow-up to (c), now probed. With a zone about 3-5 h ahead of solar time (lat -64..-67.5, lon 0, explicit timezone) Open-Meteo reports a sunset after local midnight as a real instant later than the next day's start, paired with that day's sunrise (day length up to 23.2 h); the route passes it through and does not null it. So days[i].sunset can fall on the next local date (far-west Alaska in June); task 4 should place the sun from the instants, not assume sunset is inside days[i].date. Also: the live-path evidence is 94103, 96813, 99501, 99762, 99723; the 10001 response was identical to the fixture and may have come from local KV left by the implementer.
+- 2026-11-15T23:20:23Z [implementer-1] status: review → done

@@ -1,11 +1,11 @@
 ---
 id: 16
 title: API: migrate tests to @cloudflare/vitest-plugin
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [3]
 created: 2026-11-15T23:09:17Z
-updated: 2026-11-15T23:09:17Z
+updated: 2026-11-15T23:20:23Z
 ---
 
 ## Goal
@@ -36,3 +36,4 @@ The user approved switching from the deprecated @cloudflare/vitest-pool-workers 
 ## Log
 
 - 2026-11-15T23:09:17Z [li] created (todo)
+- 2026-11-15T23:20:23Z [implementer-1] status: todo → in-progress — claimed by implementer-1
