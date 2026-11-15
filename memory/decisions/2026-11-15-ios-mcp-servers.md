@@ -19,6 +19,12 @@ Both are defined in `.mcp.json`. The Svelte server from the earlier SvelteKit st
 - Its workflows are limited with `XCODEBUILDMCP_ENABLED_WORKFLOWS` to simulator, simulator-management, ui-automation, project-discovery, utilities, debugging, coverage and swift-package. The `device` workflow is left out because installing on a physical device is on the "ask the user first" list; `project-scaffolding` is left out because the project is generated with XcodeGen.
 - Both servers are third-party. `.mcp.json` runs `xcodebuildmcp@latest`; pin a version there if a release misbehaves.
 
+## Update, later on 2026-11-15: Xcode upgraded to 27.2
+
+- Xcode is now 27.2 (iOS 27.2 SDK, Swift 6.4.2). `mcpbridge` is present in the Xcode bundle, so Apple's server can now be added.
+- It has not been added. XcodeBuildMCP and sosumi stay as the configured servers until the user decides whether to add Apple's alongside them.
+- The iOS 18.3 and iOS 27.2 Simulator runtimes are both installed.
+
 ## Revisit
 
 When Xcode is upgraded to 26.3 or later, consider adding Apple's server (`claude mcp add --transport stdio xcode -- xcrun mcpbridge`, plus the MCP toggle in Xcode's Intelligence settings). It adds SwiftUI preview rendering and Apple's own documentation search.

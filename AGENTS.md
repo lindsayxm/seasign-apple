@@ -59,6 +59,7 @@ Native iOS app talking to a JSON API on Cloudflare. Business logic (news, summar
 | Cache / jobs | Workers KV for fetched news; Cron Triggers for the morning refresh |
 | Tests | Vitest with `@cloudflare/vitest-pool-workers` |
 | Package manager | npm |
+| Weather and sun/moon, temp, conditions | Open-Meteo |
 
 **Contract (`openapi/`)**
 
@@ -95,7 +96,7 @@ MCP servers, defined in `.mcp.json`:
 | `cloudflare-api` | hosted, `https://mcp.cloudflare.com/mcp` | the user's Cloudflare account (Workers, D1). Signs in with OAuth. Read freely; ask before changing anything |
 | `better-auth` | hosted, `https://mcp.better-auth.com/mcp` | Better Auth documentation |
 
-Check these before writing framework code; APIs in this stack change often. For Apple frameworks, look the API up in `sosumi` instead of relying on memory, since SwiftUI and the iOS SDKs change every year. This Mac has Xcode 16.2 with the iOS 18.3 Simulator; do not use APIs newer than that SDK.
+Check these before writing framework code; APIs in this stack change often. For Apple frameworks, look the API up in `sosumi` instead of relying on memory, since SwiftUI and the iOS SDKs change every year. This Mac has Xcode 27.2 (iOS 27.2 SDK, Swift 6.4) with the iOS 18.3 and iOS 27.2 Simulator runtimes. The deployment target stays iOS 18, so guard any API newer than iOS 18 with `if #available`, and test on both runtimes.
 
 CLIs:
 
