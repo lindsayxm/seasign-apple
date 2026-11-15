@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-1
 depends_on: [2]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T23:10:58Z
+updated: 2026-11-15T23:13:25Z
 ---
 
 ## Goal
@@ -37,3 +37,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Add 
 - 2026-11-15T23:10:58Z [implementer-1] Forecast is requested with timeformat=unixtime (a change from the URL in the brief): the local-time strings all share one utc_offset_seconds, which is wrong across a DST change inside the 2-day window. Times go out as UTC instants with second precision (no fractional seconds, which the Swift client's default date decoding rejects), plus timezone (IANA) and utcOffsetSeconds.
 - 2026-11-15T23:10:58Z [implementer-1] Live probes: a missing moonrise/moonset is null upstream (seen for NYC and Utqiagvik). In polar night Open-Meteo does NOT send null for the sun: sunrise and sunset both equal the day's start. The route maps sunrise == sunset to null for both, so sunrise/sunset are nullable too. A zip counts only if it is in the result's postcodes list, otherwise 404.
 - 2026-11-15T23:10:58Z [implementer-1] Tests (api/test/sky.test.ts) mock outbound fetch with vi.spyOn(globalThis, 'fetch'), the mechanism the docs give for vitest-pool-workers 0.23.0 (fetchMock was removed); unmatched requests throw. Fixtures in api/test/fixtures recorded 2026-11-15 for zip 10001 and 00000 with the exact URLs the code builds; null-moonset, polar and loose-match cases are derived from them in the test and marked synthetic. Added resolveJsonModule to api/tsconfig.json for the JSON fixtures. KV persists across tests in a file, so keys are deleted in beforeEach.
+- 2026-11-15T23:13:25Z [implementer-1] Correction to the DST note, from two more live probes. (1) With timeformat=unixtime the daily day starts are 86400 s apart at today's fixed offset (NYC, past_days=16 across the 1 Nov fall-back: every delta 86400), so they are not true local midnights; days[].date is now read at day start + 12 h in the IANA zone, with a synthetic fall-back test. Sun and moon values are exact instants and unaffected. (2) Midnight sun (lat -80) uses a different sentinel from polar night: sunrise = day start, sunset = next day start. Both cases now map to null sunrise and sunset (sunrise == sunset, or sunset - sunrise >= 86400); the client tells them apart with current.isDay.

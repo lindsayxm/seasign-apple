@@ -198,7 +198,8 @@ describe("GET /v1/sky", () => {
   });
 
   it("returns null sun times when the sun neither rises nor sets", async () => {
-    // Synthetic: in polar night Open-Meteo repeats the day's start for both.
+    // Synthetic: in polar night Open-Meteo repeats the day's start for both
+    // (seen live for Utqiagvik, Alaska).
     const polar = structuredClone(forecast10001);
     polar.daily.sunrise[0] = polar.daily.time[0]!;
     polar.daily.sunset[0] = polar.daily.time[0]!;
@@ -209,6 +210,35 @@ describe("GET /v1/sky", () => {
     const body = (await response.json()) as { days: { sunrise: string | null; sunset: string | null }[] };
     expect(body.days[0]).toMatchObject({ sunrise: null, sunset: null });
     expect(body.days[1]).toMatchObject({ sunrise: "2026-11-16T11:44:04Z", sunset: "2026-11-16T21:37:05Z" });
+  });
+
+  it("returns null sun times under the midnight sun", async () => {
+    // Synthetic: in polar day Open-Meteo sends the day's start as sunrise and
+    // the next day's start as sunset.
+    const polar = structuredClone(forecast10001);
+    polar.daily.sunrise[0] = polar.daily.time[0]!;
+    polar.daily.sunset[0] = polar.daily.time[0]! + 86400;
+    mockOpenMeteo({ ...recorded, forecast: () => Response.json(polar) });
+
+    const response = await getSky("?zip=10001");
+
+    const body = (await response.json()) as { days: { sunrise: string | null; sunset: string | null }[] };
+    expect(body.days[0]).toMatchObject({ sunrise: null, sunset: null });
+  });
+
+  it("dates each day correctly across a daylight-saving change", async () => {
+    // Synthetic: Open-Meteo's day starts are 86400 s apart at today's offset.
+    // Asked on 2026-11-01 before the clocks go back (UTC-4), the second day
+    // starts at 04:00 UTC on 2 November, which is 23:00 on 1 November locally.
+    const fallBack = structuredClone(forecast10001);
+    fallBack.utc_offset_seconds = -14400;
+    fallBack.daily.time = [Date.UTC(2026, 10, 1, 4) / 1000, Date.UTC(2026, 10, 2, 4) / 1000];
+    mockOpenMeteo({ ...recorded, forecast: () => Response.json(fallBack) });
+
+    const response = await getSky("?zip=10001");
+
+    const body = (await response.json()) as { days: { date: string }[] };
+    expect(body.days.map((day) => day.date)).toEqual(["2026-11-01", "2026-11-02"]);
   });
 
   describe("when Open-Meteo fails", () => {

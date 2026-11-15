@@ -130,14 +130,22 @@ function instant(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-/** The calendar date (YYYY-MM-DD) of an instant in an IANA time zone. */
-function localDate(unixSeconds: number, timeZone: string): string {
+const DAY_SECONDS = 86400;
+
+/**
+ * The calendar date (YYYY-MM-DD) of a forecast day in an IANA time zone.
+ *
+ * Open-Meteo's day starts are midnight at today's UTC offset, exactly 86400 s
+ * apart. Across a daylight-saving change that is 23:00 or 01:00 local time, so
+ * the date is read at the middle of the day, where it cannot be off by one.
+ */
+function localDate(dayStart: number, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date(unixSeconds * 1000));
+  }).formatToParts(new Date((dayStart + DAY_SECONDS / 2) * 1000));
   const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
@@ -146,8 +154,8 @@ function localDate(unixSeconds: number, timeZone: string): string {
  * Current weather plus two days of sun and moon times for a coordinate.
  *
  * Times are requested as Unix timestamps (`timeformat=unixtime`), not as local
- * strings: the local strings all share one `utc_offset_seconds`, which is wrong
- * for the far side of a daylight-saving change inside the two-day window.
+ * strings, so each sun and moon time is an exact instant and no offset has to
+ * be guessed for the far side of a daylight-saving change.
  */
 export async function fetchForecast(latitude: number, longitude: number): Promise<Forecast> {
   const url = new URL(FORECAST_URL);
@@ -180,9 +188,11 @@ export async function fetchForecast(latitude: number, longitude: number): Promis
     days = daily.time.map((dayStart, i) => {
       const sunrise = daily.sunrise[i] ?? null;
       const sunset = daily.sunset[i] ?? null;
-      // On a day without a sunrise or sunset (polar night, midnight sun)
-      // Open-Meteo repeats the day's start for both instead of sending null.
-      const noSunEvents = sunrise === null || sunset === null || sunrise === sunset;
+      // On a day without a sunrise or sunset Open-Meteo sends no null. In
+      // polar night both equal the day's start; under the midnight sun
+      // sunrise is the day's start and sunset the next day's start.
+      const noSunEvents =
+        sunrise === null || sunset === null || sunrise === sunset || sunset - sunrise >= DAY_SECONDS;
       const moonrise = daily.moonrise[i] ?? null;
       const moonset = daily.moonset[i] ?? null;
       return {
