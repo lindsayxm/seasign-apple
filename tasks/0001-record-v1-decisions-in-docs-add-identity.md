@@ -1,11 +1,11 @@
 ---
 id: 1
 title: Record v1 decisions in docs, add identity file, commit ref-img
-status: in-progress
+status: review
 owner: lead
 depends_on: []
 created: 2026-11-15T22:33:08Z
-updated: 2026-11-15T22:35:10Z
+updated: 2026-11-15T22:35:20Z
 ---
 
 ## Goal
@@ -40,3 +40,4 @@ Record the decisions in plans/2026-11-15-v1-build.md (copy of the approved plan 
 - 2026-11-15T22:33:08Z [li] created (todo)
 - 2026-11-15T22:34:04Z [lead] status: todo → in-progress — claimed by lead
 - 2026-11-15T22:35:10Z [lead] Updated BUILD.md, AGENTS.md (STACK, SUBDIRECTORIES), memory/architecture.md, scaffold-app and task-workflow skills. Decisions are in one file with a section per topic: memory/decisions/2026-11-15-v1-product-decisions.md. Plan copied to plans/2026-11-15-v1-build.md. Added app-identity.xcconfig. ref-img/ committed in full (95 MB PDF included, as the user chose).
+- 2026-11-15T22:35:20Z [lead] status: in-progress → review
