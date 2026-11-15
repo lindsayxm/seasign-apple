@@ -5,7 +5,7 @@ status: todo
 owner: 
 depends_on: [1]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:33:55Z
+updated: 2026-11-15T22:38:11Z
 ---
 
 ## Goal
@@ -34,3 +34,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Crea
 ## Log
 
 - 2026-11-15T22:33:55Z [li] created (todo)
+- 2026-11-15T22:38:11Z [li] Auth is out of scope for the scaffold: do not install better-auth or create auth.ts / ios Auth folder; see the updated scaffold-app skill. The user approved ical.js, fast-xml-parser and bundled fonts with the plan, but they are installed by the tasks that use them, not here.

@@ -3,9 +3,9 @@ id: 5
 title: API: POST /v1/calendar/events (calendar links)
 status: todo
 owner: 
-depends_on: [2]
+depends_on: [2, 3]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:33:55Z
+updated: 2026-11-15T22:38:11Z
 ---
 
 ## Goal
@@ -32,3 +32,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Add 
 ## Log
 
 - 2026-11-15T22:33:55Z [li] created (todo)
+- 2026-11-15T22:38:11Z [li] depends on: #2 → #2, #3
