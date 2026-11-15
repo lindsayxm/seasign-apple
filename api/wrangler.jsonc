@@ -6,10 +6,10 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "seasign-api",
 	"main": "src/index.ts",
-	// Held at 2026-08-22: the newest date the workerd bundled with
-	// @cloudflare/vitest-pool-workers 0.23.0 (the last release under that name)
-	// accepts. Raise it once the tests move to @cloudflare/vitest-plugin.
-	"compatibility_date": "2026-08-22",
+	// Must not be later than the workerd that wrangler and
+	// @cloudflare/vitest-plugin install supports (1.20261113.x at the time of
+	// writing). Upgrade those packages before raising it.
+	"compatibility_date": "2026-11-13",
 	"observability": {
 		"enabled": true
 	},

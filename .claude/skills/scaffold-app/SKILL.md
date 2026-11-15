@@ -12,7 +12,7 @@ The **bundle identifier** and **Apple Developer team ID** come from `app-identit
 ## 1. `api/` — Cloudflare Worker
 
 1. `npm create cloudflare@latest api` with the Hono template, TypeScript, no deploy, no git. Config goes in `api/wrangler.jsonc` (never `.toml`).
-2. Install the STACK packages: `hono`, `@hono/zod-openapi`, `zod`, `drizzle-orm`; dev: `drizzle-kit`, `vitest`, `@cloudflare/vitest-pool-workers`, `typescript`. Auth is not scaffolded: `better-auth`, `api/src/auth.ts`, the auth tables and `ios/Seasign/Auth/` arrive with tasks 13 and 14, once the Apple Developer account is approved.
+2. Install the STACK packages: `hono`, `@hono/zod-openapi`, `zod`, `drizzle-orm`; dev: `drizzle-kit`, `vitest`, `@cloudflare/vitest-plugin`, `typescript`. Auth is not scaffolded: `better-auth`, `api/src/auth.ts`, the auth tables and `ios/Seasign/Auth/` arrive with tasks 13 and 14, once the Apple Developer account is approved.
 3. Layout:
    ```
    api/src/app.ts            OpenAPIHono app, mounts routes (loadable in Node for the spec writer)

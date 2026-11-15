@@ -20,7 +20,7 @@ iPhone app (ios/)  ──HTTPS, JSON──▶  API on Cloudflare Workers (api/) 
 
 ## Status
 
-Scaffolded by task 2; the only route is `GET /v1/health` and the app shows a placeholder screen that calls it. The v1 plan is `plans/2026-11-15-v1-build.md`; the decisions behind it are in `memory/decisions/2026-11-15-v1-product-decisions.md`.
+Scaffolded by task 2. The API routes are `GET /v1/health` and `GET /v1/sky` (task 3: zip to place, weather, sun and moon); the app still shows a placeholder screen that calls `/v1/health`. The v1 plan is `plans/2026-11-15-v1-build.md`; the decisions behind it are in `memory/decisions/2026-11-15-v1-product-decisions.md`.
 
 ## Layout
 
@@ -31,6 +31,7 @@ api/
   src/index.ts                   Worker entry, exports the app
   src/app.ts                     OpenAPIHono app; mounts the routes; loadable in Node for the spec writer
   src/routes/                    one file per resource, routes defined with createRoute + Zod
+  src/lib/open-meteo.ts          Open-Meteo calls for /v1/sky: geocoding (zip to place) and forecast
   src/db/schema.ts               Drizzle schema (empty until task 13)
   migrations/                    drizzle-kit output (empty)
   scripts/openapi.ts             npm run openapi: writes ../openapi/openapi.json
@@ -54,5 +55,7 @@ ios/
 - **Command-line builds** need `-skipPackagePluginValidation` (XcodeBuildMCP: `extraArgs`), or the build plugin is refused. Use simulator IDs or exact names: iPhone 16 exists on iOS 18.3, iPhone 17 on iOS 27.2.
 - **Base URL.** Debug builds call `http://localhost:8787` (`npx wrangler dev` in `api/`). No App Transport Security exception is set; localhost loads on both the iOS 18.3 and iOS 27.2 Simulators without one. The Release URL is a placeholder until the Worker is deployed.
 - **Spec writer.** `npm run openapi` runs `scripts/openapi.ts` with Node's type stripping, so imports inside `api/src` carry the `.ts` extension and `src/app.ts` must not import `cloudflare:*` modules.
-- **Test runtime.** `@cloudflare/vitest-pool-workers` (renamed upstream to `@cloudflare/vitest-plugin`, old name frozen at 0.23.0) bundles a workerd that accepts compatibility dates up to 2026-08-22, so `compatibility_date` is held there.
-- **npm.** npm 10.9.2 crashes while resolving Vitest 4's peers when it has to change the dependency tree. Adding or upgrading a package in `api/` currently needs `npx -y npm@11 install ...`; `npm ci` against the existing lockfile works.
+- **Test runtime.** `@cloudflare/vitest-plugin` (the 1.x successor of `@cloudflare/vitest-pool-workers`; task 16) runs the tests in workerd. It pins exact `wrangler` and `miniflare` versions, so the tests and `wrangler dev` share one workerd (1.20261113.1 with plugin 1.8.2 and wrangler 4.162.0). `compatibility_date` in `api/wrangler.jsonc` must not be later than that workerd supports; it is 2026-11-13. Upgrade the plugin and wrangler together, then raise the date and rerun `npm run cf-typegen`.
+- **Outbound fetch in tests.** Tests replace `globalThis.fetch` with `vi.spyOn(globalThis, "fetch").mockImplementation(...)` (see `mockOpenMeteo` in `api/test/sky.test.ts`): known hosts answer from `api/test/fixtures/`, any other request throws, and `afterEach` calls `vi.restoreAllMocks()`. Nothing reaches the network. Cloudflare's documented mechanism for the plugin is `@msw/cloudflare` with `msw` 3; neither is in STACK, so moving to it needs the user's approval.
+- **KV keys.** `/v1/sky` caches in `CACHE`: `sky:geo:v1:<zip>` (place for a zip, 30 days) and `sky:forecast:v1:<zip>` (forecast, 15 minutes). The key builders are exported from `api/src/routes/sky.ts`.
+- **npm.** npm 10.9.2 crashed while resolving Vitest 4's peers during tasks 2 and 3, and `npx -y npm@11 install ...` was the workaround. In task 16 a plain `npm install` with 10.9.2 swapped the test package without crashing. Try the installed npm first; `npm ci` against the lockfile works.
