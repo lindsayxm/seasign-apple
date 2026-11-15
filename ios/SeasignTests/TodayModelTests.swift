@@ -143,3 +143,42 @@ import UIKit
         }
     }
 }
+
+@Suite struct CapsWrapperTests {
+    /// One unit per character, so widths are easy to read.
+    private func wrap(_ text: String, width: CGFloat, maxLines: Int = 2) -> [String] {
+        CapsWrapper.wrap(text, width: width, maxLines: maxLines) { CGFloat($0.count) }
+    }
+
+    @Test func shortTextStaysOnOneLine() {
+        #expect(wrap("ALPHAPROOF CODE", width: 20) == ["ALPHAPROOF CODE"])
+    }
+
+    @Test func breaksAtSpacesWithinTheWidth() {
+        #expect(wrap("A SHORT EXPLAINER ON HOW", width: 12) == ["A SHORT", "EXPLAINER…"])
+        #expect(wrap("ONE TWO THREE FOUR", width: 9) == ["ONE TWO", "THREE…"])
+        #expect(wrap("ONE TWO THREE FOUR", width: 9, maxLines: 3) == ["ONE TWO", "THREE", "FOUR"])
+    }
+
+    @Test func overflowEndsInAnEllipsisThatFits() {
+        let lines = wrap("AAAA BBBB CCCC DDDD EEEE", width: 9)
+        #expect(lines == ["AAAA BBBB", "CCCC…"])
+        #expect(lines.allSatisfy { $0.count <= 9 })
+    }
+
+    @Test func aWordWiderThanTheLineIsKeptWhole() {
+        #expect(wrap("SUPERCALIFRAGILISTIC OK", width: 5) == ["SUPERCALIFRAGILISTIC", "OK"])
+    }
+
+    @Test func emptyTextHasNoLines() {
+        #expect(wrap("   ", width: 10).isEmpty)
+        #expect(wrap("WORD", width: 10, maxLines: 0).isEmpty)
+    }
+
+    @Test func measuresWithTheBundledFont() {
+        let narrow = CapsWrapper.width(of: "SEASIGN", size: 11, tracking: 0)
+        let tracked = CapsWrapper.width(of: "SEASIGN", size: 11, tracking: 0.2)
+        // Six gaps between seven letters.
+        #expect(abs((tracked - narrow) - 6 * 11 * 0.2) < 0.01)
+    }
+}

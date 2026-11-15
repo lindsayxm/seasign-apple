@@ -75,7 +75,7 @@ struct TodayView: View {
         return GeometryReader { proxy in
             let layout = SceneLayout(size: proxy.size)
             let s = layout.scale
-            let ruleX = 57 * s + dayNameWidth + 11 * s
+            let ruleX = 57.8 * s + dayNameWidth + 9.8 * s
 
             ZStack(alignment: .topLeading) {
                 SceneView(state: state)
@@ -98,16 +98,16 @@ struct TodayView: View {
                     .frame(width: 297 * s, height: 1)
                     .placed(x: 48 * s, y: 193 * s)
 
-                iconButton(.settings, label: "Settings", opens: .settings)
+                iconButton(.settings, label: "Settings", opens: .settings, s: s)
                     .placed(x: 333 * s - 22, y: 217 * s - 22)
-                iconButton(.doGet, label: "Do and get lists", opens: .doGet)
+                iconButton(.doGet, label: "Do and get lists", opens: .doGet, s: s)
                     .placed(x: 333 * s - 22, y: 261 * s - 22)
-                iconButton(.saved, label: "Saved", opens: .saved)
+                iconButton(.saved, label: "Saved", opens: .saved, s: s)
                     .placed(x: 333 * s - 22, y: 306 * s - 22)
 
                 headlines(s: s)
                     .frame(
-                        width: 323 * s,
+                        width: 326 * s,
                         height: max(0, proxy.size.height - 52 * s - (layout.horizonY + 57 * s)),
                         alignment: .topLeading
                     )
@@ -133,19 +133,16 @@ struct TodayView: View {
     private func header(date: HeaderDate, state: SceneState, s: CGFloat) -> some View {
         Group {
             Text(date.month)
-                .caps(10.5 * s, tracking: 0.17)
+                .caps(10.5 * s, medium: true, tracking: 0.1)
                 .foregroundStyle(Palette.dimText)
                 .placed(x: 61 * s, baseline: 66 * s)
             Text(date.day)
-                .caps(11.5 * s, medium: true, tracking: 0.06)
+                .caps(11.5 * s, medium: true, tracking: 0.03)
                 .foregroundStyle(Palette.white)
                 .placed(x: 102 * s, baseline: 66 * s)
-            Text(date.weekday)
-                .font(.dayName(68 * s))
-                .foregroundStyle(Palette.white)
-                .fixedSize()
+            SoftenedText(text: date.weekday, font: .dayName(69.7 * s), softness: 1.15 * s)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { dayNameWidth = $0 }
-                .placed(x: 57 * s, baseline: 130 * s)
+                .placed(x: 57.8 * s, baseline: 130 * s)
             if let temperature = state.temperatureF {
                 Text("\(Int(temperature.rounded()))°F")
                     .caps(14 * s, medium: true, tracking: 0.05)
@@ -185,11 +182,11 @@ struct TodayView: View {
         }
     }
 
-    private func iconButton(_ icon: LineIcon, label: String, opens target: Destination) -> some View {
+    private func iconButton(_ icon: LineIcon, label: String, opens target: Destination, s: CGFloat) -> some View {
         Button {
             destination = target
         } label: {
-            LineIconView(icon: icon)
+            LineIconView(icon: icon, size: 19.5 * s, lineWidth: 1.7 * s)
                 .foregroundStyle(Palette.rule)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
@@ -205,16 +202,16 @@ struct TodayView: View {
         let all = PlaceholderHeadlines.all
         return ViewThatFits(in: .vertical) {
             ForEach([5, 4, 3, 2, 1], id: \.self) { count in
-                VStack(alignment: .leading, spacing: 22 * s) {
+                VStack(alignment: .leading, spacing: 28.5 * s) {
                     ForEach(all.prefix(count), id: \.self) { headline in
-                        Text(headline)
-                            .caps(13 * s, tracking: 0.215)
-                            .lineSpacing(-4.5 * s)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                            .foregroundStyle(Palette.ink)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                        WrappedCaps(
+                            text: headline,
+                            size: 11.2 * s,
+                            tracking: 0.185,
+                            linePitch: 14.5 * s,
+                            width: 326 * s
+                        )
+                        .foregroundStyle(Palette.ink)
                     }
                 }
             }

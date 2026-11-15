@@ -28,7 +28,7 @@ struct SettingsView: View {
                 .capsRelative(11)
                 .foregroundStyle(Palette.dimText)
 
-            HStack(alignment: .lastTextBaseline, spacing: 16) {
+            HStack(alignment: .center, spacing: 16) {
                 TextField("", text: $zipText, prompt: Text("00000").foregroundStyle(Palette.rule))
                     .font(.custom(FontName.dayName, size: 44, relativeTo: .largeTitle))
                     .foregroundStyle(Palette.white)

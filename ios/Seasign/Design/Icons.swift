@@ -46,7 +46,7 @@ enum LineIcon: CaseIterable {
                 startAngle: .degrees(130), endAngle: .degrees(230), clockwise: false
             )
         case .saved:
-            let diagonal: CGFloat = 0.5 * 0.86 * 0.7071
+            let diagonal: CGFloat = 0.42
             path.move(to: point(0.5, 0.0))
             path.addLine(to: point(0.5, 1.0))
             path.move(to: point(0.0, 0.5))
@@ -71,7 +71,7 @@ enum LineIcon: CaseIterable {
 struct LineIconView: View {
     var icon: LineIcon
     var size: CGFloat = 19
-    var lineWidth: CGFloat = 1.6
+    var lineWidth: CGFloat = 1.7
 
     var body: some View {
         IconShape(icon: icon)

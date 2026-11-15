@@ -60,3 +60,39 @@ extension View {
         modifier(CapsStyle(size: size, medium: medium, tracking: tracking, scales: true))
     }
 }
+
+/// White display text with its corners rounded off, the way the day name is
+/// drawn in the mockups (PT Sans Narrow Bold with soft terminals).
+///
+/// The glyphs are blurred slightly and then cut back to a hard edge, which
+/// rounds corners without making the letters heavier. The hidden `Text` gives
+/// the view its size and baseline.
+struct SoftenedText: View {
+    var text: String
+    var font: Font
+    /// Blur radius in points; about the radius of the rounded corners.
+    var softness: CGFloat
+
+    var body: some View {
+        let label = Text(text).font(font)
+        let margin = softness * 3
+        label
+            .fixedSize()
+            .hidden()
+            .overlay {
+                Canvas { context, _ in
+                    context.addFilter(.alphaThreshold(min: 0.5, color: Palette.white))
+                    context.addFilter(.blur(radius: softness))
+                    context.drawLayer { layer in
+                        layer.draw(
+                            layer.resolve(label.foregroundStyle(Palette.white)),
+                            at: CGPoint(x: margin, y: margin),
+                            anchor: .topLeading
+                        )
+                    }
+                }
+                .padding(-margin)
+                .allowsHitTesting(false)
+            }
+    }
+}

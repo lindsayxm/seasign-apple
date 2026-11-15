@@ -148,7 +148,7 @@ struct SceneRenderer: Sendable {
             // Wind breaks the reflection into horizontal streaks.
             var random = SeededRandom(seed: 0x5EA5)
             let scale = layout.scale
-            let count = 14
+            let count = 18
             let depth = max(34 * scale, radius * 0.9)
             let reach = max(radius, 28 * scale)
             for index in 0..<count {
@@ -164,7 +164,7 @@ struct SceneRenderer: Sendable {
                 )
                 context.fill(
                     Path(roundedRect: rect, cornerRadius: rect.height / 2),
-                    with: .color(color.opacity(strength * (0.6 - 0.3 * Double(t))))
+                    with: .color(color.opacity(min(1, strength * (0.85 - 0.4 * Double(t)))))
                 )
             }
         }
@@ -243,7 +243,8 @@ struct SceneRenderer: Sendable {
                 height: base.midY - shape.bump.top * vertical
             )
             var path = Path(roundedRect: base, cornerRadius: base.height / 2)
-            let radius = min(bump.width / 2, bump.height * 0.9)
+            // The bump's corners are as round as it is tall above the pill.
+            let radius = min(bump.width / 2, max(0, base.minY - bump.minY))
             path.addRoundedRect(
                 in: bump,
                 cornerRadii: RectangleCornerRadii(topLeading: radius, topTrailing: radius)
@@ -281,7 +282,7 @@ struct SceneRenderer: Sendable {
             y += rowHeight
             row += 1
         }
-        context.stroke(path, with: .color(.black.opacity(0.1)), lineWidth: max(0.8, 0.9 * scale))
+        context.stroke(path, with: .color(.black.opacity(0.1)), lineWidth: 1.1 * scale)
     }
 
     // MARK: Rain and snow
