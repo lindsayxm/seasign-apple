@@ -1,8 +1,8 @@
 ---
 id: 2
 title: Scaffold api/, openapi/ and ios/
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [1]
 created: 2026-11-15T22:33:55Z
 updated: 2026-11-15T22:38:11Z
@@ -35,3 +35,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Crea
 
 - 2026-11-15T22:33:55Z [li] created (todo)
 - 2026-11-15T22:38:11Z [li] Auth is out of scope for the scaffold: do not install better-auth or create auth.ts / ios Auth folder; see the updated scaffold-app skill. The user approved ical.js, fast-xml-parser and bundled fonts with the plan, but they are installed by the tasks that use them, not here.
+- 2026-11-15T22:38:11Z [implementer-1] status: todo → in-progress — claimed by implementer-1
