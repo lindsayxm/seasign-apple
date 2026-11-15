@@ -25,6 +25,200 @@
           "status",
           "service"
         ]
+      },
+      "Sky": {
+        "type": "object",
+        "properties": {
+          "zip": {
+            "type": "string",
+            "example": "10001"
+          },
+          "place": {
+            "$ref": "#/components/schemas/SkyPlace"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA time zone of the place",
+            "example": "America/New_York"
+          },
+          "utcOffsetSeconds": {
+            "type": "integer",
+            "description": "The time zone's offset from UTC right now, in seconds. Use `timezone` for other instants",
+            "example": -18000
+          },
+          "current": {
+            "$ref": "#/components/schemas/SkyCurrent"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkyDay"
+            },
+            "description": "Today and tomorrow in the place's time zone, in order"
+          }
+        },
+        "required": [
+          "zip",
+          "place",
+          "timezone",
+          "utcOffsetSeconds",
+          "current",
+          "days"
+        ]
+      },
+      "SkyPlace": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "City or town the zip belongs to",
+            "example": "New York"
+          },
+          "region": {
+            "type": "string",
+            "nullable": true,
+            "description": "State name",
+            "example": "New York"
+          },
+          "latitude": {
+            "type": "number",
+            "description": "Degrees north",
+            "example": 40.71427
+          },
+          "longitude": {
+            "type": "number",
+            "description": "Degrees east",
+            "example": -74.00597
+          }
+        },
+        "required": [
+          "name",
+          "region",
+          "latitude",
+          "longitude"
+        ]
+      },
+      "SkyCurrent": {
+        "type": "object",
+        "properties": {
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When these values were measured, as a UTC instant",
+            "example": "2026-11-15T11:42:55Z"
+          },
+          "temperatureF": {
+            "type": "number",
+            "description": "Air temperature in °F",
+            "example": 43.8
+          },
+          "weatherCode": {
+            "type": "integer",
+            "description": "WMO weather interpretation code (0 clear … 99 thunderstorm with hail)",
+            "example": 0
+          },
+          "cloudCoverPercent": {
+            "type": "number",
+            "description": "Total cloud cover, 0–100 percent",
+            "example": 4
+          },
+          "windSpeedMph": {
+            "type": "number",
+            "description": "Wind speed at 10 m in mph",
+            "example": 9.3
+          },
+          "windGustsMph": {
+            "type": "number",
+            "description": "Wind gusts at 10 m in mph",
+            "example": 25.1
+          },
+          "isDay": {
+            "type": "boolean",
+            "description": "True between sunrise and sunset"
+          }
+        },
+        "required": [
+          "observedAt",
+          "temperatureF",
+          "weatherCode",
+          "cloudCoverPercent",
+          "windSpeedMph",
+          "windGustsMph",
+          "isDay"
+        ]
+      },
+      "SkyDay": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Calendar date in the place's time zone, YYYY-MM-DD",
+            "example": "2026-11-15"
+          },
+          "sunrise": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "Sunrise as a UTC instant; null when the sun does not rise or set that day",
+            "example": "2026-11-15T11:42:55Z"
+          },
+          "sunset": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "Sunset as a UTC instant; null when the sun does not rise or set that day",
+            "example": "2026-11-15T11:42:55Z"
+          },
+          "moonrise": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "Moonrise as a UTC instant; null when the moon does not rise that day",
+            "example": "2026-11-15T11:42:55Z"
+          },
+          "moonset": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "Moonset as a UTC instant; null when the moon does not set that day",
+            "example": "2026-11-15T11:42:55Z"
+          },
+          "moonPhase": {
+            "type": "number",
+            "description": "Moon phase as a fraction of the cycle: 0 new, 0.25 first quarter, 0.5 full, 0.75 last quarter",
+            "example": 0.196
+          }
+        },
+        "required": [
+          "date",
+          "sunrise",
+          "sunset",
+          "moonrise",
+          "moonset",
+          "moonPhase"
+        ]
+      },
+      "SkyError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_zip",
+              "unknown_zip",
+              "upstream_error"
+            ],
+            "description": "Machine-readable reason"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable explanation"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
       }
     },
     "parameters": {}
@@ -41,6 +235,68 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sky": {
+      "get": {
+        "operationId": "getSky",
+        "summary": "Current weather and sun and moon times for a US zip code",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{5}$",
+              "description": "5-digit US zip code",
+              "example": "10001"
+            },
+            "required": true,
+            "description": "5-digit US zip code",
+            "name": "zip",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Weather now, plus sun and moon times for today and tomorrow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sky"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The zip is missing or is not five digits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkyError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No US place is known for this zip",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The weather provider failed; try again later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkyError"
                 }
               }
             }

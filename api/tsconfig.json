@@ -8,6 +8,7 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
     "lib": ["ESNext"],
     "types": [
       "./worker-configuration.d.ts",
