@@ -1,11 +1,11 @@
 ---
 id: 3
 title: API: GET /v1/sky (zip to weather, sun and moon)
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [2]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:33:55Z
+updated: 2026-11-15T23:00:55Z
 ---
 
 ## Goal
@@ -32,3 +32,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Add 
 ## Log
 
 - 2026-11-15T22:33:55Z [li] created (todo)
+- 2026-11-15T23:00:55Z [implementer-1] status: todo → in-progress — claimed by implementer-1
