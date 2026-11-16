@@ -1005,37 +1005,161 @@ const BLOCK_SINGLE = new Set(["DTSTART", "TZOFFSETFROM", "TZOFFSETTO"]);
 const READ_ANYWHERE = new Set([...EVENT_SINGLE, ...BLOCK_SINGLE, "EXDATE", "RDATE", "TZID", "RRULE", "EXRULE"]);
 
 /**
- * Where a line's value begins, and its TZID, RANGE and plain VALUE parameters.
- * `at` is the index of the `;` or `:` that ends the name. Returns null when
- * the line has no value. One pass, whatever the number of parameters.
+ * A TZID or RANGE value in a form that ical.js reads exactly as it is
+ * written here, so that where it ends, and so where the property's value
+ * begins, is not in doubt: in quotes with no quote or backslash inside, or
+ * bare with no quote, semicolon, colon or backslash. Outlook's quoted names
+ * with colons in them, `"(UTC-06:00) Central Time (US & Canada)"`, pass.
+ * - A quote: ical.js opens a quoted value only right after `=`, and a quote
+ *   anywhere else in a value is an ordinary character to it.
+ * - A backslash: ical.js unescapes a parameter as text and then looks for the
+ *   property's value from the parameter's start plus its unescaped length, so
+ *   each `\,` in the last parameter moves that search one character back,
+ *   which can be onto a colon inside the quotes.
+ * - A caret (RFC 6868) is allowed: ical.js decodes those and corrects the
+ *   position for them.
  */
-function scanParameters(line: string, at: number): { parameters: string[]; value: number } | null {
-  const parameters: string[] = [];
-  if (line[at] === ":") return { parameters, value: at + 1 };
-  let from = at + 1;
-  let quoted = false;
-  for (let i = from; i < line.length; i++) {
-    const character = line[i];
-    if (character === '"') quoted = !quoted;
-    else if (!quoted && (character === ";" || character === ":")) {
-      const parameter = line.slice(from, i);
-      // VALUE is kept only when it names a date or a date-time. Told that a
-      // value is a rule or a period, ical.js decodes it while parsing and
-      // rejects the whole file if it is malformed.
-      const wanted = /^(TZID|RANGE)=/i.test(parameter) || /^VALUE="?(DATE|DATE-TIME)"?$/i.test(parameter);
-      if (wanted && parameters.length < 4 && parameter.length <= 300) parameters.push(parameter);
-      if (character === ":") return { parameters, value: i + 1 };
+const HANDED_PARAMETER = /^(?:"[^"\\]*"|[^";:\\]*)$/;
+/** Longest parameter handed on, its name and `=` included. */
+const MAX_PARAMETER_LENGTH = 300;
+
+type Scanned = {
+  /** Where the value begins. */
+  value: number;
+  /**
+   * The parameters handed to ical.js, rebuilt: the last TZID and RANGE when
+   * they pass `HANDED_PARAMETER`, and the last VALUE that names a date or a
+   * date-time, as `;TZID=…;RANGE=…;VALUE=…`. Nothing else of the original
+   * parameters is passed on.
+   */
+  parameters: string;
+  /** The line had a TZID that is not handed on, because of its form or length. */
+  unreadTzid: boolean;
+};
+
+/**
+ * Where a line's value begins, and the parameters to hand on with it. `at` is
+ * the index of the `;` or `:` that ends the name. Returns null when the line
+ * has no value. One pass, whatever the number of parameters, and nothing kept
+ * per parameter.
+ *
+ * A parameter is its name, `=`, and a value of items split by commas, each in
+ * quotes or bare (RFC 5545); a quote opens only at the start of an item, and
+ * is an ordinary character anywhere else. A parameter without `=` is passed
+ * over. ical.js reads the original line in its own way in places (a quote
+ * after a comma, a parameter without `=`), but it never sees the original:
+ * it is given the line rebuilt from the name, `parameters` and the value, in
+ * which it cannot read the parameters as ending anywhere else.
+ */
+function scanParameters(line: string, at: number): Scanned | null {
+  if (line[at] === ":") return { value: at + 1, parameters: "", unreadTzid: false };
+  /** Where the last TZID and RANGE values start and end, and the last date-typed VALUE. */
+  let tzidFrom = -1;
+  let tzidTo = -1;
+  let rangeFrom = -1;
+  let rangeTo = -1;
+  let valueType = "";
+  const end = line.length;
+  for (let from = at + 1; ; ) {
+    let i = from;
+    while (i < end && line[i] !== "=" && line[i] !== ";" && line[i] !== ":") i++;
+    if (i >= end) return null;
+    if (line[i] !== "=") {
+      // A parameter without a value.
+      if (line[i] === ":") return built(i + 1);
       from = i + 1;
+      continue;
     }
+    const nameEnd = i++;
+    for (;;) {
+      if (line[i] === '"') {
+        const close = line.indexOf('"', i + 1);
+        if (close < 0) return null;
+        i = close + 1;
+      }
+      while (i < end && line[i] !== "," && line[i] !== ";" && line[i] !== ":") i++;
+      if (line[i] !== ",") break;
+      i++;
+    }
+    if (i >= end) return null;
+    const nameLength = nameEnd - from;
+    if (nameLength === 4 || nameLength === 5) {
+      const name = line.slice(from, nameEnd).toUpperCase();
+      if (name === "TZID") {
+        tzidFrom = nameEnd + 1;
+        tzidTo = i;
+      } else if (name === "RANGE") {
+        rangeFrom = nameEnd + 1;
+        rangeTo = i;
+      } else if (name === "VALUE" && i - nameEnd <= 12) {
+        // VALUE is handed on only when it names a date or a date-time. Told
+        // that a value is a rule or a period, ical.js decodes it while parsing
+        // and rejects the whole file if it is malformed.
+        const type = line.slice(nameEnd + 1, i).toUpperCase();
+        if (/^(?:DATE|DATE-TIME|"DATE"|"DATE-TIME")$/.test(type)) valueType = type.replaceAll('"', "");
+      }
+    }
+    if (line[i] === ":") return built(i + 1);
+    from = i + 1;
   }
-  return null;
+
+  function built(value: number): Scanned {
+    let parameters = "";
+    let unreadTzid = false;
+    if (tzidFrom >= 0) {
+      const text = line.slice(tzidFrom, tzidTo);
+      if (text.length <= MAX_PARAMETER_LENGTH - 5 && HANDED_PARAMETER.test(text)) parameters += `;TZID=${text}`;
+      else unreadTzid = true;
+    }
+    // Nothing reads RANGE (an override changes only its own instance), so one
+    // that is not handed on is not reported.
+    if (rangeFrom >= 0) {
+      const text = line.slice(rangeFrom, rangeTo);
+      if (text.length <= MAX_PARAMETER_LENGTH - 6 && HANDED_PARAMETER.test(text)) parameters += `;RANGE=${text}`;
+    }
+    if (valueType) parameters += `;VALUE=${valueType}`;
+    return { value, parameters, unreadTzid };
+  }
 }
 
-/** The values in a list such as EXDATE's: one more than its commas, as many as ical.js could make of it. */
+/**
+ * How many values ical.js makes of a list such as EXDATE's: it splits at each
+ * comma that does not come right after a backslash (`unescapedIndexOf`; so
+ * `\,` does not split, and neither does `\\,`). Counted on the very text that
+ * is handed on.
+ */
 function valueCount(value: string): number {
   let count = 1;
-  for (let at = value.indexOf(","); at >= 0; at = value.indexOf(",", at + 1)) count++;
+  for (let at = value.indexOf(","); at >= 0; at = value.indexOf(",", at + 1)) {
+    if (at === 0 || value.charCodeAt(at - 1) !== 92) count++;
+  }
   return count;
+}
+
+/** A line's property name as read here: upper case, trimmed, a group ("a.DTSTART") dropped. `at` is where the name ends. */
+function propertyName(line: string, at: number): string {
+  const name = line.slice(0, at).trim().toUpperCase();
+  const dot = name.indexOf(".");
+  return dot >= 0 && /^[A-Z0-9-]+$/.test(name.slice(0, dot)) ? name.slice(dot + 1) : name;
+}
+
+/** The line handed to ical.js for a property kept as it is: rebuilt from its name, the parameters handed on and its value. */
+const rebuilt = (name: string, scanned: Scanned, value: string) => `${name}${scanned.parameters}:${value}`;
+
+/**
+ * What `readableLines` hands ical.js for a property line it keeps as it is
+ * (the properties read once, EXDATE, RDATE, a zone's TZID), how many EXDATE
+ * or RDATE values ical.js makes of that, and whether a TZID was left out;
+ * also the name and value as read here. Null for a line that is not a
+ * property. For the tests.
+ */
+export function handedLine(line: string): { name: string; value: string; text: string; listed: number; unreadTzid: boolean } | null {
+  const at = line.search(/[;:]/);
+  const scanned = at < 0 ? null : scanParameters(line, at);
+  if (!scanned) return null;
+  const name = propertyName(line, at);
+  const value = line.slice(scanned.value);
+  return { name, value, text: rebuilt(name, scanned, value), listed: valueCount(value), unreadTzid: scanned.unreadTzid };
 }
 
 /** A VEVENT or VTIMEZONE being read. Its lines are held until its END decides whether ical.js is given them. */
@@ -1067,9 +1191,13 @@ const pending = (kind: Pending["kind"]): Pending => ({
 /**
  * Reduces an unfolded file to what this reader uses, in one pass and before
  * ical.js sees any of it: the VCALENDARs, each VEVENT and VTIMEZONE directly
- * inside one with the properties `cleanEvent` and `readZone` read (with only
- * the TZID, RANGE and date-typed VALUE parameters), and repeat rules, renamed
- * so that ical.js keeps their text as it is.
+ * inside one with the properties `cleanEvent` and `readZone` read, and repeat
+ * rules, renamed so that ical.js keeps their text as it is. Every line handed
+ * on is rebuilt from its name, the parameters `scanParameters` vets (TZID,
+ * RANGE, a date-typed VALUE) and its value, so that ical.js finds the value
+ * where it is found here, and the listed dates are counted on that value as
+ * ical.js splits it (`valueCount`). A TZID that is not handed on sets
+ * `partial` in an event.
  *
  * What ical.js is given is bounded here, since it builds its whole tree at
  * once and memory cannot be charged to a budget as it goes:
@@ -1140,10 +1268,7 @@ function readableLines(unfolded: string, budget: Budget): string {
       budget.partial = true;
       continue;
     }
-    let name = line.slice(0, at).trim().toUpperCase();
-    // A group ("a.DTSTART") is dropped.
-    const dot = name.indexOf(".");
-    if (dot >= 0 && /^[A-Z0-9-]+$/.test(name.slice(0, dot))) name = name.slice(dot + 1);
+    const name = propertyName(line, at);
     const value = line.slice(scanned.value);
 
     if (name === "BEGIN") {
@@ -1212,7 +1337,12 @@ function readableLines(unfolded: string, budget: Budget): string {
     }
 
     if (skipping > 0 || depth === 1) continue;
-    const kept = () => `${name}${scanned.parameters.map((parameter) => `;${parameter}`).join("")}:${value}`;
+    const kept = () => rebuilt(name, scanned, value);
+    /** In an event, a line handed on without the TZID it had may be read at the wrong time. (`readZone` reads no parameter but VALUE.) */
+    const keptInEvent = () => {
+      if (scanned.unreadTzid) budget.partial = true;
+      return kept();
+    };
     if (depth === 0) {
       // ical.js fails on a property outside any component.
       if (READ_ANYWHERE.has(name) || looksLikeRule(name.toLowerCase())) throw new CalendarParseError("not a calendar");
@@ -1228,11 +1358,11 @@ function readableLines(unfolded: string, budget: Budget): string {
       } else if (name === "EXDATE" || name === "RDATE") {
         current.listed += valueCount(value);
         if (current.listed > MAX_LISTED_DATES) drop(current);
-        else current.lines.push(kept());
+        else current.lines.push(keptInEvent());
       } else if (EVENT_SINGLE.has(name)) {
         if (!current.seen.has(name)) {
           current.seen.add(name);
-          current.lines.push(kept());
+          current.lines.push(keptInEvent());
         }
       } else if (looksLikeRule(name.toLowerCase())) {
         // Something meant as a rule under a name no parser would take for one.

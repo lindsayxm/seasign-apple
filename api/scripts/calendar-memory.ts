@@ -12,10 +12,13 @@
 // copies one after another with all N bodies held, as one request of N links
 // does); --two-byte (add one byte that is not UTF-8, so the text decodes to
 // two bytes a character); --caps 96,64,... (caps tried, largest first); --runs N (runs per cap;
-// a cap passes when every run does). Old space does not include the bodies
-// themselves (Buffers live outside the V8 heap).
+// a cap passes when every run does); --count (with --one: also print how many
+// lines ical.js was handed and how many EXDATE and RDATE values it made of
+// them). Old space does not include the bodies themselves (Buffers live
+// outside the V8 heap).
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import ICAL from "ical.js";
 import {
   CalendarParseError,
   MAX_CALENDAR_BYTES,
@@ -319,6 +322,71 @@ const SHAPES: Record<string, (bytes: number) => string> = {
     ),
   "rrule-lines": (bytes) =>
     fill(bytes, CAL + lines("BEGIN:VEVENT", "UID:x", "DTSTART:20261117T100000Z"), () => `RRULE:FREQ=DAILY${CRLF}`, lines("END:VEVENT") + END),
+  // Every limit at once, without any trick: 3,500 events of 17 lines handed on
+  // (BEGIN, the seven properties read once, eight rules, END), the first ten
+  // with one EXDATE line of 2,000 values each (MAX_LISTED_PER_FILE).
+  "all-limits": (bytes) => {
+    const count = 3500;
+    const listing = Array.from({ length: 2000 }, (_, n) => stamp(Date.UTC(2020, 0, 1) / 1000 + n * 3600)).join(",");
+    return fill(
+      bytes,
+      CAL,
+      (i) =>
+        i >= count
+          ? "\0".repeat(bytes)
+          : lines(
+              "BEGIN:VEVENT",
+              `UID:${i}`,
+              "SUMMARY:s",
+              "STATUS:x",
+              "DTSTART:20100114T090000Z",
+              "DTEND:20100114T100000Z",
+              "DURATION:PT1H",
+              "RECURRENCE-ID:20100114T090000Z",
+              ..."12345678".split("").map((n) => `RRULE:FREQ=DAILY;INTERVAL=${n}`),
+              ...(i < MAX_LISTED_PER_FILE / 2000 ? [`EXDATE:${listing}`] : []),
+              "END:VEVENT",
+            ),
+      END,
+    );
+  },
+  // Commas hidden from a count that takes a quote anywhere in a parameter to
+  // open a quoted stretch. ical.js honours a quote only right after `=`, so its
+  // value starts at the first colon and holds every comma (task 18, review 1).
+  // 1,900 such lines an event, under the 2,000 an event may list.
+  "hidden-exdate-quoted": (bytes) => {
+    const hidden = Array.from({ length: 4 }, (_, k) => `;TZID=${"abcd"[k]}"${k === 0 ? ":" : ""}${",".repeat(285)}"`).join("");
+    return fill(
+      bytes,
+      SERIES_HEAD,
+      (i) => (i > 0 && i % 1900 === 0 ? lines("END:VEVENT", "BEGIN:VEVENT", `UID:s${i}`, "DTSTART:20261101T090000Z", "RRULE:FREQ=DAILY") : "") + `EXDATE${hidden}:20200101T000000Z${CRLF}`,
+      `END:VEVENT${CRLF}${END}`,
+    );
+  },
+  // The same in a zone's RDATE lines: 390 a zone, under the 400 a zone may list.
+  "hidden-zone-rdate-quoted": (bytes) => {
+    const hidden = Array.from({ length: 4 }, (_, k) => `;TZID=${"abcd"[k]}"${k === 0 ? ":" : ""}${",".repeat(285)}"`).join("");
+    const zone = (i: number) => lines("BEGIN:VTIMEZONE", `TZID:Z${i}`, "BEGIN:STANDARD", "DTSTART:16010101T020000", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100");
+    return fill(
+      bytes,
+      CAL + zone(0),
+      (i) => (i > 0 && i % 390 === 0 ? lines("END:STANDARD", "END:VTIMEZONE") + zone(i) : "") + `RDATE${hidden}:20200101T020000${CRLF}`,
+      lines("END:STANDARD", "END:VTIMEZONE") + END,
+    );
+  },
+  // Commas hidden by escapes in the last parameter: ical.js finds the value by
+  // the length of the parameter once unescaped, which `\,` shortens, so it
+  // starts reading at a colon inside the quotes. The parameter is 300
+  // characters, the most the pre-parser handed on.
+  "hidden-exdate-escaped": (bytes) => {
+    const hidden = `;TZID="${"\\,".repeat(98)}:${",".repeat(96)}"`;
+    return fill(
+      bytes,
+      SERIES_HEAD,
+      (i) => (i > 0 && i % 1900 === 0 ? lines("END:VEVENT", "BEGIN:VEVENT", `UID:s${i}`, "DTSTART:20261101T090000Z", "RRULE:FREQ=DAILY") : "") + `EXDATE${hidden}:20200101T000000Z${CRLF}`,
+      `END:VEVENT${CRLF}${END}`,
+    );
+  },
 };
 
 /**
@@ -330,6 +398,27 @@ const SHAPES: Record<string, (bytes: number) => string> = {
 function one(shape: string, bytes: number, links: number, twoByte: boolean): void {
   const make = SHAPES[shape];
   if (!make) throw new Error(`unknown shape ${shape}`);
+  let handed = "";
+  if (countListed) {
+    // Counts the EXDATE and RDATE values ical.js made of what it was handed.
+    const parse = ICAL.parse;
+    ICAL.parse = ((input: string) => {
+      const result = parse(input);
+      let lines = 0;
+      let values = 0;
+      const walk = (component: unknown) => {
+        if (!Array.isArray(component) || !Array.isArray(component[1])) return;
+        for (const property of component[1] as unknown[][]) {
+          if (property[0] === "exdate" || property[0] === "rdate") values += property.length - 3;
+        }
+        for (const child of (component[2] as unknown[]) ?? []) walk(child);
+      };
+      for (let at = input.indexOf("\n"); at >= 0; at = input.indexOf("\n", at + 1)) lines++;
+      for (const calendar of Array.isArray(result[0]) ? result : [result]) walk(calendar);
+      handed = `, handed ${lines + 1} lines and ${values} listed values`;
+      return result;
+    }) as typeof ICAL.parse;
+  }
   // Built as bytes and decoded as the route decodes a fetched body.
   // With --two-byte, one byte that is not UTF-8 on the calendar's own level
   // makes the decoded text, and every string cut from it, two bytes a character.
@@ -351,7 +440,7 @@ function one(shape: string, bytes: number, links: number, twoByte: boolean): voi
   }
   const ms = Math.round((performance.now() - started) / links);
   const times = links > 1 ? ` x${links}` : "";
-  console.log(`${shape}${times} ${size} bytes: ${outcome}, ${ms} ms, rss ${Math.round(process.memoryUsage().rss / 2 ** 20)} MB`);
+  console.log(`${shape}${times} ${size} bytes: ${outcome}${handed}, ${ms} ms, rss ${Math.round(process.memoryUsage().rss / 2 ** 20)} MB`);
 }
 
 function smallestCap(shape: string, bytes: number, links: number, twoByte: boolean, caps: number[], runs: number): void {
@@ -389,6 +478,8 @@ const caps = (option("--caps") ?? "128,112,96,80,64,56,48,40,32,28,24,20,16,12,8
 const runs = Number(option("--runs") ?? 2);
 const twoByte = args.includes("--two-byte");
 if (twoByte) args.splice(args.indexOf("--two-byte"), 1);
+const countListed = args.includes("--count");
+if (countListed) args.splice(args.indexOf("--count"), 1);
 const single = option("--one");
 if (single) one(single, bytes, links, twoByte);
 else if (args.length === 0) console.log(Object.keys(SHAPES).join("\n"));

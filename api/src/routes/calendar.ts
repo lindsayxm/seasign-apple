@@ -184,15 +184,24 @@ function failureCode(error: unknown): CalendarErrorCode {
 /** What is cached: occurrences around the time of the fetch. Holds nothing of the link. */
 type CachedCalendar = { version: 1 } & ParsedCalendar;
 
-async function loadCalendar(link: string, key: string, cache: KVNamespace, now: Date): Promise<ParsedCalendar> {
-  const cached = await cache.get<CachedCalendar>(key, "json");
-  if (cached?.version === 1 && Array.isArray(cached.events)) return cached;
-
+/**
+ * Fetches and parses one calendar. A function of its own so that the fetched
+ * body (up to MAX_CALENDAR_BYTES) is let go when it returns, not held by the
+ * caller's suspended frame while the result is written to the cache.
+ */
+async function fetchCalendar(link: string, now: Date): Promise<ParsedCalendar> {
   const response = await safeFetch(link, { accept: "text/calendar, text/plain;q=0.9, */*;q=0.5", maxBytes: MAX_CALENDAR_BYTES });
   // Decoding and parsing are one synchronous step, so however many links a
   // request fetches at once, one parse at a time is in memory; what adds up
   // is the fetched bodies, each at most MAX_CALENDAR_BYTES (memory/architecture.md).
-  const parsed = parseCalendar(new TextDecoder().decode(response.body), now);
+  return parseCalendar(new TextDecoder().decode(response.body), now);
+}
+
+async function loadCalendar(link: string, key: string, cache: KVNamespace, now: Date): Promise<ParsedCalendar> {
+  const cached = await cache.get<CachedCalendar>(key, "json");
+  if (cached?.version === 1 && Array.isArray(cached.events)) return cached;
+
+  const parsed = await fetchCalendar(link, now);
   const value: CachedCalendar = { version: 1, events: parsed.events, partial: parsed.partial };
   try {
     await cache.put(key, JSON.stringify(value), { expirationTtl: CALENDAR_TTL });
