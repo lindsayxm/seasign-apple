@@ -32,10 +32,11 @@ export const MAX_TAG_CHARS = 8192;
 /** Attributes on one element or processing instruction, counted as the parser finds them. A root element with every namespace has about 20. */
 export const MAX_ATTRIBUTES = 64;
 /**
- * Characters of text in one run between tags. The parser builds such a run
- * one character at a time, and one run of 1M two-byte characters needed
- * 64 to 68 MB of heap where the same text split into runs of this length
- * needed 24. An article's full text is rarely a tenth of this.
+ * Characters (UTF-16 units) of text in one run; see `checkShape` for what
+ * ends a run. The parser builds a run one character at a time: one run of
+ * 1M two-byte characters needed 64 to 68 MB of old space, while 1 MB of
+ * two-byte text in runs of this length needs 20 MB (Node 22; figures in
+ * memory/architecture.md). An article's full text is rarely a tenth of this.
  */
 export const MAX_TEXT_RUN = 131_072;
 /** Tags, comments, CDATA sections and processing instructions in one document. 500 items of 40 elements each are 40,000 tags. */
