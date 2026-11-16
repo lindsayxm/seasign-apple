@@ -350,6 +350,33 @@ const SHAPES: Record<string, (bytes: number) => string> = {
       END,
     );
   },
+  // The same in the window: every event starts now, overrides an instance this
+  // week, and the listed dates are around now.
+  "all-limits-in-window": (bytes) => {
+    const count = 3500;
+    const listing = Array.from({ length: 2000 }, (_, n) => stamp(Date.UTC(2026, 10, 10) / 1000 + n * 600)).join(",");
+    return fill(
+      bytes,
+      CAL,
+      (i) =>
+        i >= count
+          ? "\0".repeat(bytes)
+          : lines(
+              "BEGIN:VEVENT",
+              `UID:${i}`,
+              `SUMMARY:e${i}`,
+              "STATUS:x",
+              "DTSTART:20261117T090000Z",
+              "DTEND:20261117T100000Z",
+              "DURATION:PT1H",
+              `RECURRENCE-ID:${day(i % 7)}`,
+              ..."12345678".split("").map((n) => `RRULE:FREQ=DAILY;INTERVAL=${n}`),
+              ...(i < MAX_LISTED_PER_FILE / 2000 ? [`EXDATE:${listing}`] : []),
+              "END:VEVENT",
+            ),
+      END,
+    );
+  },
   // Commas hidden from a count that takes a quote anywhere in a parameter to
   // open a quoted stretch. ical.js honours a quote only right after `=`, so its
   // value starts at the first colon and holds every comma (task 18, review 1).

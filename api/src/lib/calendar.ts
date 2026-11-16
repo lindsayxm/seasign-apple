@@ -73,11 +73,11 @@ const MAX_RULES_PER_EVENT = 8;
 // An ordinary busy calendar scaled to MAX_CALENDAR_BYTES holds about 4,400
 // events, 31,000 lines to hand on and a few hundred listed dates (see the
 // large calendar in api/test/calendar-parse.test.ts), so these leave about
-// twice that or more. The costliest file they accept sits at every limit at
+// twice that or more. The costliest files measured sit at every limit at
 // once (3,500 events of 17 lines handed on, eight of them rules, and 20,000
-// EXDATE values; 1.7 MB) and needs 44 MB of old space, one-byte or two-byte
-// text, and 48 to 56 MB parsed ten times as one request of ten links does
-// (api/scripts/calendar-memory.ts, shape all-limits; figures in
+// EXDATE values; 1.7 MB) and need 40 to 48 MB of old space, and up to 56 MB
+// parsed ten times as one request of ten links does (shapes all-limits and
+// all-limits-in-window in api/scripts/calendar-memory.ts; figures in
 // memory/architecture.md).
 /** Characters of calendar text read; the route fetches at most this many bytes. */
 export const MAX_CALENDAR_BYTES = 2 * 1024 * 1024;
@@ -1447,7 +1447,9 @@ function cleanEvent(vevent: JCal, budget: Budget): JCal {
  * - past 50 distinct TZIDs without a VTIMEZONE, times are read as floating;
  * - a VEVENT or VTIMEZONE inside another component is not read;
  * - calendars after the first 20 in one file are not read;
- * - a line that is not a property (no colon) is left out.
+ * - a line that is not a property (no colon) is left out;
+ * - a TZID parameter not handed to ical.js (it holds a quote or a backslash,
+ *   or is over 300 characters) leaves that time floating.
  * A VTIMEZONE that `readZone` cannot use is ignored (and so are those past 50
  * in one file); times that name it fall back to the IANA zone of the same
  * name, or to floating. A file may hold several VCALENDARs.
