@@ -187,12 +187,13 @@ enum SearchDay {
     /// the IANA database's is sent: UTC under any of its names (sent as
     /// `UTC`), or, in at most 64 characters of letters, digits, `/`, `_`,
     /// `-` and `+`, a name Foundation lists as known or an `Area/Place` name
-    /// in one of the database's areas that Foundation's time zone data
-    /// recognises (Foundation lists `Asia/Calcutta` but phones in India
-    /// report `Asia/Kolkata`). Anything else (offset zones such as
-    /// `GMT-0500`, abbreviations such as `CST`, which Foundation accepts and
-    /// the API does not, unknown names) is nil and the field is left out;
-    /// the API then counts days in UTC.
+    /// in one of the database's areas that `TimeZone(identifier:)`
+    /// recognises unchanged (Foundation's known list has `Asia/Calcutta`
+    /// but not `Asia/Kolkata`, which `TimeZone(identifier:)` accepts).
+    /// Anything else (offset zones such as `GMT-0500`, abbreviations such
+    /// as `CST`, whose acceptance depends on the server's time zone data,
+    /// unknown names) is nil and the field is left out; the API then
+    /// counts days in UTC.
     static func ianaName(identifier: String) -> String? {
         // Foundation names UTC "GMT"; both are UTC to the API.
         if ["GMT", "UTC", "Etc/UTC", "Etc/GMT"].contains(identifier) { return "UTC" }
@@ -230,7 +231,8 @@ enum KeyStatus: Equatable, Sendable {
     case missing
     /// The Keychain could not be read (for one, before the phone's first
     /// unlock after a restart), so whether a key is stored is not known.
-    /// Nothing is sent and nothing is switched off until it can be read.
+    /// Nothing is sent and the pill keeps its place until it can be read;
+    /// AI-found items are hidden meanwhile, as AI search is not active.
     case unknown
 }
 

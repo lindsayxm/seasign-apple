@@ -20,8 +20,8 @@ import SwiftData
 ///   call; this model never keeps it in a property.
 /// - "No key" and "the Keychain could not be read" are kept apart
 ///   (`KeyStatus`): an unreadable Keychain (before the first unlock after a
-///   restart) sends nothing, switches nothing off and never asks for the key
-///   again. It is read again on every search attempt, when the app becomes
+///   restart) sends nothing, leaves the pill where it is and never asks for
+///   the key again; AI-found items are hidden until it can be read. It is read again on every search attempt, when the app becomes
 ///   active and when Settings opens.
 @MainActor
 @Observable
@@ -265,7 +265,8 @@ final class AISearchModel {
     /// Reads the key and records what the Keychain said. Returns the key for
     /// the caller's local use only. A key found clears an unreadable-key
     /// problem; no key moves the pill back to Use My List; a read that fails
-    /// marks the status unknown and changes nothing else.
+    /// marks the status unknown, records the problem and leaves the pill
+    /// alone (AI-found items are hidden while it is unknown).
     private func readKey() -> APIKey? {
         let key: APIKey?
         do {
