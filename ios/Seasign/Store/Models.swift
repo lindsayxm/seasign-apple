@@ -31,7 +31,7 @@ final class CachedSky {
 
 /// The SwiftData models of the app, in one place for the container and tests.
 enum SeasignSchema {
-    static let models: [any PersistentModel.Type] = [Settings.self, CachedSky.self]
+    static let models: [any PersistentModel.Type] = [Settings.self, CachedSky.self, ListItem.self]
 
     static func container(inMemory: Bool = false) throws -> ModelContainer {
         let schema = Schema(models)

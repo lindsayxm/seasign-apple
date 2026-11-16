@@ -48,7 +48,7 @@ struct TodayView: View {
             case .settings:
                 SettingsView()
             case .doGet:
-                PlaceholderScreen(title: "Do / Get", note: "Your lists will live here.")
+                DoGetView()
             case .saved:
                 PlaceholderScreen(title: "Saved", note: "Saved publications will live here.")
             case .history:
