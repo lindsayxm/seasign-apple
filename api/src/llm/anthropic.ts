@@ -50,6 +50,7 @@ export const anthropic: Adapter = {
     // complete items the text holds are used, and no second request is made.
     const texts: string[] = [];
     const citations: Citation[] = [];
+    const searchErrors: string[] = [];
     for (const block of body.content) {
       if (!isRecord(block)) continue;
       if (block.type === "text") {
@@ -62,12 +63,17 @@ export const anthropic: Adapter = {
         }
       } else if (block.type === "web_search_tool_result") {
         // On a failed search `content` is one error object, not a list.
+        if (isRecord(block.content)) searchErrors.push(asString(block.content.error_code) ?? "");
         for (const result of asArray(block.content)) {
           if (isRecord(result) && result.type === "web_search_result" && typeof result.url === "string") {
             citations.push({ url: result.url, title: asString(result.title), date: asString(result.page_age) });
           }
         }
       }
+    }
+    // Every search failed (inside a 200): say so rather than answer "nothing found".
+    if (citations.length === 0 && searchErrors.length > 0) {
+      throw new DiscoverFailure(searchErrors.includes("too_many_requests") ? "rate_limited" : "provider_error");
     }
     return { text: texts.join(""), citations };
   },

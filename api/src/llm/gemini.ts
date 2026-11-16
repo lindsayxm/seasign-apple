@@ -40,6 +40,7 @@ export const gemini: Adapter = {
     // `incomplete` and `requires_continuation` are read as they are.
     const texts: string[] = [];
     const citations: Citation[] = [];
+    let searchFailed = false;
     for (const step of body.steps) {
       if (!isRecord(step)) continue;
       if (step.type === "model_output") {
@@ -52,7 +53,9 @@ export const gemini: Adapter = {
             }
           }
         }
-      } else if (step.type === "google_search_result" && step.is_error !== true) {
+      } else if (step.type === "google_search_result" && step.is_error === true) {
+        searchFailed = true;
+      } else if (step.type === "google_search_result") {
         // The reference shows results with url and title; the guide's example
         // has only `search_suggestions` (HTML for a widget, which is not read).
         for (const result of asArray(step.result)) {
@@ -60,7 +63,9 @@ export const gemini: Adapter = {
         }
       }
     }
-    return { text: texts.join("\n"), citations };
+    // The search failed (inside a 200) and nothing was cited: say so rather than answer "nothing found".
+    if (citations.length === 0 && searchFailed) throw new DiscoverFailure("provider_error");
+    return { text: texts.join(""), citations };
   },
 
   classifyError(status, body): DiscoverErrorCode {

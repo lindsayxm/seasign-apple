@@ -64,7 +64,7 @@ export const perplexity: Adapter = {
         }
       }
     }
-    return { text: texts.join("\n"), citations };
+    return { text: texts.join(""), citations };
   },
 
   classifyError(status): DiscoverErrorCode {

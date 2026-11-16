@@ -211,6 +211,24 @@ describe.each(PROVIDERS)("%s adapter", (provider) => {
     ]);
   });
 
+  it("keeps an item whose optional fields have the wrong type, without those fields", async () => {
+    const items = [{ ...MODEL_ITEMS[1], source: 5, published: { day: 15 }, description: ["a"], interest: [0, 1] }];
+    mockProvider(provider, () => json(success(JSON.stringify({ items }))));
+
+    const { body } = await discover(provider);
+
+    const dated = provider === "anthropic" || provider === "perplexity";
+    expect(body.items).toEqual([
+      {
+        ...EXPECTED_ITEMS[1],
+        source: "observatory.example.org",
+        published: dated ? "2026-11-15T00:00:00Z" : null,
+        excerpt: null,
+        interest: null,
+      },
+    ]);
+  });
+
   it("returns only links that appear in the provider's citations", async () => {
     // The search found only the first page; the model names three.
     mockProvider(provider, () => json(success(modelJson(MODEL_ITEMS.slice(0, 3)), CITES.slice(0, 1))));
@@ -352,6 +370,25 @@ describe("provider-specific shapes", () => {
     expect((await discover("anthropic")).body.items).toEqual(EXPECTED_ITEMS.slice(0, 1));
   });
 
+  it("anthropic: when every search failed inside a 200, the answer is an error, not an empty list", async () => {
+    const failedSearch = (code: string) => ({
+      type: "message",
+      role: "assistant",
+      content: [
+        { type: "server_tool_use", id: "srvtoolu_01", name: "web_search", input: { query: "tide pools" } },
+        { type: "web_search_tool_result", tool_use_id: "srvtoolu_01", content: { type: "web_search_tool_result_error", error_code: code } },
+        { type: "text", text: '{"items":[]}' },
+      ],
+      stop_reason: "end_turn",
+    });
+    mockProvider("anthropic", () => json(failedSearch("too_many_requests")));
+    expect((await discover("anthropic")).body.error).toBe("rate_limited");
+    vi.restoreAllMocks();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockProvider("anthropic", () => json(failedSearch("unavailable")));
+    expect((await discover("anthropic")).body.error).toBe("provider_error");
+  });
+
   it("openai: a failed response is a provider error, or rate_limited when it says so", async () => {
     const failed = (code: string) => ({ ...(SUCCESS.openai("") as object), status: "failed", error: { code, message: `quoting ${FAKE_KEY}` } });
     mockProvider("openai", () => json(failed("server_error")));
@@ -365,6 +402,19 @@ describe("provider-specific shapes", () => {
   it("gemini: with only search suggestions, the annotations are the citations", async () => {
     mockProvider("gemini", () => json(geminiBody(modelJson(), CITES, false)));
     expect((await discover("gemini")).body.items).toEqual(EXPECTED_ITEMS);
+  });
+
+  it("gemini: a failed search inside a 200 with nothing cited is a provider error", async () => {
+    const body = {
+      status: "completed",
+      steps: [
+        { type: "google_search_call", id: "search_call_1", arguments: { queries: ["tide pools"] } },
+        { type: "google_search_result", call_id: "search_call_1", is_error: true, result: [] },
+        { type: "model_output", content: [{ type: "text", text: '{"items":[]}' }] },
+      ],
+    };
+    mockProvider("gemini", () => json(body));
+    expect((await discover("gemini")).body.error).toBe("provider_error");
   });
 
   it("gemini: grounding redirect links are not returned", async () => {

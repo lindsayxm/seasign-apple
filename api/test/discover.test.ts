@@ -207,6 +207,17 @@ describe("POST /v1/discover key handling", () => {
       expect(await run(provider, () => Promise.reject(new Error(`connect failed for ${FAKE_KEY}`)))).toBe(502);
       expect(await run(provider, () => new Response(`{"k":"${FAKE_KEY}","pad":"${" ".repeat(PROVIDER_MAX_BYTES)}"}`, { status: 200 }))).toBe(502);
       expect(await run(provider, () => new Response(`not json ${FAKE_KEY}`, { status: 200 }))).toBe(502);
+      // No answer by the deadline (shortened here), the abort quoting the key.
+      providerDeadline.ms = 50;
+      try {
+        const hang: Reply = (signal) =>
+          new Promise<Response>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(new Error(`aborted while sending ${FAKE_KEY}`)));
+          });
+        expect(await run(provider, hang)).toBe(504);
+      } finally {
+        providerDeadline.ms = PROVIDER_TIMEOUT_MS;
+      }
       // Refused before any call: the key is malformed, or the body is.
       expect(await run(provider, () => json({}), { ...VALID, provider }, `${FAKE_KEY} `.repeat(2).trim())).toBe(400);
       expect(await run(provider, () => json({}), { provider, interests: [] })).toBe(400);

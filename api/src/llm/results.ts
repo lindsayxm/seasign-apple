@@ -35,14 +35,15 @@ export type DiscoverItem = {
   interest: string | null;
 };
 
-// One item as the model was asked to write it. Every field is checked again below.
+// One item as the model was asked to write it. Every field is checked again
+// below. Title and URL must be right; a wrong optional field only loses that field.
 const ModelItem = z.object({
   title: z.string().max(4000),
   url: z.string().max(MAX_LINK * 2),
-  source: z.string().max(4000).nullish(),
-  published: z.string().max(200).nullish(),
-  description: z.string().max(8000).nullish(),
-  interest: z.union([z.number(), z.string().max(400)]).nullish(),
+  source: z.string().max(4000).nullish().catch(null),
+  published: z.string().max(200).nullish().catch(null),
+  description: z.string().max(8000).nullish().catch(null),
+  interest: z.union([z.number(), z.string().max(400)]).nullish().catch(null),
 });
 type ModelItem = z.infer<typeof ModelItem>;
 
@@ -159,7 +160,10 @@ export function matchKey(input: string): string | null {
   const params = [...url.searchParams].filter(([name]) => !TRACKING.test(name));
   params.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const query = params.length > 0 ? `?${new URLSearchParams(params).toString()}` : "";
-  const path = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : "";
+  // Trailing slashes are dropped with a loop: a pattern anchored at the end would rescan long runs of slashes.
+  let end = url.pathname.length;
+  while (end > 1 && url.pathname.charCodeAt(end - 1) === 47) end -= 1;
+  const path = end > 1 ? url.pathname.slice(0, end) : "";
   return `${host}${path}${query}`;
 }
 

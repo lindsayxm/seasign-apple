@@ -68,7 +68,7 @@ export const openai: Adapter = {
         if (item.action.type === "open_page" && typeof item.action.url === "string") citations.push({ url: item.action.url });
       }
     }
-    return { text: texts.join("\n"), citations };
+    return { text: texts.join(""), citations };
   },
 
   classifyError(status, body): DiscoverErrorCode {
