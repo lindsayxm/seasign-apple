@@ -1,11 +1,11 @@
 ---
 id: 18
 title: API: bound memory on the calendar path
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [7]
 created: 2026-11-16T03:45:09Z
-updated: 2026-11-16T03:45:09Z
+updated: 2026-11-16T13:15:23Z
 ---
 
 ## Goal
@@ -30,3 +30,5 @@ Measured during task 7 (Node, --max-old-space-size): parseCalendar on a hostile 
 ## Log
 
 - 2026-11-16T03:45:09Z [li] created (backlog)
+- 2026-11-16T13:15:23Z [li] status: backlog → todo
+- 2026-11-16T13:15:23Z [implementer-1] status: todo → in-progress — claimed by implementer-1
