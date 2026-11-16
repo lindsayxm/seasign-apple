@@ -77,6 +77,7 @@ struct ArticleFilterBar: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .light))
                         .foregroundStyle(Palette.dimText)
+                        .accessibilityHidden(true)
                 }
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
