@@ -5,7 +5,7 @@ status: todo
 owner: 
 depends_on: []
 created: 2026-11-16T13:14:12Z
-updated: 2026-11-16T21:11:11Z
+updated: 2026-11-16T21:29:06Z
 ---
 
 ## Goal
@@ -40,3 +40,4 @@ From the task 11 review. (L1) api/src/routes/discover.ts:183-185 drops an item o
 - 2026-11-16T14:42:32Z [implementer-2] review (lead): L1-L6 committed as 57491fa; I ran npm test (1,538 passed) and tsc (clean) in api/, and the iOS suite on iPhone 17 (iOS 27.2) against the changed spec descriptions (341 passed). Criterion 1 ticked. Accepted: MAX_FENCES = 20; the stricter timezone rule (GMT, Etc/GMT+5 and US/Eastern refused; every Foundation and Intl zone name except GMT passes, and the app sends UTC for GMT); an unexpected exception inside a provider call now answers 500 internal_error instead of 502. Task stays in-progress for M1 and the real-key smoke tests, which need the user. Owner released to the lead.
 - 2026-11-16T21:11:11Z [lead] Session end 2026-11-16: criterion 1 (L1-L6) is done and committed (57491fa). Criterion 2 is not started: it needs the user's own provider keys. Next: run npx wrangler dev in api/, the user enters a key in the Simulator (never given to the agent, never logged), test Gemini first (M1: the Interactions API may return no result URLs for a JSON-only answer), then Anthropic, OpenAI, Perplexity; record results here without the key. Released to todo until the user is ready.
 - 2026-11-16T21:11:11Z [lead] status: in-progress → todo
+- 2026-11-16T21:29:06Z [lead] 2026-11-16: on hold at the user's request. The user has no Google Gemini key yet; the smoke tests wait until they have keys.
