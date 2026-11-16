@@ -273,6 +273,35 @@ describe("times", () => {
     expect(brief(upcoming(text, NOW, "America/Chicago"))).toEqual(["x @ 2026-11-17T15:00:00Z"]);
   });
 
+  describe("a TZID nobody can interpret", () => {
+    const event = (tzid: string) => calendarOf(vevent("SUMMARY:x", `DTSTART;TZID=${tzid}:20261117T090000`));
+
+    it("reads the time in the request's zone and reports the calendar as partly read", () => {
+      const parsed = parseCalendar(event("Nowhere/Made Up"), NOW);
+      expect(parsed.partial).toBe(true);
+      expect(brief(upcomingEvents(parsed.events, NOW, "America/Chicago"))).toEqual(["x @ 2026-11-17T15:00:00Z"]);
+    });
+
+    it("is not partly read when the name is an IANA or a Windows zone", () => {
+      expect(parseCalendar(event("America/Chicago"), NOW).partial).toBe(false);
+      expect(parseCalendar(event("Central Standard Time"), NOW).partial).toBe(false);
+    });
+
+    it("is partly read when the file's own definition of the zone is unusable", () => {
+      const broken = [
+        "BEGIN:VTIMEZONE",
+        "TZID:Nowhere/Made Up",
+        "BEGIN:STANDARD",
+        "TZOFFSETFROM:-0500",
+        "DTSTART:19701101T020000",
+        "END:STANDARD",
+        "END:VTIMEZONE",
+      ];
+      const text = calendarOf(broken, vevent("SUMMARY:x", "DTSTART;TZID=Nowhere/Made Up:20261117T090000"));
+      expect(parseCalendar(text, NOW).partial).toBe(true);
+    });
+  });
+
   describe("Windows time zone names without a VTIMEZONE", () => {
     // 09:00 on 17 November 2026 and on 15 July 2027, wherever the zone is.
     it.each([

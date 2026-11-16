@@ -212,7 +212,13 @@ function zoneOf(property: Property, time: Time, budget: Budget): Zone {
     const mapped = Object.hasOwn(WINDOWS_ZONES, tzid.trim()) ? WINDOWS_ZONES[tzid.trim()] : undefined;
     if (isTimeZone(tzid)) named = { type: "iana", timeZone: tzid };
     else if (mapped && isTimeZone(mapped)) named = { type: "iana", timeZone: mapped };
-    else named = { type: "floating" };
+    else {
+      // A TZID nobody can interpret (no usable VTIMEZONE, not an IANA or
+      // Windows name): the time is read in the request's zone, which may be
+      // wrong, so the calendar is reported as partly read.
+      named = { type: "floating" };
+      budget.partial = true;
+    }
     budget.zones.set(tzid, named);
   }
   return named;
