@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-1
 depends_on: [7]
 created: 2026-11-16T03:45:09Z
-updated: 2026-11-16T13:15:23Z
+updated: 2026-11-16T13:21:28Z
 ---
 
 ## Goal
@@ -32,3 +32,4 @@ Measured during task 7 (Node, --max-old-space-size): parseCalendar on a hostile 
 - 2026-11-16T03:45:09Z [li] created (backlog)
 - 2026-11-16T13:15:23Z [li] status: backlog → todo
 - 2026-11-16T13:15:23Z [implementer-1] status: todo → in-progress — claimed by implementer-1
+- 2026-11-16T13:21:28Z [implementer-1] Harness: api/scripts/calendar-memory.ts (Node 22.14, --experimental-strip-types). Builds a named shape in-process at the size cap, decodes it with TextDecoder like the route, runs parseCalendar under --max-old-space-size, two runs per cap, caps 160..8 MB; reports the smallest cap where both runs pass. BASELINE at 2 MB, before any change (passes at / fails at, MB): exdate-lines (83k EXDATE lines, one event) 120/112; rdate-lines 120/112; rrule-lines (RRULE lines in one event) 112/104; exdate-values (one EXDATE line, 116k values) 96/88; nested-open (233k BEGIN:X, refused) 96/88; small-events (28k 4-line events) 88/80; overrides-shared-uid 88/80; exdate-lines-tzid 80/64; zone-rdates 72/64; events-in-window 64/60; nested-closed 64/60; nested-in-event 64/60; ignored-lines (X: lines) 60/56; events-with-alarms 60/56; small-events-tzid 60/56; dtstart-lines 52/48; no-colon-lines 52/48; summary-lines 44/40; zone-observances 44/40; smallest-events 40/36; blank-lines, huge-summary-escaped, many-calendars, sibling-components, tzid-dtstart-lines, vtimezones-empty, vtimezones-full 36/32; alarms-in-one-event, folded-summary 28/24; ordinary (2,600 Google-style events, 1.85 MB) 28/24; long-summaries 24/20; huge-summary, huge-summary-bad-bytes, huge-uid 20/16; huge-description, lf-folds, params, tzid-long 16/12; tiny 12/8. Matches task 7's figures for exdate (112) and nesting (96); my small-events shape is a little denser than task 7's (88 vs 56).
