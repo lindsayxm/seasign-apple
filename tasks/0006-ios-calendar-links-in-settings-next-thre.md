@@ -1,11 +1,11 @@
 ---
 id: 6
 title: iOS: calendar links in Settings, next three events on Today
-status: review
+status: done
 owner: implementer-2
 depends_on: [4, 5]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-16T21:11:11Z
+updated: 2026-11-16T21:28:22Z
 ---
 
 ## Goal
@@ -14,7 +14,7 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Sett
 
 ## Acceptance criteria
 
-- [ ] Adding a link in Settings shows its next three events on Today; removing it clears them
+- [x] Adding a link in Settings shows its next three events on Today; removing it clears them
 - [x] No calendar permission prompt appears; Info.plist has no calendar usage string
 - [x] A failing link shows a message in Settings, not an empty Today
 - [x] Simulator screenshot of Today with events recorded in the task log; tests pass on both simulators
@@ -42,3 +42,6 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Sett
 - 2026-11-16T02:43:58Z [implementer-2] criterion 4 met: Simulator screenshot of Today with events recorded in the task log; tests pass on both simulators
 - 2026-11-16T02:43:58Z [implementer-2] review (lead): ran the suite on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2): 149 tests passed on each. Viewed today-events.png: three events to the right of the date, times and caps titles as in the mockup. No EventKit import or logging calls in ios/Seasign. Criteria 2-4 ticked. Criterion 1 left unticked: add-link-to-events is proven by stub-transport tests only; a live check needs a real calendar link over https, which the user can paste into the Simulator with wrangler dev running. Staying in review until then.
 - 2026-11-16T21:11:11Z [lead] Session end 2026-11-16: still waiting on criterion 1, the live check with a real calendar link pasted by the user in the Simulator while npx wrangler dev runs in api/. Everything else is ticked.
+- 2026-11-16T21:28:22Z [lead] Live check 2026-11-16 (lead with the user): local API on wrangler dev; the user pasted a real Google secret iCal address in the Simulator. First attempt failed with the connection message because wrangler dev was not running; after starting it the link was accepted (POST /v1/calendar/events 200 in the wrangler log, and the log holds no part of the link). The user confirmed the next events show on Today with the right titles and times, and that removing the link clears them. No screenshot was taken, to keep the user's real calendar out of the session.
+- 2026-11-16T21:28:22Z [lead] criterion 1 met: Adding a link in Settings shows its next three events on Today; removing it clears them
+- 2026-11-16T21:28:22Z [lead] status: review → done
