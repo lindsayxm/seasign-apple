@@ -130,9 +130,12 @@ final class FeedModel {
     }
 
     /// Today's candidates: items dated since the start of yesterday in
-    /// `timeZone`, newest first. Today shows as many of these as fit.
+    /// `timeZone`, the followed sites' and the AI-found taken in turn, each
+    /// newest first (`HeadlinePicker.everyOther`); with AI-found items hidden
+    /// or none found, simply newest first. Today shows as many of these as
+    /// fit. History keeps `entries`, strictly newest first.
     func headlines(now: Date, timeZone: TimeZone) -> [FeedEntry] {
-        HeadlinePicker.sinceYesterday(entries, now: now, timeZone: timeZone)
+        HeadlinePicker.everyOther(entries, now: now, timeZone: timeZone)
     }
 
     /// Asks for every site's items, unless the last full refresh is younger

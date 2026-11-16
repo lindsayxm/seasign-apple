@@ -168,6 +168,129 @@ private func entry(
     }
 }
 
+@Suite struct EveryOtherTests {
+    private let newYork = TimeZone(identifier: "America/New_York")!
+    /// 18:05 Sunday 15 November in New York; yesterday began at 05:00Z on the 14th.
+    private let now = instant("2026-11-15T23:05:00Z")
+
+    private func site(_ title: String, _ published: String) -> FeedEntry {
+        entry(title, published: published, link: "https://site.example/\(title)")
+    }
+
+    private func ai(_ title: String, _ published: String) -> FeedEntry {
+        var item = entry(title, published: published, link: "https://found.example/\(title)")
+        item.origin = .ai
+        item.siteID = nil
+        item.interest = "tide pools"
+        item.provider = .anthropic
+        return item
+    }
+
+    private func blend(_ entries: [FeedEntry]) -> [String] {
+        HeadlinePicker.everyOther(entries, now: now, timeZone: newYork).map(\.title)
+    }
+
+    @Test func bothStreamsAlternateStartingWithTheSites() {
+        let items = [
+            ai("A1", "2026-11-15T22:00:00Z"),
+            ai("A2", "2026-11-15T12:00:00Z"),
+            site("S1", "2026-11-15T20:00:00Z"),
+            site("S2", "2026-11-15T10:00:00Z"),
+        ]
+        // A1 is the newest of all, but a site's item still comes first.
+        #expect(blend(items) == ["S1", "A1", "S2", "A2"])
+    }
+
+    @Test func oneEmptyStreamLeavesTheOtherNewestFirst() {
+        let sites = [site("S2", "2026-11-15T10:00:00Z"), site("S1", "2026-11-15T20:00:00Z")]
+        #expect(blend(sites) == ["S1", "S2"])
+        let found = [ai("A2", "2026-11-15T10:00:00Z"), ai("A1", "2026-11-15T20:00:00Z")]
+        #expect(blend(found) == ["A1", "A2"])
+        #expect(blend([]).isEmpty)
+    }
+
+    @Test func unequalLengthsContinueWithTheLongerStream() {
+        let moreSites = [
+            site("S1", "2026-11-15T22:00:00Z"), site("S2", "2026-11-15T21:00:00Z"),
+            site("S3", "2026-11-15T20:00:00Z"), site("S4", "2026-11-15T19:00:00Z"),
+            ai("A1", "2026-11-15T22:30:00Z"),
+        ]
+        #expect(blend(moreSites) == ["S1", "A1", "S2", "S3", "S4"])
+        let moreAI = [
+            site("S1", "2026-11-15T12:00:00Z"),
+            ai("A1", "2026-11-15T22:00:00Z"), ai("A2", "2026-11-15T21:00:00Z"), ai("A3", "2026-11-15T20:00:00Z"),
+        ]
+        #expect(blend(moreAI) == ["S1", "A1", "A2", "A3"])
+    }
+
+    /// With AI-found items hidden, `FeedModel.entries` holds none, and Today
+    /// is exactly the newest-first list it was before.
+    @Test func withoutAIItemsTodayIsUnchanged() {
+        let sites = [
+            site("S3", "2026-11-14T06:00:00Z"),
+            site("S1", "2026-11-15T22:00:00Z"),
+            site("Old", "2026-11-14T04:00:00Z"),
+            site("S2", "2026-11-15T03:00:00Z"),
+        ]
+        #expect(HeadlinePicker.everyOther(sites, now: now, timeZone: newYork)
+            == HeadlinePicker.sinceYesterday(sites, now: now, timeZone: newYork))
+        #expect(blend(sites) == ["S1", "S2", "S3"])
+    }
+
+    /// Each stream keeps the window of `sinceYesterday`: an old AI-found item
+    /// does not take a turn.
+    @Test func bothStreamsKeepTheSinceYesterdayWindow() {
+        let items = [
+            site("S1", "2026-11-15T20:00:00Z"),
+            site("S2", "2026-11-15T10:00:00Z"),
+            ai("Old AI", "2026-11-14T04:59:59Z"),
+            ai("A1", "2026-11-14T05:00:00Z"),
+        ]
+        #expect(blend(items) == ["S1", "A1", "S2"])
+    }
+
+    /// Items with the same date keep a fixed order by link within their
+    /// stream, and the blend does not depend on the order items arrive in,
+    /// so a refresh that changes nothing reorders nothing.
+    @Test func tiesAndRepeatedRefreshesGiveTheSameOrder() {
+        let items = [
+            site("Sb", "2026-11-15T20:00:00Z"),
+            site("Sa", "2026-11-15T20:00:00Z"),
+            ai("Ab", "2026-11-15T20:00:00Z"),
+            ai("Aa", "2026-11-15T20:00:00Z"),
+            site("Sc", "2026-11-15T09:00:00Z"),
+        ]
+        let expected = ["Sa", "Aa", "Sb", "Ab", "Sc"]
+        #expect(blend(items) == expected)
+        #expect(blend(items.reversed()) == expected)
+        var generator = SeededGenerator(seed: 23)
+        for _ in 0..<20 {
+            #expect(blend(items.shuffled(using: &generator)) == expected)
+        }
+    }
+
+    @Test func everyAIItemKeepsItsMark() {
+        let items = [ai("A1", "2026-11-15T22:00:00Z"), site("S1", "2026-11-15T20:00:00Z")]
+        let blended = HeadlinePicker.everyOther(items, now: now, timeZone: newYork)
+        #expect(blended.map(\.isAI) == [false, true])
+        #expect(blended[1].origin == .ai)
+    }
+}
+
+/// A fixed sequence for shuffles that must be the same on every run.
+private struct SeededGenerator: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        // SplitMix64.
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
 @Suite struct HeadlineFitTests {
     @Test func takesTheLongestRunThatFits() {
         // One-line headlines of 14.5 with 28.5 between: 3 need 14.5*3 + 57 = 100.5.
@@ -193,12 +316,29 @@ private func entry(
 @Suite struct FeedWordingTests {
     @Test func readingDateSaysWhereTheDateCameFrom() {
         let newYork = TimeZone(identifier: "America/New_York")!
-        let published = ReadingDate(entry: entry("A", published: "2026-11-15T19:18:00Z"), timeZone: newYork)
+        let published = ReadingDate(entry: entry("A", published: "2026-11-15T19:18:00Z"), timeZone: newYork, clock: .twelveHour)
         #expect(published.label == "Published")
         #expect(published.value == "Nov 15, 2026 2:18PM")
-        let seen = ReadingDate(entry: entry("B", published: "2026-11-16T04:30:00Z", dateSource: .firstSeen), timeZone: newYork)
+        let seen = ReadingDate(entry: entry("B", published: "2026-11-16T04:30:00Z", dateSource: .firstSeen), timeZone: newYork, clock: .twelveHour)
         #expect(seen.label == "First seen")
         #expect(seen.value == "Nov 15, 2026 11:30PM")
+    }
+
+    /// The reading view's time follows the phone's 24-hour setting, in the
+    /// place's zone: the same instant is another day and hour in Tokyo.
+    @Test func readingDateInBothForms() {
+        let newYork = TimeZone(identifier: "America/New_York")!
+        let tokyo = TimeZone(identifier: "Asia/Tokyo")!
+        let afternoon = entry("A", published: "2026-11-15T19:18:00Z")
+        #expect(ReadingDate(entry: afternoon, timeZone: newYork, clock: .twentyFourHour).value == "Nov 15, 2026 14:18")
+        #expect(ReadingDate(entry: afternoon, timeZone: tokyo, clock: .twentyFourHour).value == "Nov 16, 2026 04:18")
+        #expect(ReadingDate(entry: afternoon, timeZone: tokyo, clock: .twelveHour).value == "Nov 16, 2026 4:18AM")
+        let midnight = entry("B", published: "2026-11-16T05:00:00Z")
+        #expect(ReadingDate(entry: midnight, timeZone: newYork, clock: .twentyFourHour).value == "Nov 16, 2026 00:00")
+        #expect(ReadingDate(entry: midnight, timeZone: newYork, clock: .twelveHour).value == "Nov 16, 2026 12:00AM")
+        let noon = entry("C", published: "2026-11-16T17:00:00Z")
+        #expect(ReadingDate(entry: noon, timeZone: newYork, clock: .twentyFourHour).value == "Nov 16, 2026 12:00")
+        #expect(ReadingDate(entry: noon, timeZone: newYork, clock: .twelveHour).value == "Nov 16, 2026 12:00PM")
     }
 
     @Test func everyProblemHasItsOwnFixedMessage() {

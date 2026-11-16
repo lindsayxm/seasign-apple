@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// The headlines in the water on Today: the newest items since yesterday, as
-/// many as fit whole in the space above the `>>` button. It never scrolls.
+/// The headlines in the water on Today: the items since yesterday, the
+/// followed sites' and the AI-found every other (`HeadlinePicker.everyOther`),
+/// as many as fit whole in the space above the `>>` button. It never scrolls.
 ///
 /// How many fit is worked out before anything is laid out: each headline's
 /// height is its line count from `CapsWrapper.wrap` (at most two lines)
 /// times the line pitch, and `HeadlineFit.count` takes the longest run from
-/// the newest that fits with the spacing between them.
+/// the first that fits with the spacing between them.
 ///
 /// An AI-found headline carries the "AI" mark before its first line and is
 /// wrapped in what is left of the width, so the count above stays exact.
@@ -14,7 +15,7 @@ import SwiftUI
 /// With no site followed and nothing to show, one quiet line points to
 /// Settings. With sites but nothing new since yesterday, the water stays empty.
 struct HeadlinesColumn: View {
-    /// Newest first (`FeedModel.headlines`).
+    /// In Today's order (`FeedModel.headlines`).
     var candidates: [FeedEntry]
     /// Scale of the Today layout (1 on a 393 pt wide screen).
     var s: CGFloat

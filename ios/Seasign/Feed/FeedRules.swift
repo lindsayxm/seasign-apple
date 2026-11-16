@@ -327,16 +327,40 @@ enum HeadlinePicker {
         let start = startOfYesterday(now: now, timeZone: timeZone)
         return entries.filter { $0.published >= start }.sorted(by: FeedEntry.newestFirst)
     }
+
+    /// Today's order: the items since the start of yesterday (as
+    /// `sinceYesterday`), as two streams, the followed sites' and the
+    /// AI-found, each newest first, taken in turn starting with a site's
+    /// (site, AI, site, AI, …); when one stream runs out, the rest of the
+    /// other follows in its own order. With no AI-found item among `entries`
+    /// (AI search off or hidden, or nothing found) this is `sinceYesterday`
+    /// exactly. The order depends only on the items, not on the order they
+    /// are passed in, so a refresh that changes nothing changes nothing on Today.
+    static func everyOther(_ entries: [FeedEntry], now: Date, timeZone: TimeZone) -> [FeedEntry] {
+        let recent = sinceYesterday(entries, now: now, timeZone: timeZone)
+        return alternate(sites: recent.filter { !$0.isAI }, ai: recent.filter(\.isAI))
+    }
+
+    /// `sites[0], ai[0], sites[1], ai[1], …`, then what is left of the longer one.
+    static func alternate(sites: [FeedEntry], ai: [FeedEntry]) -> [FeedEntry] {
+        var result: [FeedEntry] = []
+        result.reserveCapacity(sites.count + ai.count)
+        for index in 0..<max(sites.count, ai.count) {
+            if index < sites.count { result.append(sites[index]) }
+            if index < ai.count { result.append(ai[index]) }
+        }
+        return result
+    }
 }
 
-/// How many headlines Today shows: as many of the newest as fit in the water
-/// above the `>>` button, whole, with no scrolling.
+/// How many headlines Today shows: as many as fit in the water above the
+/// `>>` button, whole, with no scrolling, taken in Today's order from the first.
 enum HeadlineFit {
     /// Never more than this many, even on a tall screen.
     static let maxCount = 5
 
     /// The longest run from the start of `heights` (each headline's height,
-    /// newest first) that fits in `available` with `spacing` between
+    /// in Today's order) that fits in `available` with `spacing` between
     /// headlines, and no more than `limit`.
     static func count(heights: [CGFloat], spacing: CGFloat, available: CGFloat, limit: Int = maxCount) -> Int {
         var used: CGFloat = 0
@@ -356,27 +380,26 @@ enum HeadlineFit {
 struct ReadingDate: Equatable, Sendable {
     /// "Published" or "First seen".
     var label: String
-    /// "Nov 15, 2026 2:18PM", in the time zone given. Built by hand so the
-    /// phone's region and 24-hour setting do not change it, like the event times.
+    /// "Nov 15, 2026 2:18PM", or "Nov 15, 2026 14:18" with the phone on
+    /// 24-hour time, in the time zone given. Built by hand so the phone's
+    /// region does not change it; only the clock follows the phone's
+    /// 12- or 24-hour setting, like the event times.
     var value: String
 
     private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-    init(entry: FeedEntry, timeZone: TimeZone) {
-        self.init(published: entry.published, dateSource: entry.dateSource, timeZone: timeZone)
+    init(entry: FeedEntry, timeZone: TimeZone, clock: ClockStyle) {
+        self.init(published: entry.published, dateSource: entry.dateSource, timeZone: timeZone, clock: clock)
     }
 
-    init(item: ReadingItem, timeZone: TimeZone) {
-        self.init(published: item.published, dateSource: item.dateSource, timeZone: timeZone)
+    init(item: ReadingItem, timeZone: TimeZone, clock: ClockStyle) {
+        self.init(published: item.published, dateSource: item.dateSource, timeZone: timeZone, clock: clock)
     }
 
-    init(published: Date, dateSource: FeedDateSource, timeZone: TimeZone) {
+    init(published: Date, dateSource: FeedDateSource, timeZone: TimeZone, clock: ClockStyle) {
         label = dateSource == .firstSeen ? "First seen" : "Published"
         let parts = Self.parts(of: published, in: timeZone)
-        let hour = parts.hour ?? 0
-        let hour12 = hour % 12 == 0 ? 12 : hour % 12
-        let minute = String(format: "%02d", parts.minute ?? 0)
-        value = Self.day(parts) + " \(hour12):\(minute)\(hour < 12 ? "AM" : "PM")"
+        value = Self.day(parts) + " " + clock.clock(hour: parts.hour ?? 0, minute: parts.minute ?? 0).shown
     }
 
     /// "Nov 10, 2026": the day alone, for the `SOURCE · DATE` line of the

@@ -12,6 +12,8 @@ struct TodayView: View {
     @Environment(SavedModel.self) private var saved
     @Environment(AISearchModel.self) private var ai
     @Environment(\.scenePhase) private var scenePhase
+    /// The phone's 12- or 24-hour setting, for the event times.
+    @Environment(\.clockStyle) private var clockStyle
 
     @State private var destination: Destination?
     /// The headline open in the reading view.
@@ -217,7 +219,7 @@ struct TodayView: View {
     /// (see `EventsColumn` for how the two share the space).
     private func eventsColumn(now: Date, s: CGFloat, width: CGFloat) -> some View {
         EventsColumn(
-            labels: events.labels(now: now),
+            labels: events.labels(now: now, clock: clockStyle),
             s: s,
             width: width,
             zipPrompt: model.zip == nil ? { destination = .settings } : nil

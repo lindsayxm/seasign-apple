@@ -399,5 +399,32 @@ private enum Pages {
         #expect(sample.sites.count == 3)
         #expect(sample.headlines(now: now, timeZone: TimeZone(identifier: "America/New_York")!).count == 5)
     }
+
+    /// Today through the model: with AI-found items hidden it is exactly the
+    /// old newest-first list; shown, they alternate with the sites' items,
+    /// starting with a site's. History (`entries`) stays newest first.
+    @Test func todayBlendsAIFoundItemsEveryOtherOnlyWhileTheyAreShown() throws {
+        let now = instant("2026-11-15T23:05:00Z")
+        let newYork = TimeZone(identifier: "America/New_York")!
+        let sample = try FeedModel.sample(now: now)
+        sample.addSampleAIItems(now: now)
+
+        sample.showsAI = false
+        let hidden = sample.headlines(now: now, timeZone: newYork)
+        #expect(hidden == HeadlinePicker.sinceYesterday(sample.entries, now: now, timeZone: newYork))
+        #expect(hidden.map(\.title) == PlaceholderHeadlines.all)
+
+        sample.showsAI = true
+        let shown = sample.headlines(now: now, timeZone: newYork)
+        #expect(shown.map(\.isAI) == [false, true, false, true, false, false, false])
+        #expect(shown.filter { !$0.isAI }.map(\.title) == PlaceholderHeadlines.all)
+        #expect(shown.filter(\.isAI).map(\.title) == [
+            "Tide pools are filling with warm-water visitors this fall",
+            "A small telescope on a dark ridge caught a comet's tail splitting",
+        ])
+        // History is not blended.
+        #expect(sample.entries == sample.entries.sorted(by: FeedEntry.newestFirst))
+        #expect(sample.entries.first?.isAI == true)
+    }
 }
 #endif

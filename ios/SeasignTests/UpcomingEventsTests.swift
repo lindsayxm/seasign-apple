@@ -60,7 +60,7 @@ private func event(
         func labels(at now: Date) -> [String] {
             let snapshot = EventsSnapshot.make(from: answer, links: ids, timezone: zone.identifier, previous: nil, now: now)
             return EventPicker.next(snapshot.events, now: now).map {
-                let label = EventLabel(event: $0, now: now, timeZone: zone)
+                let label = EventLabel(event: $0, now: now, timeZone: zone, clock: .twelveHour)
                 return "\(label.time) \(label.title)"
             }
         }
@@ -216,8 +216,13 @@ private func event(
     /// 18:05 on Sunday 15 November in New York.
     private let now = instant("2026-11-15T23:05:00Z")
 
-    private func label(_ event: UpcomingEvent, now: Date? = nil, in zone: TimeZone = newYork) -> EventLabel {
-        EventLabel(event: event, now: now ?? self.now, timeZone: zone)
+    private func label(
+        _ event: UpcomingEvent,
+        now: Date? = nil,
+        in zone: TimeZone = newYork,
+        clock: ClockStyle = .twelveHour
+    ) -> EventLabel {
+        EventLabel(event: event, now: now ?? self.now, timeZone: zone, clock: clock)
     }
 
     @Test func timeIsTwelveHourWithoutASpace() {
@@ -293,6 +298,85 @@ private func event(
         let untitled = label(event("", "2026-11-16T01:25:00Z"))
         #expect(untitled.title == "No title")
         #expect(untitled.spoken == "No title, 8:25 PM")
+    }
+
+    // MARK: 24-hour time
+
+    /// The phone set to 24-hour time: two-digit hours, no AM or PM.
+    @Test func twentyFourHourTimesHaveTwoDigitHours() {
+        #expect(label(event("A", "2026-11-16T01:25:00Z"), clock: .twentyFourHour).time == "20:25")
+        #expect(label(event("A", "2026-11-16T02:00:00Z"), clock: .twentyFourHour).time == "21:00")
+        // Earlier today and still running: 10:15 in the morning.
+        #expect(label(event("A", "2026-11-15T15:15:00Z", "2026-11-16T00:00:00Z"), clock: .twentyFourHour).time == "10:15")
+    }
+
+    @Test func midnightAndNoonInBothForms() {
+        let saturdayNight = instant("2026-11-15T04:30:00Z") // 23:30 Saturday in New York
+        let midnight = event("A", "2026-11-15T05:00:00Z")
+        #expect(label(midnight, now: saturdayNight, clock: .twelveHour).time == "SUN 12:00AM")
+        #expect(label(midnight, now: saturdayNight, clock: .twentyFourHour).time == "SUN 00:00")
+        let afterMidnight = event("A", "2026-11-15T05:30:00Z")
+        #expect(label(afterMidnight, now: instant("2026-11-15T05:10:00Z"), clock: .twentyFourHour).time == "00:30")
+        let noon = event("A", "2026-11-15T17:00:00Z", "2026-11-16T00:00:00Z")
+        #expect(label(noon, clock: .twelveHour).time == "12:00PM")
+        #expect(label(noon, clock: .twentyFourHour).time == "12:00")
+    }
+
+    @Test func aLaterDayInBothForms() {
+        let tuesday = event("A", "2026-11-17T14:00:00Z")
+        #expect(label(tuesday, clock: .twelveHour).time == "TUE 9:00AM")
+        #expect(label(tuesday, clock: .twentyFourHour).time == "TUE 09:00")
+        let saturdayEvening = event("A", "2026-11-21T23:30:00Z")
+        #expect(label(saturdayEvening, clock: .twentyFourHour).time == "SAT 18:30")
+    }
+
+    @Test func allDayIsTheSameInBothForms() {
+        let today = event("Market", "2026-11-15T05:00:00Z", "2026-11-16T05:00:00Z", allDay: true, date: "2026-11-15")
+        let tuesday = event("Trip", "2026-11-17T05:00:00Z", "2026-11-18T05:00:00Z", allDay: true, date: "2026-11-17")
+        for clock in [ClockStyle.twelveHour, .twentyFourHour] {
+            #expect(label(today, clock: clock).time == "ALL DAY")
+            #expect(label(tuesday, clock: clock).time == "TUE ALL DAY")
+            #expect(label(tuesday, clock: clock).spoken == "Trip, Tuesday, all day")
+        }
+    }
+
+    /// The place is in Tokyo or Los Angeles while the phone (and the test
+    /// runner) may be anywhere: the time and the day are the place's, in
+    /// either form, and nothing is read from the phone's own zone.
+    @Test func bothFormsUseThePlacesZoneNotThePhones() {
+        let show = event("Show", "2026-11-16T01:25:00Z", "2026-11-16T03:00:00Z")
+        #expect(label(show, in: tokyo, clock: .twelveHour).time == "10:25AM")
+        #expect(label(show, in: tokyo, clock: .twentyFourHour).time == "10:25")
+        let late = event("Late", "2026-11-16T06:30:00Z")
+        #expect(label(late, in: losAngeles, clock: .twentyFourHour).time == "22:30")
+        #expect(label(late, in: newYork, clock: .twentyFourHour).time == "MON 01:30")
+        #expect(label(late, in: newYork, clock: .twelveHour).time == "MON 1:30AM")
+        let monday = event("Holiday", "2026-11-16T05:00:00Z", "2026-11-17T05:00:00Z", allDay: true, date: "2026-11-16")
+        #expect(label(monday, in: losAngeles, clock: .twentyFourHour).time == "MON ALL DAY")
+    }
+
+    @Test func spokenTextInTwentyFourHourForm() {
+        #expect(label(event("Hanna's show", "2026-11-16T01:25:00Z"), clock: .twentyFourHour).spoken == "Hanna's show, 20:25")
+        #expect(label(event("Dentist", "2026-11-16T14:00:00Z"), clock: .twentyFourHour).spoken == "Dentist, Monday, 09:00")
+    }
+
+    @Test func everyHourCycleReadsAsOneOfTheTwoForms() {
+        #expect(ClockStyle(hourCycle: .oneToTwelve) == .twelveHour)
+        #expect(ClockStyle(hourCycle: .zeroToEleven) == .twelveHour)
+        #expect(ClockStyle(hourCycle: .zeroToTwentyThree) == .twentyFourHour)
+        #expect(ClockStyle(hourCycle: .oneToTwentyFour) == .twentyFourHour)
+        // A locale's own hour cycle, as the phone's region gives it by default.
+        #expect(ClockStyle(hourCycle: Locale(identifier: "en_US").hourCycle) == .twelveHour)
+        #expect(ClockStyle(hourCycle: Locale(identifier: "en_GB").hourCycle) == .twentyFourHour)
+        // The 24-Hour Time switch is a user override of the locale's cycle;
+        // a locale with a custom hour cycle stands in for it here.
+        func overridden(_ identifier: String, _ cycle: Locale.HourCycle) -> Locale {
+            var components = Locale.Components(identifier: identifier)
+            components.hourCycle = cycle
+            return Locale(components: components)
+        }
+        #expect(ClockStyle(hourCycle: overridden("en_US", .zeroToTwentyThree).hourCycle) == .twentyFourHour)
+        #expect(ClockStyle(hourCycle: overridden("en_GB", .oneToTwelve).hourCycle) == .twelveHour)
     }
 
     @Test func weekdayOfADateString() {

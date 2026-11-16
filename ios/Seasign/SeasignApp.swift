@@ -28,6 +28,9 @@ struct SeasignApp: App {
                     .environment(saved)
                     .environment(ai)
                     .modelContainer(container)
+                    // The phone's 12- or 24-hour setting for every time shown,
+                    // kept current while the app runs.
+                    .followsSystemClockStyle()
             case .storeUnreadable:
                 StoreErrorView {
                     session = Self.start()

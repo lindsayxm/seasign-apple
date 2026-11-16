@@ -114,7 +114,7 @@ import Testing
     @Test func aFeedEntryAndItsReadingItemShowTheSameDate() {
         let newYork = TimeZone(identifier: "America/New_York")!
         let feedEntry = entry("Telescope", ago: 3600)
-        #expect(ReadingDate(item: ReadingItem(feedEntry), timeZone: newYork) == ReadingDate(entry: feedEntry, timeZone: newYork))
+        #expect(ReadingDate(item: ReadingItem(feedEntry), timeZone: newYork, clock: .twelveHour) == ReadingDate(entry: feedEntry, timeZone: newYork, clock: .twelveHour))
     }
 
     @Test func saveLabelsNameTheArticle() {

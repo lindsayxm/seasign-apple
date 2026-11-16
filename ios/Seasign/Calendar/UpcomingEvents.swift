@@ -184,12 +184,13 @@ enum EventZone {
 
 /// One event as Today words it.
 struct EventLabel: Equatable, Sendable {
-    /// "10:15AM", "ALL DAY", or with the day when it is not today: "TUE 9:00AM",
+    /// "10:15AM" (or "10:15" with the phone on 24-hour time), "ALL DAY", or
+    /// with the day when it is not today: "TUE 9:00AM" / "TUE 09:00",
     /// "TUE ALL DAY".
     var time: String
     /// The title as written; the view shows it in caps.
     var title: String
-    /// For VoiceOver: "Hanna's show, 10:15 AM", "Tuesday, all day".
+    /// For VoiceOver: "Hanna's show, 10:15 AM" (or "10:15"), "Tuesday, all day".
     var spoken: String
 
     static let untitled = "No title"
@@ -201,7 +202,8 @@ struct EventLabel: Equatable, Sendable {
     /// its start in `timeZone`; an all-day event by its `date`, whatever the
     /// zone. The day is named only for events that start after today: one
     /// that began earlier and is still running reads as it would today.
-    init(event: UpcomingEvent, now: Date, timeZone: TimeZone) {
+    /// `clock` is the phone's 12- or 24-hour setting (`ClockStyle.system`).
+    init(event: UpcomingEvent, now: Date, timeZone: TimeZone, clock style: ClockStyle) {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
 
@@ -223,12 +225,7 @@ struct EventLabel: Equatable, Sendable {
             spokenClock = "all day"
         } else {
             let parts = calendar.dateComponents([.hour, .minute], from: event.start)
-            let hour = parts.hour ?? 0
-            let minute = String(format: "%02d", parts.minute ?? 0)
-            let hour12 = hour % 12 == 0 ? 12 : hour % 12
-            let half = hour < 12 ? "AM" : "PM"
-            clock = "\(hour12):\(minute)\(half)"
-            spokenClock = "\(hour12):\(minute) \(half)"
+            (clock, spokenClock) = style.clock(hour: parts.hour ?? 0, minute: parts.minute ?? 0)
         }
 
         if eventDay > today, let weekday, Self.shortDays.indices.contains(weekday) {

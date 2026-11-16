@@ -18,6 +18,8 @@ struct ReadingView: View {
     var timeZone: TimeZone
 
     @Environment(SavedModel.self) private var saved
+    /// The phone's 12- or 24-hour setting, for the published time.
+    @Environment(\.clockStyle) private var clockStyle
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
@@ -92,7 +94,7 @@ struct ReadingView: View {
     // MARK: Parts
 
     private var details: some View {
-        let date = ReadingDate(item: item, timeZone: timeZone)
+        let date = ReadingDate(item: item, timeZone: timeZone, clock: clockStyle)
         return VStack(alignment: .leading, spacing: 10) {
             if item.isAI {
                 aiBanner

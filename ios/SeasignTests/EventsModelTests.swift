@@ -36,8 +36,8 @@ private final class World {
         return EventsModel(api: stubbedCalendarAPI(stub), context: context, timeZone: { world.zone }, now: { clock.now })
     }
 
-    private func times(_ model: EventsModel) -> [String] {
-        model.labels(now: world.clock.now).map { "\($0.time) \($0.title)" }
+    private func times(_ model: EventsModel, clock: ClockStyle = .twelveHour) -> [String] {
+        model.labels(now: world.clock.now, clock: clock).map { "\($0.time) \($0.title)" }
     }
 
     // MARK: Adding and removing
@@ -83,7 +83,7 @@ private final class World {
         world.clock.now += 1
         try await model.add(name: "Work", link: TestLinks.icloud)
         #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist", "TUE 12:00PM Lunch"])
-        #expect(model.labels(now: world.clock.now, limit: 4).last?.time == "WED ALL DAY")
+        #expect(model.labels(now: world.clock.now, clock: .twelveHour, limit: 4).last?.time == "WED ALL DAY")
 
         // Removing one leaves the other's events, at once.
         stub.setOffline(true)
@@ -332,6 +332,22 @@ private final class World {
         #expect(stub.requests.last == .init(links: [TestLinks.google], timezone: "Asia/Tokyo"))
         // 08:05 on Monday in Tokyo: the show is today at 10:25.
         #expect(times(model) == ["10:25AM Hanna's show", "WED ALL DAY Trip"])
+    }
+
+    /// The zip is in New York and the phone in Tokyo, set to 24-hour time:
+    /// the times are New York's, written the phone's way.
+    @Test func theZipsZoneInTheTwentyFourHourForm() async throws {
+        let context = try inMemoryContext()
+        let now = world.clock.now
+        let today = TodayModel(api: stubbedSkyAPI(), context: context, now: { now })
+        try await today.saveZip("10001")
+        world.zone = EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: TimeZone(identifier: "Asia/Tokyo")!)
+
+        stub.set(TestLinks.google, .events([show, dentist, trip]))
+        let model = model(context)
+        try await model.add(name: "Family", link: TestLinks.google)
+        #expect(times(model, clock: .twentyFourHour) == ["20:25 Hanna's show", "MON 09:00 Dentist", "WED ALL DAY Trip"])
+        #expect(times(model, clock: .twelveHour) == ["8:25PM Hanna's show", "MON 9:00AM Dentist", "WED ALL DAY Trip"])
     }
 
     @Test func cachedEventsOfAnotherZoneAreNotShownAtLaunch() async throws {

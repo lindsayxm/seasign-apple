@@ -88,13 +88,14 @@ final class EventsModel {
         links.count < Self.maxLinks
     }
 
-    /// The next events for Today at `now`, in the events' time zone. Empty
-    /// while the cached events belong to another time zone.
-    func labels(now: Date, limit: Int = 3) -> [EventLabel] {
+    /// The next events for Today at `now`, in the events' time zone, with
+    /// times in the phone's 12- or 24-hour form (`clock`). Empty while the
+    /// cached events belong to another time zone.
+    func labels(now: Date, clock: ClockStyle, limit: Int = 3) -> [EventLabel] {
         let zone = timeZone()
         guard let snapshot, isFrozen || snapshot.timezone == zone.identifier else { return [] }
         return EventPicker.next(snapshot.events, now: now, limit: limit).map {
-            EventLabel(event: $0, now: now, timeZone: zone)
+            EventLabel(event: $0, now: now, timeZone: zone, clock: clock)
         }
     }
 
