@@ -78,6 +78,27 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: fresh.cache.path(percentEncoded: false)))
     }
 
+    /// Opening again the moment the last container is let go is what a quick
+    /// relaunch, "Try again" and the recovery path itself do. A store that is
+    /// still closing must never be taken for a broken one: that would delete
+    /// the cache or show the error screen for nothing.
+    @Test func reopeningStraightAfterClosingAlwaysWorks() throws {
+        defer { cleanUp() }
+        try seed()
+        for round in 1...30 {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .kept, "round \(round)")
+            let context = ModelContext(opened.container)
+            context.insert(ListItem(kind: .todo, title: "Item \(round)", createdAt: .now))
+            context.insert(CachedSky(zip: "\(round)", payload: Data(), fetchedAt: .now))
+            try context.save()
+        }
+        let last = try LocalStore.open(files)
+        #expect(last.cache == .kept)
+        #expect(try titles(last.container).count == 31)
+        #expect(try ModelContext(last.container).fetch(FetchDescriptor<CachedSky>()).count == 31)
+    }
+
     /// Each model is in the file it is meant to be in: opening one file alone
     /// finds its own rows, and the cache file can go without the lists going too.
     @Test func modelsLandInTheirOwnFiles() throws {
@@ -119,11 +140,15 @@ import Testing
     /// shows a table that was dropped and then created again.
     private func schemaDump(_ url: URL) throws -> [String] {
         var db: OpaquePointer?
-        guard sqlite3_open_v2(url.path(percentEncoded: false), &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            sqlite3_close(db)
-            throw CocoaError(.fileReadCorruptFile)
-        }
+        let opening = sqlite3_open_v2(url.path(percentEncoded: false), &db, SQLITE_OPEN_READONLY, nil)
         defer { sqlite3_close(db) }
+        guard opening == SQLITE_OK else { throw SQLiteFailure(db, opening, "open") }
+        // A container that has just been let go may still be closing its
+        // connection, and SQLite's last close folds the write-ahead log in
+        // under a lock. Core Data's own connections wait for such locks; a
+        // plain connection does not unless told to, and fails at once with
+        // SQLITE_BUSY (seen in half the runs on iOS 27.2, never on 18.3).
+        sqlite3_busy_timeout(db, 10_000)
         var rows: [String] = []
         for query in [
             "SELECT type || ' ' || name || ' ' || coalesce(sql, '') FROM sqlite_master ORDER BY type, name",
@@ -131,15 +156,25 @@ import Testing
             "SELECT 'metadata ' || Z_VERSION || ' ' || Z_UUID || ' ' || hex(Z_PLIST) FROM Z_METADATA",
         ] {
             var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
-                throw CocoaError(.fileReadCorruptFile)
-            }
+            let preparing = sqlite3_prepare_v2(db, query, -1, &statement, nil)
             defer { sqlite3_finalize(statement) }
-            while sqlite3_step(statement) == SQLITE_ROW {
+            guard preparing == SQLITE_OK else { throw SQLiteFailure(db, preparing, "prepare \(query.prefix(30))") }
+            var stepping = sqlite3_step(statement)
+            while stepping == SQLITE_ROW {
                 rows.append(String(cString: sqlite3_column_text(statement, 0)))
+                stepping = sqlite3_step(statement)
             }
+            guard stepping == SQLITE_DONE else { throw SQLiteFailure(db, stepping, "step \(query.prefix(30))") }
         }
         return rows
+    }
+
+    /// What SQLite said, so a failure of the helper is not mistaken for one of the store.
+    private struct SQLiteFailure: Error, CustomStringConvertible {
+        var description: String
+        init(_ db: OpaquePointer?, _ code: Int32, _ stage: String) {
+            description = "SQLite \(stage): code \(code), extended \(sqlite3_extended_errcode(db)), \(String(cString: sqlite3_errmsg(db)))"
+        }
     }
 
     /// Review of task 17: recovering the cache must not migrate the user
