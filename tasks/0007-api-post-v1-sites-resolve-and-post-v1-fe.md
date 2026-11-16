@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-1
 depends_on: [5]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-16T02:20:09Z
+updated: 2026-11-16T02:35:18Z
 ---
 
 ## Goal
@@ -34,3 +34,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. /v1/
 
 - 2026-11-15T22:33:55Z [li] created (todo)
 - 2026-11-16T02:20:09Z [implementer-1] status: todo → in-progress — claimed by implementer-1
+- 2026-11-16T02:35:18Z [implementer-1] Installed fast-xml-parser 5.12.1 with the installed npm 10.9.2 (no crash; npm reports 4 moderate audit advisories, not touched). Probed it in Node and HTMLRewriter in workerd before writing code. Design: lib/text.ts (linear HTML-to-text and entity decoding), lib/feed-parse.ts (fast-xml-parser with processEntities:false, preserveOrder, maxNestedTags 64; own date parsing), lib/page-links.ts (HTMLRewriter scan, feed discovery, article-link choice), lib/site-reader.ts (fetch through safeFetch, KV keys, first-seen record), routes/sites.ts and routes/feed.ts.
