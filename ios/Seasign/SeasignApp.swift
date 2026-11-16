@@ -49,19 +49,17 @@ struct SeasignApp: App {
                 EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent)
             }
             let lists = ListsModel(context: container.mainContext)
-            var events = live
-            var feed = FeedModel(context: container.mainContext)
+            let feed = FeedModel(context: container.mainContext)
             #if DEBUG
-            // `-debugEvents YES` shows sample links and events held in memory.
-            if UserDefaults.standard.bool(forKey: "debugEvents"), let sample = try? EventsModel.sample() {
-                events = sample
-            }
-            // `-debugFeed YES` shows sample sites and headlines held in memory.
-            if UserDefaults.standard.bool(forKey: "debugFeed"), let sample = try? FeedModel.sample() {
-                feed = sample
-            }
+            // `-debugEvents YES` shows sample links and events held in memory;
+            // `-debugFeed YES` sample sites and headlines, likewise.
+            let defaults = UserDefaults.standard
+            let events = defaults.bool(forKey: "debugEvents") ? (try? EventsModel.sample()) ?? live : live
+            let headlines = defaults.bool(forKey: "debugFeed") ? (try? FeedModel.sample()) ?? feed : feed
+            return .ready(container, today, lists, events, headlines)
+            #else
+            return .ready(container, today, lists, live, feed)
             #endif
-            return .ready(container, today, lists, events, feed)
         } catch {
             return .storeUnreadable
         }

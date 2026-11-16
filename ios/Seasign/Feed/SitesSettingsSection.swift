@@ -14,11 +14,18 @@ struct SitesSettingsSection: View {
     @State private var category = ""
     @State private var isChecking = false
     @State private var problem: FeedModel.AddProblem?
-    @State private var removing: Site?
+    /// The site the remove dialog asks about, as plain values: the dialog
+    /// never holds a SwiftData row that the removal deletes.
+    @State private var removing: Removal?
     @FocusState private var focus: Field?
 
     private enum Field {
         case address, category
+    }
+
+    private struct Removal {
+        var id: UUID
+        var title: String
     }
 
     var body: some View {
@@ -50,11 +57,16 @@ struct SitesSettingsSection: View {
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
             titleVisibility: .visible,
             presenting: removing
-        ) { site in
+        ) { removal in
             Button(role: .destructive) {
-                model.remove(site)
+                let id = removal.id
+                Task {
+                    if let site = model.sites.first(where: { $0.id == id }) {
+                        model.remove(site)
+                    }
+                }
             } label: {
-                Text(verbatim: "Remove " + site.title)
+                Text(verbatim: "Remove " + removal.title)
             }
         } message: { _ in
             Text(verbatim: "Its headlines leave Today. You can add it again later.")
@@ -80,7 +92,7 @@ struct SitesSettingsSection: View {
                 }
                 Spacer(minLength: 8)
                 Button {
-                    removing = site
+                    removing = Removal(id: site.id, title: site.title)
                 } label: {
                     Text(caps: "Remove")
                         .capsRelative(10)
