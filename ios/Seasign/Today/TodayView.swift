@@ -10,6 +10,7 @@ struct TodayView: View {
     @Environment(EventsModel.self) private var events
     @Environment(FeedModel.self) private var feed
     @Environment(SavedModel.self) private var saved
+    @Environment(AISearchModel.self) private var ai
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var destination: Destination?
@@ -41,6 +42,10 @@ struct TodayView: View {
             // most every 15 minutes, see `FeedModel.refreshInterval`), not on
             // the minute loop below.
             Task { await feed.refresh() }
+            // AI search on the same cadence, in its own task: a slow or
+            // failing search never holds up or blanks the followed sites.
+            // It sends nothing unless AI search is on and a search is due.
+            Task { await ai.refreshIfDue() }
             // Refresh at launch, then whenever the sky has gone stale.
             while !Task.isCancelled {
                 await model.refresh()
@@ -60,6 +65,7 @@ struct TodayView: View {
                     await events.refresh()
                 }
                 Task { await feed.refresh() }
+                Task { await ai.refreshIfDue() }
             }
         }
         // Events are asked for in the zip's time zone; when that changes (a

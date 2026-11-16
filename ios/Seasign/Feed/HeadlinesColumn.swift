@@ -8,8 +8,11 @@ import SwiftUI
 /// times the line pitch, and `HeadlineFit.count` takes the longest run from
 /// the newest that fits with the spacing between them.
 ///
-/// With no site followed, one quiet line points to Settings. With sites but
-/// nothing new since yesterday, the water stays empty.
+/// An AI-found headline carries the "AI" mark before its first line and is
+/// wrapped in what is left of the width, so the count above stays exact.
+///
+/// With no site followed and nothing to show, one quiet line points to
+/// Settings. With sites but nothing new since yesterday, the water stays empty.
 struct HeadlinesColumn: View {
     /// Newest first (`FeedModel.headlines`).
     var candidates: [FeedEntry]
@@ -17,6 +20,8 @@ struct HeadlinesColumn: View {
     var s: CGFloat
     /// The height of the water area the headlines may use.
     var height: CGFloat
+    /// No site is followed. The Settings prompt shows only when there are
+    /// no candidates either (AI search can fill the water without sites).
     var followsNoSites: Bool
     var open: (FeedEntry) -> Void
     var openSettings: () -> Void
@@ -26,10 +31,17 @@ struct HeadlinesColumn: View {
     private var width: CGFloat { 326 * s }
     private var spacing: CGFloat { 28.5 * s }
     private static let tracking: CGFloat = 0.185
+    private var markSize: CGFloat { 7.5 * s }
+    /// The mark and the gap after it.
+    private var markWidth: CGFloat { AIMark.fixedWidth(size: markSize) + 8 * s }
+
+    private func textWidth(_ entry: FeedEntry) -> CGFloat {
+        entry.isAI ? max(0, width - markWidth) : width
+    }
     private static let maxLines = 2
 
     var body: some View {
-        if followsNoSites {
+        if followsNoSites && candidates.isEmpty {
             Button(action: openSettings) {
                 Text(caps: "Follow sites in Settings to see headlines here")
                     .caps(9.5 * s, tracking: 0.18)
@@ -46,20 +58,26 @@ struct HeadlinesColumn: View {
                     Button {
                         open(entry)
                     } label: {
-                        WrappedCaps(
-                            text: entry.title,
-                            size: size,
-                            tracking: Self.tracking,
-                            linePitch: pitch,
-                            width: width,
-                            maxLines: Self.maxLines
-                        )
+                        HStack(alignment: .top, spacing: 0) {
+                            if entry.isAI {
+                                AIMark(size: markSize, color: Palette.ink, fixed: true)
+                                    .frame(width: markWidth, height: pitch, alignment: .leading)
+                            }
+                            WrappedCaps(
+                                text: entry.title,
+                                size: size,
+                                tracking: Self.tracking,
+                                linePitch: pitch,
+                                width: textWidth(entry),
+                                maxLines: Self.maxLines
+                            )
+                        }
                         .foregroundStyle(Palette.ink)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     // Plain strings, so nothing a site wrote is read as markup.
-                    .accessibilityLabel(entry.title + ", " + entry.source)
+                    .accessibilityLabel(AILabel.accessibility(title: entry.title, isAI: entry.isAI) + ", " + entry.source)
                     .accessibilityHint("Opens the article's summary")
                 }
             }
@@ -69,12 +87,12 @@ struct HeadlinesColumn: View {
     /// How many of the candidates fit in `height`.
     private var fittingCount: Int {
         let heights = candidates.prefix(HeadlineFit.maxCount).map { entry in
-            CGFloat(lineCount(entry.title)) * pitch
+            CGFloat(lineCount(entry.title, width: textWidth(entry))) * pitch
         }
         return HeadlineFit.count(heights: Array(heights), spacing: spacing, available: height)
     }
 
-    private func lineCount(_ title: String) -> Int {
+    private func lineCount(_ title: String, width: CGFloat) -> Int {
         CapsWrapper.wrap(title.uppercased(), width: width, maxLines: Self.maxLines) { line in
             CapsWrapper.width(of: line, size: size, tracking: Self.tracking)
         }.count

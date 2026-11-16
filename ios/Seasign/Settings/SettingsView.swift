@@ -16,6 +16,7 @@ struct SettingsView: View {
             zipSection
             CalendarSettingsSection()
             SitesSettingsSection()
+            AISettingsSection()
             #if DEBUG
             DebugSceneSection()
             #endif

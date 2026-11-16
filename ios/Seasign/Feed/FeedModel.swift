@@ -63,12 +63,23 @@ final class FeedModel {
 
     /// A full refresh younger than this is not repeated, unless a site has
     /// never been read. The API caches each site for 30 minutes.
-    static let refreshInterval: TimeInterval = 15 * 60
+    nonisolated static let refreshInterval: TimeInterval = 15 * 60
 
     /// The followed sites, oldest first.
     private(set) var sites: [Site] = []
-    /// Every cached item of the last 7 days, newest first.
-    private(set) var entries: [FeedEntry] = []
+    /// Every cached item, AI-found ones included, newest first.
+    private(set) var allEntries: [FeedEntry] = []
+    /// Whether AI-found items are shown. `AISearchModel` sets it: true only
+    /// while the toggle is on Let AI Search with a key and an interest.
+    /// AI-found items stay cached while hidden (finding them again would
+    /// cost the user another search) and come back when it is true again.
+    var showsAI = false
+
+    /// The items Today and History show, newest first: everything from the
+    /// followed sites, and AI-found items only while `showsAI` is true.
+    var entries: [FeedEntry] {
+        showsAI ? allEntries : allEntries.filter { !$0.isAI }
+    }
     /// How each site went the last time it was read.
     private(set) var state = FeedState()
     /// True while a refresh is in flight.
@@ -91,7 +102,7 @@ final class FeedModel {
         sites = store.sites()
         let followed = Set(sites.map(\.id))
         store.prune(now: now(), keepingSites: followed)
-        entries = store.items()
+        allEntries = store.items()
         if sites.isEmpty {
             if store.state() != nil { store.setState(nil) }
         } else {
@@ -272,6 +283,59 @@ final class FeedModel {
         return entry.isExpired(at: now) ? nil : entry
     }
 
+    // MARK: AI search
+
+    /// Blends what AI search found into the cache: cleaned like site items,
+    /// https links only, nothing older than 7 days, and an article a
+    /// followed site already has stays the site's (`FeedStore.upsertDiscovered`).
+    func applyDiscovered(_ answer: DiscoverAnswer, provider: AIProvider) {
+        let current = now()
+        let incoming = answer.items.compactMap {
+            Self.entry(fromDiscovered: $0, provider: answer.provider ?? provider, searchedAt: answer.searchedAt, now: current)
+        }
+        store.upsertDiscovered(incoming)
+        store.prune(now: current, keepingSites: Set(sites.map(\.id)))
+        reloadEntries()
+    }
+
+    /// One AI-found item as the app keeps it, or nil when it should not be
+    /// kept. With no date of its own it is dated when the search was
+    /// answered and marked first seen. Its category is the interest it
+    /// matched, kept apart from the user's categories by `origin`.
+    static func entry(
+        fromDiscovered item: DiscoverAnswer.Item,
+        provider: AIProvider,
+        searchedAt: Date,
+        now: Date
+    ) -> FeedEntry? {
+        guard let url = ArticleLink.url(item.link) else { return nil }
+        let title = SiteText.clean(item.title, limit: SiteText.titleLimit)
+        guard !title.isEmpty else { return nil }
+        var source = SiteText.clean(item.source, limit: SiteText.sourceLimit)
+        if source.isEmpty { source = url.host() ?? "" }
+        let excerpt = item.excerpt.map { SiteText.clean($0, limit: SiteText.excerptLimit) }
+        let interest = item.interest
+            .map { SiteText.clean($0, limit: InterestList.maxLength) }
+            .flatMap { $0.isEmpty ? nil : $0 }
+        // Never later than now: a date ahead of the clock would sit on top of Today.
+        let published = min(item.published ?? searchedAt, max(now, searchedAt))
+        let entry = FeedEntry(
+            link: item.link,
+            title: title,
+            source: source,
+            published: published,
+            dateSource: item.published == nil ? .firstSeen : .published,
+            excerpt: excerpt?.isEmpty == false ? excerpt : nil,
+            siteID: nil,
+            category: interest ?? "",
+            firstFetchedAt: now,
+            origin: .ai,
+            interest: interest,
+            provider: provider
+        )
+        return entry.isExpired(at: now) ? nil : entry
+    }
+
     private func checkRoom(url: String, feedUrl: String?) throws {
         guard sites.count < Self.maxSites else { throw AddProblem.limitReached }
         let taken = sites.contains { site in
@@ -283,7 +347,7 @@ final class FeedModel {
 
     private func reloadEntries() {
         let fresh = store.items()
-        if fresh != entries { entries = fresh }
+        if fresh != allEntries { allEntries = fresh }
     }
 
     private func setState(_ value: FeedState?) {
@@ -371,6 +435,48 @@ extension FeedModel {
             refreshedAt: now
         ))
         return model
+    }
+
+    /// Debug-only (`-debugAI YES`): three AI-found items as a search would
+    /// have left them, two from the last day for Today and one older for
+    /// History, put into this model's in-memory store.
+    func addSampleAIItems(now: Date = Date()) {
+        let answer = DiscoverAnswer(
+            items: [
+                .init(
+                    title: "Tide pools are filling with warm-water visitors this fall",
+                    link: "https://coast.example.org/2026/tide-pool-visitors",
+                    source: "Coast Notes",
+                    published: now.addingTimeInterval(-1.5 * 3600),
+                    excerpt: "Volunteers counting sea stars found species usually seen far to the south.",
+                    interest: "tide pools"
+                ),
+                .init(
+                    title: "A small telescope on a dark ridge caught a comet's tail splitting",
+                    link: "https://sky.example.net/comet-tail",
+                    source: "Sky Example",
+                    published: nil,
+                    excerpt: nil,
+                    interest: "new telescopes"
+                ),
+                .init(
+                    title: "Why lake ice is forming later every decade",
+                    link: "https://lakes.example.org/sample/ai-lake-ice",
+                    source: "The Lakes Review",
+                    published: now.addingTimeInterval(-3 * 86_400),
+                    excerpt: "Records from four lakes show the first ice arriving about a week later than in 1990.",
+                    interest: "lake ice"
+                ),
+            ],
+            provider: .anthropic,
+            searchedAt: now.addingTimeInterval(-2 * 3600)
+        )
+        let current = now
+        let incoming = answer.items.compactMap {
+            Self.entry(fromDiscovered: $0, provider: .anthropic, searchedAt: answer.searchedAt, now: current)
+        }
+        store.upsertDiscovered(incoming)
+        reloadEntries()
     }
 }
 #endif

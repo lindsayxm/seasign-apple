@@ -81,9 +81,10 @@ final class SavedModel {
         entries.first { $0.item.link == link }
     }
 
-    /// The categories of the saved articles, each once.
-    var categories: [String] {
-        CategoryName.distinct(entries.map(\.item.category))
+    /// The categories of the saved articles, each once; AI-found articles'
+    /// interests are listed apart from the user's own categories.
+    var categories: [CategoryChoice] {
+        CategoryChoice.distinct(entries.map(\.item.categoryChoice))
     }
 
     /// The saved articles that match the search and category, most recently saved first.
@@ -120,7 +121,14 @@ final class SavedModel {
         copy.source = SiteText.clean(item.source, limit: SiteText.sourceLimit)
         copy.excerpt = item.excerpt.map { SiteText.clean($0, limit: SiteText.excerptLimit) }
         if copy.excerpt?.isEmpty == true { copy.excerpt = nil }
-        copy.category = CategoryName.clean(item.category)
+        if item.isAI {
+            // An AI-found article's category is the interest it matched,
+            // which may be longer than a category the user names.
+            copy.category = SiteText.clean(item.category, limit: InterestList.maxLength)
+            copy.interest = item.interest.map { SiteText.clean($0, limit: InterestList.maxLength) }
+        } else {
+            copy.category = CategoryName.clean(item.category)
+        }
         guard !copy.title.isEmpty else { return false }
 
         context.insert(SavedItem(copy, savedAt: now()))
@@ -266,8 +274,9 @@ extension SavedModel {
     /// and one whose feed item is not in the cache, written into `context`,
     /// which is an in-memory store (see `SeasignApp`). Nothing reaches the
     /// user's own store.
-    static func sample(context: ModelContext, now: Date = Date()) throws -> SavedModel {
-        let items: [(ReadingItem, String)] = [
+    /// With `includingAI` (`-debugAI YES`), a fourth, AI-found article.
+    static func sample(context: ModelContext, now: Date = Date(), includingAI: Bool = false) throws -> SavedModel {
+        var items: [(ReadingItem, String)] = [
             (
                 ReadingItem(
                     link: "https://news.example.com/sample/0",
@@ -305,6 +314,23 @@ extension SavedModel {
                 ""
             ),
         ]
+        if includingAI {
+            items.insert((
+                ReadingItem(
+                    link: "https://coast.example.org/2026/tide-pool-visitors",
+                    title: "Tide pools are filling with warm-water visitors this fall",
+                    source: "Coast Notes",
+                    published: now.addingTimeInterval(-1.5 * 3600),
+                    dateSource: .published,
+                    excerpt: "Volunteers counting sea stars found species usually seen far to the south.",
+                    category: "tide pools",
+                    origin: .ai,
+                    interest: "tide pools",
+                    provider: .anthropic
+                ),
+                ""
+            ), at: 0)
+        }
         for (index, (item, notes)) in items.enumerated() {
             context.insert(SavedItem(item, notes: notes, savedAt: now.addingTimeInterval(-Double(index) * 3600)))
         }

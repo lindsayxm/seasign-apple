@@ -6,7 +6,7 @@ struct SeasignApp: App {
     /// The local stores and the models that read them, or the fact that the
     /// user's store would not open (see `LocalStore`).
     private enum Session {
-        case ready(ModelContainer, TodayModel, ListsModel, EventsModel, FeedModel, SavedModel)
+        case ready(ModelContainer, TodayModel, ListsModel, EventsModel, FeedModel, SavedModel, AISearchModel)
         case storeUnreadable
     }
 
@@ -19,13 +19,14 @@ struct SeasignApp: App {
     var body: some Scene {
         WindowGroup {
             switch session {
-            case .ready(let container, let today, let lists, let events, let feed, let saved):
+            case .ready(let container, let today, let lists, let events, let feed, let saved, let ai):
                 TodayView()
                     .environment(today)
                     .environment(lists)
                     .environment(events)
                     .environment(feed)
                     .environment(saved)
+                    .environment(ai)
                     .modelContainer(container)
             case .storeUnreadable:
                 StoreErrorView {
@@ -52,21 +53,29 @@ struct SeasignApp: App {
             let lists = ListsModel(context: container.mainContext)
             let feed = FeedModel(context: container.mainContext)
             let saved = SavedModel(context: container.mainContext)
+            // Searches are counted per day in the zip's time zone when known.
+            let zone = { EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent) }
             #if DEBUG
             // `-debugEvents YES` shows sample links and events held in memory;
             // `-debugFeed YES` sample sites and headlines, likewise;
-            // `-debugSaved YES` sample saved articles, likewise.
+            // `-debugSaved YES` sample saved articles, likewise;
+            // `-debugAI YES` AI search configured with a fake key and
+            // AI-found items, likewise (it implies the feed sample).
             let defaults = UserDefaults.standard
             let events = defaults.bool(forKey: "debugEvents") ? (try? EventsModel.sample()) ?? live : live
-            let sample = debugFeedAndSaved(
+            let showAI = defaults.bool(forKey: "debugAI")
+            let sample = debugSamples(
                 feed: feed,
                 saved: saved,
-                showFeed: defaults.bool(forKey: "debugFeed"),
-                showSaved: defaults.bool(forKey: "debugSaved")
+                showFeed: defaults.bool(forKey: "debugFeed") || showAI,
+                showSaved: defaults.bool(forKey: "debugSaved"),
+                showAI: showAI
             )
-            return .ready(container, today, lists, events, sample.feed, sample.saved)
+            let ai = sample.ai ?? AISearchModel(context: container.mainContext, feed: sample.feed, zone: zone)
+            return .ready(container, today, lists, events, sample.feed, sample.saved, ai)
             #else
-            return .ready(container, today, lists, live, feed, saved)
+            let ai = AISearchModel(context: container.mainContext, feed: feed, zone: zone)
+            return .ready(container, today, lists, live, feed, saved, ai)
             #endif
         } catch {
             return .storeUnreadable
@@ -74,24 +83,32 @@ struct SeasignApp: App {
     }
 
     #if DEBUG
-    /// The DEBUG feed and saved samples share one store in memory. With
-    /// either flag on, Saved uses that store too (empty unless `showSaved`),
+    /// The DEBUG feed, saved and AI samples share one store in memory. With
+    /// any flag on, Saved uses that store too (empty unless `showSaved`),
     /// so saving a sample headline never writes into the user's own store.
-    private static func debugFeedAndSaved(
+    /// The AI sample also keeps its settings, its count and its fake key in
+    /// memory, so the user's store and the real Keychain are not touched.
+    private static func debugSamples(
         feed: FeedModel,
         saved: SavedModel,
         showFeed: Bool,
-        showSaved: Bool
-    ) -> (feed: FeedModel, saved: SavedModel) {
-        guard showFeed || showSaved,
+        showSaved: Bool,
+        showAI: Bool
+    ) -> (feed: FeedModel, saved: SavedModel, ai: AISearchModel?) {
+        guard showFeed || showSaved || showAI,
               let container = try? SeasignSchema.inMemoryContainer()
-        else { return (feed, saved) }
+        else { return (feed, saved, nil) }
         let context = ModelContext(container)
         let sampleFeed = showFeed ? (try? FeedModel.sample(context: context)) ?? feed : feed
         let sampleSaved = showSaved
-            ? (try? SavedModel.sample(context: context)) ?? SavedModel(context: context)
+            ? (try? SavedModel.sample(context: context, includingAI: showAI)) ?? SavedModel(context: context)
             : SavedModel(context: context)
-        return (sampleFeed, sampleSaved)
+        var ai: AISearchModel?
+        if showAI, sampleFeed !== feed {
+            sampleFeed.addSampleAIItems()
+            ai = AISearchModel.sample(feed: sampleFeed, context: context)
+        }
+        return (sampleFeed, sampleSaved, ai)
     }
     #endif
 }

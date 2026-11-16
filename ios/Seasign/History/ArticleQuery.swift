@@ -9,15 +9,17 @@ import Foundation
 struct ArticleQuery: Equatable, Sendable {
     /// What is typed in the search field.
     var text = ""
-    /// The chosen category; nil is "All".
-    var category: String?
+    /// The chosen category; nil is "All". An AI interest and a user
+    /// category of the same name are different choices.
+    var category: CategoryChoice?
 
     /// Every word typed must appear in the title or the source (not
     /// necessarily the same one); with nothing typed, everything matches.
-    /// The category, when one is chosen, must match ignoring case, the way
-    /// `CategoryName.distinct` lists them.
-    func matches(title: String, source: String, category itemCategory: String) -> Bool {
-        if let category, itemCategory.caseInsensitiveCompare(category) != .orderedSame {
+    /// The category, when one is chosen, must be of the same kind (a user
+    /// category or an AI interest) and match ignoring case, the way
+    /// `CategoryChoice.distinct` lists them.
+    func matches(title: String, source: String, category itemCategory: String, isAI: Bool = false) -> Bool {
+        if let category, !category.matches(CategoryChoice(name: itemCategory, isAI: isAI)) {
             return false
         }
         let words = Self.fold(text).split(whereSeparator: \.isWhitespace)
@@ -29,15 +31,15 @@ struct ArticleQuery: Equatable, Sendable {
     }
 
     func matches(_ item: ReadingItem) -> Bool {
-        matches(title: item.title, source: item.source, category: item.category)
+        matches(title: item.title, source: item.source, category: item.category, isAI: item.isAI)
     }
 
     /// The choice to keep showing when the menu's categories change: a
     /// category no longer present in the list falls back to All, so the
     /// screen never sits on an empty filter nobody can see in the menu.
-    static func choice(_ selected: String?, among categories: [String]) -> String? {
+    static func choice(_ selected: CategoryChoice?, among categories: [CategoryChoice]) -> CategoryChoice? {
         guard let selected else { return nil }
-        return categories.first { $0.caseInsensitiveCompare(selected) == .orderedSame }
+        return categories.first { $0.matches(selected) }
     }
 
     private static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
@@ -65,12 +67,13 @@ enum HistoryList {
     /// on refresh, not continuously).
     static func visible(_ entries: [FeedEntry], now: Date, query: ArticleQuery) -> [FeedEntry] {
         recent(entries, now: now)
-            .filter { query.matches(title: $0.title, source: $0.source, category: $0.category) }
+            .filter { query.matches(title: $0.title, source: $0.source, category: $0.category, isAI: $0.isAI) }
     }
 
-    /// The categories of the items History can show, each once.
-    static func categories(_ entries: [FeedEntry], now: Date) -> [String] {
-        CategoryName.distinct(recent(entries, now: now).map(\.category))
+    /// The categories of the items History can show, each once; AI
+    /// interests are listed apart from the user's own categories.
+    static func categories(_ entries: [FeedEntry], now: Date) -> [CategoryChoice] {
+        CategoryChoice.distinct(recent(entries, now: now).map(\.categoryChoice))
     }
 
     private static func recent(_ entries: [FeedEntry], now: Date) -> [FeedEntry] {

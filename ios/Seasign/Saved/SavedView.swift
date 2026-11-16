@@ -135,7 +135,7 @@ struct SavedView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(item.title)
+            .accessibilityLabel(AILabel.accessibility(title: item.title, isAI: item.isAI))
             .accessibilityHint("Opens the article's summary")
 
             HStack(alignment: .center, spacing: 12) {

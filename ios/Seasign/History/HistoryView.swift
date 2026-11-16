@@ -96,7 +96,7 @@ struct HistoryView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(item.title)
+            .accessibilityLabel(AILabel.accessibility(title: item.title, isAI: item.isAI))
             .accessibilityHint("Opens the article's summary")
             .padding(.top, 14)
 

@@ -15,8 +15,20 @@ struct ReadingItem: Identifiable, Hashable, Sendable {
     var dateSource: FeedDateSource
     var excerpt: String?
     var category: String
+    /// AI-found items are labelled wherever they appear.
+    var origin: FeedOrigin = .site
+    /// For an AI-found item, the interest it matched.
+    var interest: String?
+    /// For an AI-found item, the provider that found it.
+    var provider: AIProvider?
 
     var id: String { link }
+
+    var isAI: Bool { origin == .ai }
+
+    var categoryChoice: CategoryChoice {
+        CategoryChoice(name: category, isAI: isAI)
+    }
 }
 
 extension ReadingItem {
@@ -28,7 +40,10 @@ extension ReadingItem {
             published: entry.published,
             dateSource: entry.dateSource,
             excerpt: entry.excerpt,
-            category: entry.category
+            category: entry.category,
+            origin: entry.origin,
+            interest: entry.interest,
+            provider: entry.provider
         )
     }
 }

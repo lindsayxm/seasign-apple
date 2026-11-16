@@ -18,11 +18,26 @@ struct FeedEntry: Identifiable, Hashable, Sendable {
     var published: Date
     var dateSource: FeedDateSource
     var excerpt: String?
-    var siteID: UUID
+    /// The followed site it came from; nil for an AI-found item.
+    var siteID: UUID?
+    /// A site's category, or for an AI-found item the interest it matched
+    /// (empty when the model did not say). `origin` keeps the two apart.
     var category: String
     var firstFetchedAt: Date
+    var origin: FeedOrigin = .site
+    /// For an AI-found item, the interest it matched, as the user typed it.
+    var interest: String?
+    /// For an AI-found item, the provider that found it.
+    var provider: AIProvider?
 
     var id: String { link }
+
+    var isAI: Bool { origin == .ai }
+
+    /// What History's category filter groups it under.
+    var categoryChoice: CategoryChoice {
+        CategoryChoice(name: category, isAI: isAI)
+    }
 
     /// Items stay for 7 days after their date.
     static let lifetime: TimeInterval = 7 * 86_400
@@ -158,8 +173,70 @@ enum SiteText {
     }
 }
 
+/// One entry of the CATEGORY menu in History and Saved: a category the user
+/// gave a site, or the interest an AI-found item matched. The flag keeps an
+/// interest apart from a user category of the same name ("space" the
+/// interest is not "Space" the category), so neither filter ever shows the
+/// other's items.
+struct CategoryChoice: Hashable, Sendable, ExpressibleByStringLiteral {
+    var name: String
+    var isAI: Bool
+
+    init(name: String, isAI: Bool = false) {
+        self.name = name
+        self.isAI = isAI
+    }
+
+    /// A user category.
+    init(stringLiteral value: String) {
+        self.init(name: value)
+    }
+
+    /// "Sci", "AI · tide pools", or "AI" for items with no matched interest.
+    var label: String {
+        guard isAI else { return name }
+        return name.isEmpty ? AILabel.mark : AILabel.mark + " · " + name
+    }
+
+    /// Same kind, and the same name ignoring case.
+    func matches(_ other: CategoryChoice) -> Bool {
+        isAI == other.isAI && name.caseInsensitiveCompare(other.name) == .orderedSame
+    }
+
+    /// Each choice once (ignoring case within a kind), user categories in
+    /// alphabetical order first, then the AI interests in alphabetical order.
+    static func distinct(_ choices: [CategoryChoice]) -> [CategoryChoice] {
+        var seen = Set<String>()
+        var result: [CategoryChoice] = []
+        for choice in choices where !choice.name.isEmpty || choice.isAI {
+            if seen.insert((choice.isAI ? "ai:" : "site:") + choice.name.lowercased()).inserted {
+                result.append(choice)
+            }
+        }
+        return result.sorted {
+            if $0.isAI != $1.isAI { return !$0.isAI }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+}
+
 /// The address of an article, as the reading view may open it.
 enum ArticleLink {
+    /// What two spellings of one article's address have in common: the host
+    /// in lower case without a leading `www.`, the path without a trailing
+    /// slash, and the query; the scheme and fragment are left out. Used to
+    /// keep an AI-found copy of an article a followed site already has.
+    static func matchKey(_ text: String) -> String {
+        guard let components = URLComponents(string: text), let host = components.host?.lowercased() else {
+            return text
+        }
+        let bareHost = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        var path = components.percentEncodedPath
+        while path.hasSuffix("/") { path.removeLast() }
+        let query = components.percentEncodedQuery.map { "?" + $0 } ?? ""
+        return bareHost + path + query
+    }
+
     /// The link as a URL if it is an absolute https address with a host and no
     /// user name or password, and not absurdly long; otherwise nil. Nothing
     /// else is ever offered to the system to open.

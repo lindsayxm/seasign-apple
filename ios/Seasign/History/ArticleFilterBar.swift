@@ -8,7 +8,7 @@ struct ArticleFilterBar: View {
     var searchLabel: String
     @Binding var query: ArticleQuery
     /// The categories present in the list, each once.
-    var categories: [String]
+    var categories: [CategoryChoice]
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -58,10 +58,10 @@ struct ArticleFilterBar: View {
             label("Category")
             Menu {
                 Picker(selection: $query.category) {
-                    Text(verbatim: "All").tag(String?.none)
-                    // The user's own category names, shown verbatim.
+                    Text(verbatim: "All").tag(CategoryChoice?.none)
+                    // The user's own category names and interests, shown verbatim.
                     ForEach(categories, id: \.self) { category in
-                        Text(verbatim: category).tag(String?.some(category))
+                        Text(verbatim: category.label).tag(CategoryChoice?.some(category))
                     }
                 } label: {
                     Text(verbatim: "Category")
@@ -69,7 +69,7 @@ struct ArticleFilterBar: View {
                 .pickerStyle(.inline)
             } label: {
                 HStack(spacing: 8) {
-                    Text(verbatim: query.category ?? "All")
+                    Text(verbatim: query.category?.label ?? "All")
                         .font(.capsRelative(16))
                         .foregroundStyle(Palette.white)
                         .lineLimit(1)
@@ -83,9 +83,15 @@ struct ArticleFilterBar: View {
                 .contentShape(Rectangle())
             }
             .accessibilityLabel("Category")
-            .accessibilityValue(query.category ?? "All")
+            .accessibilityValue(query.category.map(Self.spoken) ?? "All")
             rule
         }
+    }
+
+    /// "AI-found: tide pools" for an interest, the name for a category.
+    static func spoken(_ choice: CategoryChoice) -> String {
+        guard choice.isAI else { return choice.name }
+        return choice.name.isEmpty ? AILabel.spoken : AILabel.spoken + ": " + choice.name
     }
 
     private func label(_ text: String) -> some View {
@@ -109,10 +115,15 @@ struct SourceDateLine: View {
     var timeZone: TimeZone
 
     var body: some View {
-        Text(caps: Self.text(item, timeZone: timeZone))
-            .capsRelative(10, tracking: 0.15)
-            .foregroundStyle(Palette.dimText)
-            .lineLimit(2)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if item.isAI {
+                AIMark(size: 9, color: Palette.white)
+            }
+            Text(caps: Self.text(item, timeZone: timeZone))
+                .capsRelative(10, tracking: 0.15)
+                .foregroundStyle(Palette.dimText)
+                .lineLimit(2)
+        }
     }
 
     /// Joined by hand: the source came from a website.

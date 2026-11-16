@@ -1,4 +1,5 @@
 import Foundation
+import HTTPTypes
 import OpenAPIRuntime
 import OpenAPIURLSession
 
@@ -22,7 +23,7 @@ struct SeasignAPI: Sendable {
         serverURL: URL = SeasignAPI.defaultServerURL,
         transport: any ClientTransport = URLSessionTransport()
     ) {
-        client = Client(serverURL: serverURL, transport: transport)
+        client = Client(serverURL: serverURL, transport: transport, middlewares: [RawKeyHeader()])
     }
 
     /// `GET /v1/health`. Throws when the server is unreachable or answers with anything but 200.
@@ -159,6 +160,126 @@ struct SeasignAPI: Sendable {
         default:
             throw SitesFailure.unavailable
         }
+    }
+
+    /// Why `discover` failed: the API's fixed error codes, plus `unavailable`
+    /// for a server that could not be reached or answered with something
+    /// unreadable. Payload-free: the generated client's errors describe the
+    /// request, and this request carries the user's key in a header.
+    enum DiscoverFailure: Error, Equatable, CaseIterable {
+        case invalidRequest
+        case invalidKey
+        case quotaExceeded
+        case rateLimited
+        case providerError
+        case timeout
+        case internalError
+        case unavailable
+    }
+
+    /// `POST /v1/discover`: recent publications on `interests`, found by
+    /// `provider` with the user's own `key`, which goes in the `X-LLM-Key`
+    /// header and nowhere else. `timezone` must be an IANA name or nil.
+    /// Throws a `DiscoverFailure`, chosen by the status code alone.
+    func discover(
+        key: APIKey,
+        provider: AIProvider,
+        interests: [String],
+        timezone: String?
+    ) async throws -> DiscoverAnswer {
+        let output: Operations.postDiscover.Output
+        do {
+            output = try await client.postDiscover(
+                headers: .init(x_hyphen_llm_hyphen_key: key.secret),
+                body: .json(.init(
+                    provider: Components.Schemas.DiscoverRequest.providerPayload(rawValue: provider.rawValue) ?? .anthropic,
+                    interests: interests,
+                    timezone: timezone
+                ))
+            )
+        } catch {
+            // Dropped on purpose: a ClientError describes the request, key header included.
+            throw DiscoverFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let body = try? response.body.json else { throw DiscoverFailure.unavailable }
+            return DiscoverAnswer(body)
+        case .badRequest:
+            throw DiscoverFailure.invalidRequest
+        case .unauthorized:
+            throw DiscoverFailure.invalidKey
+        case .code402:
+            throw DiscoverFailure.quotaExceeded
+        case .tooManyRequests:
+            throw DiscoverFailure.rateLimited
+        case .badGateway:
+            throw DiscoverFailure.providerError
+        case .gatewayTimeout:
+            throw DiscoverFailure.timeout
+        case .internalServerError:
+            throw DiscoverFailure.internalError
+        case .undocumented:
+            throw DiscoverFailure.unavailable
+        }
+    }
+}
+
+/// The generated client writes header parameters as URI components, so a
+/// key holding `/`, `+`, `=` or `%` would reach the server percent-encoded,
+/// that is, as a different key. This puts the key's own characters back
+/// before the request leaves. Percent-encoding is reversed exactly, and only
+/// this one header is touched.
+struct RawKeyHeader: ClientMiddleware {
+    static let name = HTTPField.Name("x-llm-key")!
+
+    func intercept(
+        _ request: HTTPRequest,
+        body: HTTPBody?,
+        baseURL: URL,
+        operationID: String,
+        next: @Sendable (HTTPRequest, HTTPBody?, URL) async throws -> (HTTPResponse, HTTPBody?)
+    ) async throws -> (HTTPResponse, HTTPBody?) {
+        var request = request
+        if let encoded = request.headerFields[Self.name], let raw = encoded.removingPercentEncoding {
+            request.headerFields[Self.name] = raw
+        }
+        return try await next(request, body, baseURL)
+    }
+}
+
+/// A `POST /v1/discover` response in the app's own types. Everything in an
+/// item came from a model and the web: untrusted text, cleaned before it is stored.
+struct DiscoverAnswer: Sendable, Equatable {
+    struct Item: Sendable, Equatable {
+        var title: String
+        var link: String
+        var source: String
+        var published: Date?
+        var excerpt: String?
+        /// The request's interest it matched, as sent; nil when unclear.
+        var interest: String?
+    }
+
+    var items: [Item]
+    var provider: AIProvider?
+    var searchedAt: Date
+}
+
+extension DiscoverAnswer {
+    init(_ body: Components.Schemas.Discover) {
+        items = body.items.map {
+            Item(
+                title: $0.title,
+                link: $0.link,
+                source: $0.source,
+                published: $0.published,
+                excerpt: $0.excerpt,
+                interest: $0.interest
+            )
+        }
+        provider = AIProvider(rawValue: body.provider.rawValue)
+        searchedAt = body.searchedAt
     }
 }
 

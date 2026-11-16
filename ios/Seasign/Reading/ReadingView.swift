@@ -94,10 +94,35 @@ struct ReadingView: View {
     private var details: some View {
         let date = ReadingDate(item: item, timeZone: timeZone)
         return VStack(alignment: .leading, spacing: 10) {
+            if item.isAI {
+                aiBanner
+            }
             detailRow("Publication", item.source)
-            detailRow("Category", item.category)
+            if item.isAI {
+                // An AI-found article has no category of the user's: say
+                // which interest it matched and who found it.
+                detailRow("Found by", AILabel.foundBy(item.provider))
+                if let interest = item.interest, !interest.isEmpty {
+                    detailRow("Interest", interest)
+                }
+            } else {
+                detailRow("Category", item.category)
+            }
             detailRow(date.label, date.value)
         }
+    }
+
+    /// The AI mark with a line saying what it means.
+    private var aiBanner: some View {
+        HStack(alignment: .center, spacing: 10) {
+            AIMark(size: 10, color: Palette.white)
+            Text(caps: "Found by AI search on your interests")
+                .capsRelative(9.5, tracking: 0.12)
+                .foregroundStyle(Palette.dimText)
+        }
+        .padding(.bottom, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(AILabel.spoken + " article, found by AI search on your interests")
     }
 
     private func detailRow(_ label: String, _ value: String) -> some View {

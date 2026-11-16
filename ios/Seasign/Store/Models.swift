@@ -2,14 +2,49 @@ import Foundation
 import SwiftData
 
 /// The user's settings. There is one row; `SkyStore.settings()` creates it on
-/// first use. Later tasks add fields (AI mode, interests, daily cap, provider).
+/// first use.
+///
+/// Every field added after the first release is optional, with nil meaning
+/// the default, so a store written by an earlier build opens by lightweight
+/// migration with nothing lost (`LocalStoreTests`). The AI search key is not
+/// here: it lives only in the Keychain (`APIKeyStore`).
 @Model
 final class Settings {
     /// The 5-digit US zip the Today scene follows; nil until the user sets one.
     var zip: String?
+    /// An `AIMode` raw value; nil is Use My List.
+    var aiModeRaw: String?
+    /// An `AIProvider` raw value; nil is `AIProvider.default`.
+    var aiProviderRaw: String?
+    /// The interests exactly as typed; `InterestList.parse` reads them.
+    var aiInterestsText: String?
+    /// Searches allowed per day; nil is `DailyCap.default`.
+    var aiDailyCap: Int?
+    /// When the last search was sent, for spacing automatic searches.
+    var aiLastSentAt: Date?
+    /// True after the provider refused the key: automatic searches stop
+    /// until the key or provider changes.
+    var aiKeyRefused: Bool?
+    /// An `AISearchProblem` raw value: how the last search went wrong.
+    var aiLastProblemRaw: String?
 
     init(zip: String? = nil) {
         self.zip = zip
+    }
+}
+
+/// How many AI searches were sent on one local calendar day (`SearchDay.key`,
+/// in the zip's time zone when known, else the phone's). Lives in the user
+/// store: losing it would let the day's cap be spent again.
+@Model
+final class SearchCount {
+    /// "2026-11-16".
+    var day: String
+    var count: Int
+
+    init(day: String, count: Int) {
+        self.day = day
+        self.count = count
     }
 }
 
@@ -51,10 +86,10 @@ final class CachedEvents {
 /// it can be fetched again; anything the user typed belongs in `userModels`.
 enum SeasignSchema {
     /// What the user entered: settings, the Do/Get lists, the calendar links,
-    /// the followed sites and the saved articles with their notes. Never
-    /// deleted by the app.
+    /// the followed sites, the saved articles with their notes, and the
+    /// day's AI search count. Never deleted by the app.
     static let userModels: [any PersistentModel.Type] = [
-        Settings.self, ListItem.self, CalendarLink.self, Site.self, SavedItem.self,
+        Settings.self, ListItem.self, CalendarLink.self, Site.self, SavedItem.self, SearchCount.self,
     ]
     /// Copies of what the API returned. Safe to throw away.
     static let cacheModels: [any PersistentModel.Type] = [CachedSky.self, CachedEvents.self, FeedItem.self, CachedFeedState.self]

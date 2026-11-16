@@ -35,6 +35,14 @@ final class SavedItem {
     var savedAt: Date
     /// When the item was saved or its notes last changed.
     var updatedAt: Date
+    /// A `FeedOrigin` raw value copied at save time; nil (articles saved
+    /// before task 12, and every article from a followed site) is a site.
+    /// A saved AI-found article keeps its label after AI search is turned off.
+    var originRaw: String?
+    /// For an AI-found article: the interest it matched.
+    var interest: String?
+    /// For an AI-found article: an `AIProvider` raw value.
+    var providerRaw: String?
 
     init(id: UUID = UUID(), _ item: ReadingItem, notes: String = "", savedAt: Date) {
         self.id = id
@@ -48,17 +56,24 @@ final class SavedItem {
         self.notes = notes
         self.savedAt = savedAt
         updatedAt = savedAt
+        originRaw = item.isAI ? FeedOrigin.ai.rawValue : nil
+        interest = item.isAI ? item.interest : nil
+        providerRaw = item.isAI ? item.provider?.rawValue : nil
     }
 
     var readingItem: ReadingItem {
-        ReadingItem(
+        let origin = originRaw.flatMap(FeedOrigin.init(rawValue:)) ?? .site
+        return ReadingItem(
             link: link,
             title: title,
             source: source,
             published: published,
             dateSource: FeedDateSource(rawValue: dateSourceRaw) ?? .published,
             excerpt: excerpt,
-            category: category
+            category: category,
+            origin: origin,
+            interest: origin == .ai ? interest : nil,
+            provider: origin == .ai ? providerRaw.flatMap(AIProvider.init(rawValue:)) : nil
         )
     }
 
