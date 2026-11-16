@@ -65,7 +65,7 @@ const post = (body: unknown) =>
 
 type Body = {
   events: { calendar: number; title: string; start: string; end: string; allDay: boolean; date?: string }[];
-  calendars: { index: number; ok: boolean; error?: string }[];
+  calendars: { index: number; ok: boolean; partial: boolean; error?: string }[];
 };
 
 async function events(body: unknown): Promise<Body> {
@@ -100,9 +100,9 @@ describe("POST /v1/calendar/events", () => {
     const body = await events({ links: [GOOGLE, ICLOUD, OUTLOOK], timezone: "America/New_York" });
 
     expect(body.calendars).toEqual([
-      { index: 0, ok: true },
-      { index: 1, ok: true },
-      { index: 2, ok: true },
+      { index: 0, ok: true, partial: false },
+      { index: 1, ok: true, partial: false },
+      { index: 2, ok: true, partial: false },
     ]);
     expect(body.events).toEqual([
       { calendar: 0, title: "Road trip", start: "2026-11-14T05:00:00Z", end: "2026-11-18T05:00:00Z", allDay: true, date: "2026-11-14" },
@@ -169,7 +169,7 @@ describe("POST /v1/calendar/events", () => {
 
     const body = await events({ links: [GOOGLE] });
 
-    expect(body.calendars).toEqual([{ index: 0, ok: true }]);
+    expect(body.calendars).toEqual([{ index: 0, ok: true, partial: false }]);
     expect(body.events.length).toBeGreaterThan(0);
   });
 
@@ -209,9 +209,9 @@ describe("POST /v1/calendar/events", () => {
       const body = await events({ links: [GOOGLE, BROKEN, OUTLOOK] });
 
       expect(body.calendars).toEqual([
-        { index: 0, ok: true },
-        { index: 1, ok: false, error: code },
-        { index: 2, ok: true },
+        { index: 0, ok: true, partial: false },
+        { index: 1, ok: false, partial: false, error: code },
+        { index: 2, ok: true, partial: false },
       ]);
       expect(new Set(body.events.map((event) => event.calendar))).toEqual(new Set([0, 2]));
       expect(body.events).toHaveLength(9);
@@ -221,7 +221,7 @@ describe("POST /v1/calendar/events", () => {
       vi.restoreAllMocks();
       const retry = mockCalendars({ ...providers, [BROKEN]: ics(icloud) });
       const again = await events({ links: [GOOGLE, BROKEN, OUTLOOK] });
-      expect(again.calendars[1]).toEqual({ index: 1, ok: true });
+      expect(again.calendars[1]).toEqual({ index: 1, ok: true, partial: false });
       expect(retry.mock.calls.map(([input]) => String(input))).toEqual([BROKEN]);
       expect(spy).not.toBe(retry);
     });
@@ -245,7 +245,7 @@ describe("POST /v1/calendar/events", () => {
 
       const body = await events({ links: [BROKEN] });
 
-      expect(body).toEqual({ events: [], calendars: [{ index: 0, ok: false, error: "timeout" }] });
+      expect(body).toEqual({ events: [], calendars: [{ index: 0, ok: false, partial: false, error: "timeout" }] });
       expect(aborted).toBe(true);
     });
   });
@@ -275,8 +275,8 @@ describe("POST /v1/calendar/events", () => {
       const body = await events({ links: [link, OUTLOOK] });
 
       expect(body.calendars).toEqual([
-        { index: 0, ok: false, error: code },
-        { index: 1, ok: true },
+        { index: 0, ok: false, partial: false, error: code },
+        { index: 1, ok: true, partial: false },
       ]);
       expect(spy.mock.calls.map(([input]) => String(input))).toEqual([OUTLOOK]);
       const { keys } = await env.CACHE.list({ prefix: "cal:" });
@@ -353,11 +353,62 @@ describe("POST /v1/calendar/events", () => {
 
       expect(spy).toHaveBeenCalledTimes(1);
       expect(body.calendars).toEqual([
-        { index: 0, ok: true },
-        { index: 1, ok: true },
+        { index: 0, ok: true, partial: false },
+        { index: 1, ok: true, partial: false },
       ]);
       expect(body.events).toHaveLength(8);
     });
+  });
+
+  it("fetches once when one calendar is sent as webcal and as https", async () => {
+    const spy = mockCalendars(providers);
+
+    const body = await events({ links: [ICLOUD, ICLOUD_HTTPS, `${ICLOUD_HTTPS}#today`, ` ${ICLOUD} `] });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(body.calendars).toEqual([0, 1, 2, 3].map((index) => ({ index, ok: true, partial: false })));
+    // Each index still gets the calendar's nine events.
+    expect([0, 1, 2, 3].map((index) => body.events.filter((event) => event.calendar === index).length)).toEqual([9, 9, 9, 9]);
+  });
+
+  it("says when a calendar was only partly read", async () => {
+    const withBadRule = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Test//Test//EN",
+      "BEGIN:VEVENT",
+      "UID:bad@example.com",
+      "SUMMARY:Bad rule",
+      "DTSTART:20261117T090000Z",
+      "RRULE:FREQ=FOO;COUNT=abc",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "UID:hourly@example.com",
+      "SUMMARY:Hourly",
+      "DTSTART:20261117T090000Z",
+      "RRULE:FREQ=HOURLY",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "UID:good@example.com",
+      "SUMMARY:Good",
+      "DTSTART:20261117T100000Z",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const spy = mockCalendars({ ...providers, [BROKEN]: ics(withBadRule) });
+
+    const first = await events({ links: [BROKEN, OUTLOOK] });
+
+    expect(first.calendars).toEqual([
+      { index: 0, ok: true, partial: true },
+      { index: 1, ok: true, partial: false },
+    ]);
+    expect(first.events.filter((event) => event.calendar === 0).map((event) => event.title)).toEqual(["Good"]);
+
+    // The flag comes back from the cache too.
+    const second = await events({ links: [BROKEN, OUTLOOK] });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(second).toEqual(first);
   });
 
   it("never puts a link in a log line, a KV key or value, or a response", async () => {
@@ -463,6 +514,45 @@ describe("POST /v1/calendar/events", () => {
       });
       expect(spy).not.toHaveBeenCalled();
     });
+
+    it.each([
+      ["text/plain", "text/plain"],
+      ["a form", "application/x-www-form-urlencoded"],
+      ["no Content-Type", null],
+      ["an empty Content-Type", ""],
+      ["something that only looks like JSON", "application/jsonp"],
+    ])("answers 400 to a JSON body sent as %s", async (_name, contentType) => {
+      const spy = mockCalendars(providers);
+
+      const response = await exports.default.fetch("https://example.com/v1/calendar/events", {
+        method: "POST",
+        headers: contentType === null ? {} : { "content-type": contentType },
+        // A stream, so that no Content-Type is added on our behalf.
+        body: new Blob([JSON.stringify({ links: [OUTLOOK] })]).stream(),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: "invalid_request",
+        message: "Send 1 to 10 calendar links and, optionally, an IANA time zone",
+      });
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it.each(["application/json", "application/json; charset=utf-8", "Application/JSON"])(
+      "accepts Content-Type %s",
+      async (contentType) => {
+        mockCalendars(providers);
+
+        const response = await exports.default.fetch("https://example.com/v1/calendar/events", {
+          method: "POST",
+          headers: { "content-type": contentType },
+          body: JSON.stringify({ links: [OUTLOOK] }),
+        });
+
+        expect(response.status).toBe(200);
+      },
+    );
 
     it("accepts ten links", async () => {
       mockCalendars(providers);

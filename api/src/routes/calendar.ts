@@ -74,6 +74,10 @@ const CalendarStatusSchema = z
   .object({
     index: z.number().int().openapi({ description: "Index of the link in the request", example: 0 }),
     ok: z.boolean().openapi({ description: "True when the calendar was read" }),
+    partial: z.boolean().openapi({
+      description:
+        "True when the calendar was read but some of it was left out: an event with a repeat rule that is malformed or not supported, an event that could not be read, or a calendar too large to read in full. Always false when `ok` is false",
+    }),
     error: z.enum(CALENDAR_ERRORS).optional().openapi({
       description:
         "Why the calendar could not be read: invalid_link (not an https link), blocked_host (a private or local address), fetch_failed (unreachable or an error status), timeout, too_large, not_calendar (the link did not return an iCalendar file)",
@@ -92,7 +96,7 @@ const CalendarEventsSchema = z
 
 const ErrorSchema = z
   .object({
-    error: z.enum(["invalid_request"]).openapi({ description: "Machine-readable reason" }),
+    error: z.enum(["invalid_request", "internal_error"]).openapi({ description: "Machine-readable reason" }),
     message: z.string().openapi({ description: "Human-readable explanation" }),
   })
   .openapi("CalendarError");
@@ -111,7 +115,12 @@ const postCalendarEvents = createRoute({
       content: { "application/json": { schema: CalendarEventsSchema } },
     },
     400: {
-      description: "The body is not JSON, has no links or more than 10, or names an unknown time zone",
+      description:
+        "The body is not JSON or is not sent as application/json, has no links or more than 10, or names an unknown time zone",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    500: {
+      description: "Something went wrong in the API; the body says nothing more",
       content: { "application/json": { schema: ErrorSchema } },
     },
   },
@@ -129,13 +138,17 @@ export const calendar = new OpenAPIHono<{ Bindings: CloudflareBindings }>({
   },
 });
 
-// A body that is not JSON at all fails before validation; answer it the same
-// way. Anything else is a bug here: report it without the error's own text,
-// which could quote a link.
+// Two failures happen before validation and are answered the same way as a
+// bad body: JSON that does not parse (the framework's 400) and a body sent as
+// anything but application/json, or with no Content-Type (its 415). Anything
+// else is a bug here: report it without the error's own text, which could
+// quote a link.
 calendar.onError((error, c) => {
-  if (error instanceof HTTPException && error.status === 400) return c.json(INVALID_REQUEST, 400);
+  if (error instanceof HTTPException && (error.status === 400 || error.status === 415)) {
+    return c.json(INVALID_REQUEST, 400);
+  }
   console.error("calendar: unexpected error");
-  return c.json({ error: "internal_error", message: "Something went wrong" }, 500);
+  return c.json({ error: "internal_error" as const, message: "Something went wrong" }, 500);
 });
 
 class CalendarFailure extends Error {
@@ -167,10 +180,7 @@ function failureCode(error: unknown): CalendarErrorCode {
 /** What is cached: occurrences around the time of the fetch. Holds nothing of the link. */
 type CachedCalendar = { version: 1 } & ParsedCalendar;
 
-async function loadCalendar(link: string, cache: KVNamespace, now: Date): Promise<ParsedCalendar> {
-  if (link.length > MAX_LINK_LENGTH) throw new CalendarFailure("invalid_link");
-  const key = await calendarCacheKey(link);
-
+async function loadCalendar(link: string, key: string, cache: KVNamespace, now: Date): Promise<ParsedCalendar> {
   const cached = await cache.get<CachedCalendar>(key, "json");
   if (cached?.version === 1 && Array.isArray(cached.events)) return cached;
 
@@ -187,24 +197,33 @@ async function loadCalendar(link: string, cache: KVNamespace, now: Date): Promis
 }
 
 calendar.openapi(postCalendarEvents, async (c) => {
-  const { links, timezone } = c.req.valid("json");
+  // The validator only runs for a JSON content type. Anything else (text/plain,
+  // a form, no header at all) is refused here, the same way as a bad body.
+  const contentType = c.req.header("content-type") ?? "";
+  if (!/^application\/([a-z0-9.+-]+\+)?json\s*(;|$)/i.test(contentType.trim())) return c.json(INVALID_REQUEST, 400);
+  const body = c.req.valid("json") as Partial<z.infer<typeof CalendarEventsRequestSchema>> | undefined;
+  if (!body || !Array.isArray(body.links)) return c.json(INVALID_REQUEST, 400);
+  const { links, timezone } = body;
   const now = new Date();
   const timeZone = timezone ?? "UTC";
 
-  // The same link twice is fetched once.
+  // A link is loaded once per request however often and in whatever spelling
+  // it is sent: `webcal://x` and `https://x` have the same cache key.
   const loads = new Map<string, Promise<ParsedCalendar>>();
   const results = await Promise.all(
     links.map(async (link, index) => {
       try {
-        let load = loads.get(link);
-        if (!load) loads.set(link, (load = loadCalendar(link, c.env.CACHE, now)));
+        if (link.length > MAX_LINK_LENGTH) throw new CalendarFailure("invalid_link");
+        const key = await calendarCacheKey(link);
+        let load = loads.get(key);
+        if (!load) loads.set(key, (load = loadCalendar(link, key, c.env.CACHE, now)));
         const parsed = await load;
-        return { index, events: upcomingEvents(parsed.events, now, timeZone) };
+        return { index, partial: parsed.partial === true, events: upcomingEvents(parsed.events, now, timeZone) };
       } catch (error) {
         // Only the code: an error's own text could hold a piece of the link or of the file.
         const code = failureCode(error);
         console.warn(`calendar: link ${index} failed: ${code}`);
-        return { index, error: code };
+        return { index, partial: false, error: code };
       }
     }),
   );
@@ -225,7 +244,9 @@ calendar.openapi(postCalendarEvents, async (c) => {
     {
       events: events.slice(0, MAX_EVENTS),
       calendars: results.map((result) =>
-        result.error ? { index: result.index, ok: false, error: result.error } : { index: result.index, ok: true },
+        result.error
+          ? { index: result.index, ok: false, partial: false, error: result.error }
+          : { index: result.index, ok: true, partial: result.partial },
       ),
     },
     200,

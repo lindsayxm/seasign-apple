@@ -298,6 +298,10 @@
             "type": "boolean",
             "description": "True when the calendar was read"
           },
+          "partial": {
+            "type": "boolean",
+            "description": "True when the calendar was read but some of it was left out: an event with a repeat rule that is malformed or not supported, an event that could not be read, or a calendar too large to read in full. Always false when `ok` is false"
+          },
           "error": {
             "type": "string",
             "enum": [
@@ -313,7 +317,8 @@
         },
         "required": [
           "index",
-          "ok"
+          "ok",
+          "partial"
         ]
       },
       "CalendarError": {
@@ -322,7 +327,8 @@
           "error": {
             "type": "string",
             "enum": [
-              "invalid_request"
+              "invalid_request",
+              "internal_error"
             ],
             "description": "Machine-readable reason"
           },
@@ -471,7 +477,17 @@
             }
           },
           "400": {
-            "description": "The body is not JSON, has no links or more than 10, or names an unknown time zone",
+            "description": "The body is not JSON or is not sent as application/json, has no links or more than 10, or names an unknown time zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something went wrong in the API; the body says nothing more",
             "content": {
               "application/json": {
                 "schema": {
