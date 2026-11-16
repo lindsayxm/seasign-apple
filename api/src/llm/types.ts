@@ -35,8 +35,10 @@ export type SearchQuery = {
 export type Citation = {
   url: string;
   title?: string;
-  /** A date the provider gives for the page, as it gave it. */
-  date?: string;
+  /** When the provider says the page was first published, as it gave it (Perplexity `date`). */
+  published?: string;
+  /** When the provider says the page was last updated, as it gave it (Anthropic `page_age`). */
+  updated?: string;
 };
 
 /** What an adapter reads out of a successful provider response. */

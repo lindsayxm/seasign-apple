@@ -68,13 +68,20 @@ export const gemini: Adapter = {
     return { text: texts.join(""), citations };
   },
 
+  // Docs (read 2026-11-16): https://aistudio.google.com/docs/api-errors and
+  // /docs/troubleshooting. Interactions errors are `{ error: { code, message } }`
+  // with a snake_case `code`. Only 402 `payment_required` (the Prepay credit
+  // balance is depleted) waits for someone to pay; 429 `quota_exceeded` is the
+  // daily quota, which resets, so it is a rate limit like the per-minute ones.
+  // 400 `failed_precondition` ("such as disabled billing") and 403
+  // `permission_denied` cover more than billing and stay provider errors.
   classifyError(status, body): DiscoverErrorCode {
     switch (errorField(body, "code")) {
       case "authentication":
         return "invalid_key";
       case "payment_required":
-      case "quota_exceeded":
         return "quota_exceeded";
+      case "quota_exceeded":
       case "rate_limit_exceeded":
       case "too_many_requests":
         return "rate_limited";

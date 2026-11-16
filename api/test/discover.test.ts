@@ -1,9 +1,10 @@
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_KEY_LENGTH, MIN_KEY_LENGTH } from "../src/routes/discover.ts";
+import { MAX_KEY_LENGTH, MIN_KEY_LENGTH, isIanaZone } from "../src/routes/discover.ts";
+import { ADAPTERS } from "../src/llm/index.ts";
 import { PROVIDER_MAX_BYTES, PROVIDER_TIMEOUT_MS, providerDeadline } from "../src/llm/http.ts";
 import { PROVIDERS, type ProviderId } from "../src/llm/types.ts";
-import { CITES, ERRORS, EXPECTED_ITEMS, FAKE_KEY, HOSTS, KEY_TAIL, MODEL_ITEMS, NOW, SUCCESS, modelJson } from "./discover-fixtures.ts";
+import { CITES, ERRORS, EXPECTED_ITEMS, FAKE_KEY, HOSTS, KEY_PREFIX, KEY_TAIL, MODEL_ITEMS, NOW, SUCCESS, modelJson } from "./discover-fixtures.ts";
 
 const INVALID_REQUEST = {
   error: "invalid_request",
@@ -35,6 +36,17 @@ function post(body: unknown, headers: Record<string, string> = { "x-llm-key": FA
 
 const VALID = { provider: "openai", interests: ["tide pools", "new telescopes"] };
 
+/** Pages the search "found", one per planted item; the last one's address holds a run of the key. */
+const PLANTED_CITES = ["a", "b", "c", "d", `e-${FAKE_KEY.slice(13, 21)}`].map((path) => ({ url: `https://leak.example.com/${path}`, title: "Leak" }));
+/** Items that each hold the key or a part of it, in a different field. */
+const PLANTED = [
+  { title: `Leaked ${FAKE_KEY}`, source: "x", description: "whole key" },
+  { title: "Only the tail", source: "x", description: `ends with ${KEY_TAIL}` },
+  { title: `Only the prefix ${KEY_PREFIX}`, source: "x", description: "y" },
+  { title: "A run in the source", source: `Desk ${FAKE_KEY.slice(20, 28)}`, description: "y" },
+  { title: "A run in the link", source: "x", description: "y" },
+].map((item, i) => ({ ...item, url: PLANTED_CITES[i]?.url, published: null, interest: 0 }));
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"], now: NOW });
 });
@@ -62,6 +74,15 @@ describe("POST /v1/discover validation", () => {
     ["an interest that is not a string", { ...VALID, interests: ["tides", 7] }, { "x-llm-key": FAKE_KEY }],
     ["interests as one string", { ...VALID, interests: "tides, telescopes" }, { "x-llm-key": FAKE_KEY }],
     ["an unknown time zone", { ...VALID, timezone: "Mars/Olympus_Mons" }, { "x-llm-key": FAKE_KEY }],
+    ["an unknown zone in a known area", { ...VALID, timezone: "Europe/Atlantis" }, { "x-llm-key": FAKE_KEY }],
+    ["a UTC offset as the time zone", { ...VALID, timezone: "+05:00" }, { "x-llm-key": FAKE_KEY }],
+    ["a bare offset as the time zone", { ...VALID, timezone: "-0500" }, { "x-llm-key": FAKE_KEY }],
+    ["an abbreviation as the time zone", { ...VALID, timezone: "CST" }, { "x-llm-key": FAKE_KEY }],
+    ["GMT as the time zone", { ...VALID, timezone: "GMT" }, { "x-llm-key": FAKE_KEY }],
+    ["an Etc offset zone", { ...VALID, timezone: "Etc/GMT+5" }, { "x-llm-key": FAKE_KEY }],
+    ["a backward-compatible alias", { ...VALID, timezone: "US/Eastern" }, { "x-llm-key": FAKE_KEY }],
+    ["a zone name in lower case", { ...VALID, timezone: "america/chicago" }, { "x-llm-key": FAKE_KEY }],
+    ["an empty time zone", { ...VALID, timezone: "" }, { "x-llm-key": FAKE_KEY }],
     ["JSON that does not parse", '{"provider": "openai", "interests": ["tides"', { "x-llm-key": FAKE_KEY }],
     ["a JSON array", [VALID], { "x-llm-key": FAKE_KEY }],
   ];
@@ -74,6 +95,16 @@ describe("POST /v1/discover validation", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual(INVALID_REQUEST);
     expect(outbound).not.toHaveBeenCalled();
+  });
+
+  it("accepts every IANA zone name the runtime knows, and UTC", async () => {
+    const names = Intl.supportedValuesOf("timeZone");
+    expect(names.length).toBeGreaterThan(300);
+    expect(names.filter((name) => !isIanaZone(name))).toEqual([]);
+    for (const name of ["UTC", "America/Chicago", "America/Argentina/Buenos_Aires", "America/Port-au-Prince", "Asia/Kolkata"]) expect(isIanaZone(name)).toBe(true);
+
+    mockProvider("openai", () => json(SUCCESS.openai(modelJson())));
+    for (const timezone of ["UTC", "America/Argentina/Buenos_Aires"]) expect((await post({ ...VALID, timezone })).status).toBe(200);
   });
 
   it("refuses a body not sent as application/json", async () => {
@@ -158,6 +189,64 @@ describe("POST /v1/discover timeout", () => {
   });
 });
 
+describe("POST /v1/discover internal errors", () => {
+  const INTERNAL_ERROR = { error: "internal_error", message: "Something went wrong" };
+  const SECRET_INTEREST = "my private interest";
+
+  function recordConsole() {
+    const logged: string[] = [];
+    for (const method of ["log", "info", "warn", "error", "debug", "trace"] as const) {
+      vi.spyOn(console, method).mockImplementation((...args: unknown[]) => {
+        logged.push(args.map((arg) => (arg instanceof Error ? `${arg.message} ${arg.stack}` : String(arg))).join(" "));
+      });
+    }
+    return logged;
+  }
+
+  it("answers the fixed 500 when an adapter fails with something other than a provider failure, and logs one line without the key or the interests", async () => {
+    const logged = recordConsole();
+    mockProvider("openai", () => json(SUCCESS.openai(modelJson())));
+    // A bug in reading the answer, its message quoting the key and the interest.
+    vi.spyOn(ADAPTERS.openai, "readResponse").mockImplementation(() => {
+      throw new TypeError(`cannot read ${FAKE_KEY} for ${SECRET_INTEREST}`);
+    });
+
+    const response = await post({ ...VALID, interests: [SECRET_INTEREST] });
+    const text = `${[...response.headers].join("\n")}\n${await response.text()}`;
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(text.slice(text.indexOf("\n{")))).toEqual(INTERNAL_ERROR);
+    expect(logged).toEqual(["discover: openai unexpected failure"]);
+    for (const seen of [text, ...logged]) {
+      expect(seen).not.toContain(KEY_TAIL);
+      expect(seen).not.toContain(KEY_PREFIX);
+      expect(seen).not.toContain("private");
+    }
+  });
+
+  it("answers the fixed 500 for an error outside the provider call, logging one fixed line", async () => {
+    const logged = recordConsole();
+    const outbound = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected outbound request"));
+    // Working out today's date fails, with a message quoting the key and the interest.
+    vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function () {
+      throw new RangeError(`no zone for ${FAKE_KEY} ${SECRET_INTEREST}`);
+    });
+
+    const response = await post({ ...VALID, interests: [SECRET_INTEREST] });
+    const text = `${[...response.headers].join("\n")}\n${await response.text()}`;
+
+    expect(response.status).toBe(500);
+    expect(JSON.parse(text.slice(text.indexOf("\n{")))).toEqual(INTERNAL_ERROR);
+    expect(outbound).not.toHaveBeenCalled();
+    expect(logged).toEqual(["discover: unexpected error"]);
+    for (const seen of [text, ...logged]) {
+      expect(seen).not.toContain(KEY_TAIL);
+      expect(seen).not.toContain(KEY_PREFIX);
+      expect(seen).not.toContain("private");
+    }
+  });
+});
+
 describe("POST /v1/discover key handling", () => {
   it("never puts the key in a response, a log line or KV, and calls only the provider's fixed host, for every adapter and every outcome", async () => {
     // Every console method is recorded.
@@ -191,13 +280,18 @@ describe("POST /v1/discover key handling", () => {
       const errors = ERRORS[provider];
       outcomes.length = 0;
       // Success, with the key planted in the model's text and in the envelope.
-      const planted = [
-        ...MODEL_ITEMS.slice(0, 2),
-        { title: `Leaked ${FAKE_KEY}`, url: CITES[5]?.url, source: "x", published: null, description: KEY_TAIL, interest: 0 },
-      ];
-      expect(await run(provider, () => json({ ...(SUCCESS[provider](modelJson(planted)) as object), echoed: FAKE_KEY }, 200, echo))).toBe(200);
+      // Each planted item is on its own cited, undated, safe page, so it would
+      // be returned but for the part of the key it holds (checked below with
+      // another key); only the first holds the whole key.
+      const success = () => json({ ...(SUCCESS[provider](modelJson([...MODEL_ITEMS.slice(0, 2), ...PLANTED]), [...CITES, ...PLANTED_CITES]) as object), echoed: FAKE_KEY }, 200, echo);
+      expect(await run(provider, success)).toBe(200);
+      // The control: under another key every planted item comes back, so the drops above were for the key.
+      vi.mocked(globalThis.fetch).mockRestore?.();
+      mockProvider(provider, success);
+      const control = (await (await post({ ...VALID, provider }, { "x-llm-key": "another-fake-key-ZZZZ-0000" })).json()) as { items: { link: string }[] };
+      expect(control.items.map((item) => item.link)).toEqual([EXPECTED_ITEMS[0]?.link, EXPECTED_ITEMS[1]?.link, ...PLANTED_CITES.map((cite) => cite.url)]);
       // Every error the provider documents, echoing the key in the body and headers.
-      for (const failure of [errors.invalidKey, errors.rateLimited, ...errors.quota, errors.server]) {
+      for (const failure of [errors.invalidKey, ...errors.rateLimited, ...errors.quota, errors.server]) {
         const withKey = { ...(failure.body as object), key: FAKE_KEY };
         expect(await run(provider, () => json(withKey, failure.status, echo))).toBeGreaterThanOrEqual(400);
       }
@@ -226,8 +320,16 @@ describe("POST /v1/discover key handling", () => {
     const everything = [...answers, ...logged].join("\n");
     expect(everything).not.toContain(FAKE_KEY);
     expect(everything).not.toContain(KEY_TAIL);
-    // The planted item was dropped; the two good ones came back.
-    expect(answers[0]).toContain(EXPECTED_ITEMS[1]?.link);
+    expect(everything).not.toContain(KEY_PREFIX);
+    // No 8 consecutive characters of the key, anywhere.
+    for (let i = 0; i + 8 <= FAKE_KEY.length; i++) expect(everything).not.toContain(FAKE_KEY.slice(i, i + 8));
+    // The planted items were dropped; the two good ones came back, for every provider.
+    const successes = answers.filter((answer) => answer.startsWith("200 "));
+    expect(successes).toHaveLength(PROVIDERS.length);
+    for (const answer of successes) {
+      const items = (JSON.parse(answer.slice(answer.indexOf("\n{"))) as { items: unknown[] }).items;
+      expect(items).toEqual(EXPECTED_ITEMS.slice(0, 2));
+    }
     // Log lines are the provider and a code, nothing else.
     for (const line of logged) expect(line).toMatch(/^discover: (anthropic|openai|gemini|perplexity) (failed: [a-z_]+|unexpected failure)$/);
     expect(logged.length).toBeGreaterThan(0);

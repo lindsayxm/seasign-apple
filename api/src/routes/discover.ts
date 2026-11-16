@@ -5,7 +5,7 @@ import { isJsonContentType } from "../lib/site-reader.ts";
 import { collapseSpace } from "../lib/text.ts";
 import { callProvider } from "../llm/http.ts";
 import { ADAPTERS } from "../llm/index.ts";
-import { finalItems } from "../llm/results.ts";
+import { finalItems, holdsKeyRun, keyRuns } from "../llm/results.ts";
 import { DISCOVER_ERRORS, DiscoverFailure, PROVIDERS, type DiscoverErrorCode } from "../llm/types.ts";
 
 // The user's LLM key arrives in the X-LLM-Key header and is used for one call
@@ -20,6 +20,17 @@ export const MIN_KEY_LENGTH = 16;
 export const MAX_KEY_LENGTH = 512;
 /** Printable ASCII without spaces: every provider's keys are written this way. */
 const KEY_PATTERN = /^[\x21-\x7e]+$/;
+
+/**
+ * `timezone` is an IANA zone name: `UTC`, or a name in one of the database's
+ * geographic areas (`America/Chicago`, `America/Argentina/Buenos_Aires`).
+ * Offsets (`+05:00`), abbreviations (`CST`), `Etc/GMT+5` and lower-case
+ * spellings are refused by this shape before `isTimeZone` is asked, whatever
+ * the runtime's Intl would accept. The app's rule (`SearchDay.ianaName`) sends
+ * nothing outside it.
+ */
+const IANA_ZONE = /^(?:UTC|(?:Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific)(?:\/[A-Z][A-Za-z0-9_+-]*){1,2})$/;
+export const isIanaZone = (name: string) => IANA_ZONE.test(name) && isTimeZone(name);
 
 /** An interest as it is used: white space collapsed, controls removed; null when it is empty or too long. */
 function cleanInterest(text: string): string | null {
@@ -54,9 +65,13 @@ const DiscoverRequestSchema = z
       }),
     timezone: z
       .string()
-      .refine(isTimeZone)
+      .refine(isIanaZone)
       .optional()
-      .openapi({ description: "IANA time zone of the device; sets what \"today\" is. Defaults to UTC", example: "America/Chicago" }),
+      .openapi({
+        description:
+          "IANA time zone name of the device (`UTC`, or Area/Location such as America/Chicago); sets what \"today\" is. Offsets such as +05:00 and abbreviations such as CST are refused. Defaults to UTC",
+        example: "America/Chicago",
+      }),
   })
   .openapi("DiscoverRequest");
 
@@ -115,7 +130,7 @@ const postDiscover = createRoute({
   responses: {
     200: { description: "What the search found", content: { "application/json": { schema: DiscoverSchema } } },
     400: errorResponse(
-      "invalid_request: no X-LLM-Key header or one of the wrong shape, a body that is not JSON or not sent as application/json, an unknown provider, no interests or more than 20, an interest empty or over 80 characters, or an unknown time zone",
+      "invalid_request: no X-LLM-Key header or one of the wrong shape, a body that is not JSON or not sent as application/json, an unknown provider, no interests or more than 20, an interest empty or over 80 characters, or a time zone that is not a known IANA name",
     ),
     401: errorResponse("invalid_key: the provider did not accept the key"),
     402: errorResponse("quota_exceeded: the key's account has no credit or quota left with the provider; retrying will not help until it is topped up"),
@@ -130,6 +145,8 @@ const INVALID_REQUEST = {
   error: "invalid_request" as const,
   message: "Send an X-LLM-Key header and a JSON body with provider and 1 to 20 interests of 1 to 80 characters",
 };
+
+const INTERNAL_ERROR = { error: "internal_error" as const, message: "Something went wrong" };
 
 const FAILURES: Record<DiscoverErrorCode, { status: 401 | 402 | 429 | 502 | 504; message: string }> = {
   invalid_key: { status: 401, message: "The provider did not accept the API key" },
@@ -151,7 +168,7 @@ export const discover = new OpenAPIHono<{ Bindings: CloudflareBindings }>({
 discover.onError((error, c) => {
   if (error instanceof HTTPException && (error.status === 400 || error.status === 415)) return c.json(INVALID_REQUEST, 400);
   console.error("discover: unexpected error");
-  return c.json({ error: "internal_error" as const, message: "Something went wrong" }, 500);
+  return c.json(INTERNAL_ERROR, 500);
 });
 
 /** Today's date in the zone, YYYY-MM-DD. */
@@ -179,9 +196,11 @@ discover.openapi(postDiscover, async (c) => {
   try {
     const output = await callProvider(adapter, key, query);
     const nowSeconds = Math.floor(Date.now() / 1000);
-    // A provider or a page could put the key into the model's text; such an item is not returned.
+    // A provider or a page could put the key, or part of it, into the model's
+    // text; an item holding any 8 consecutive characters of it is not returned.
+    const runs = keyRuns(key);
     const items = finalItems(output, interests, nowSeconds).filter(
-      (item) => !Object.values(item).some((value) => typeof value === "string" && value.includes(key)),
+      (item) => !Object.values(item).some((value) => typeof value === "string" && holdsKeyRun(value, runs)),
     );
     return c.json(
       {
@@ -193,8 +212,12 @@ discover.openapi(postDiscover, async (c) => {
     );
   } catch (error) {
     // Only the provider and our code: the error's own text is never written anywhere.
-    const code: DiscoverErrorCode = error instanceof DiscoverFailure ? error.code : "provider_error";
-    if (!(error instanceof DiscoverFailure)) console.error(`discover: ${adapter.id} unexpected failure`);
+    if (!(error instanceof DiscoverFailure)) {
+      // Every provider and network failure is a DiscoverFailure by now, so this is a bug here.
+      console.error(`discover: ${adapter.id} unexpected failure`);
+      return c.json(INTERNAL_ERROR, 500);
+    }
+    const code: DiscoverErrorCode = error.code;
     console.warn(`discover: ${adapter.id} failed: ${code}`);
     const failure = FAILURES[code];
     return c.json({ error: code, message: failure.message }, failure.status);

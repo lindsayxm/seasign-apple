@@ -8,6 +8,7 @@ import type { ProviderId } from "../src/llm/types.ts";
 /** An obviously fake key. Its tail is checked too, since some providers quote the end of a key. */
 export const FAKE_KEY = "fake-llm-key-NOT-REAL-0000-tail9k7q";
 export const KEY_TAIL = "tail9k7q";
+export const KEY_PREFIX = "fake-llm";
 
 /** Monday 16 November 2026, 15:00 UTC. */
 export const NOW = new Date("2026-11-16T15:00:00Z");
@@ -264,17 +265,62 @@ export const SUCCESS: Record<ProviderId, (text: string, cites?: Cite[]) => unkno
 };
 
 // ---------------------------------------------------------------------------
-// Error bodies, as each provider documents them, each quoting part of the key
+// Error bodies, as each provider documents them (read again 2026-11-16 for
+// task 20; the URLs are in each adapter's classifyError), some quoting part of
+// the key. Where a page gives the code but no body, the body is the provider's
+// usual envelope with that code.
 
 type ErrorCase = { status: number; body: unknown };
 
-export const ERRORS: Record<ProviderId, { invalidKey: ErrorCase; rateLimited: ErrorCase; quota: ErrorCase[]; server: ErrorCase }> = {
+const openaiError = (code: string, type: string | null, message: string) => ({ error: { message, type, param: null, code } });
+
+export const ERRORS: Record<ProviderId, { invalidKey: ErrorCase; rateLimited: ErrorCase[]; quota: ErrorCase[]; server: ErrorCase }> = {
   anthropic: {
     invalidKey: { status: 401, body: { type: "error", error: { type: "authentication_error", message: `invalid x-api-key ${FAKE_KEY}` } } },
-    rateLimited: { status: 429, body: { type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your per-minute rate limit" } } },
+    rateLimited: [
+      { status: 429, body: { type: "error", error: { type: "rate_limit_error", message: "Number of request tokens has exceeded your per-minute rate limit" } } },
+      // A ramp limit (the docs give the code and the gist of the message, not its words).
+      {
+        status: 429,
+        body: {
+          type: "error",
+          error: { type: "rate_limit_error", message: "Ramp limit exceeded: your current ramp limit is 50,000 input tokens per minute.", details: { error_code: "ramp_limit_exceeded" } },
+          request_id: "req_018EeWyXxfu5pfWkrYcMdjWG",
+        },
+      },
+    ],
     quota: [
       { status: 402, body: { type: "error", error: { type: "billing_error", message: "Billing problem" } } },
       { status: 400, body: { type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API." } } },
+      // The tier's monthly spend cap: a 429 rate_limit_error told apart by details.error_code.
+      {
+        status: 429,
+        body: {
+          type: "error",
+          error: {
+            type: "rate_limit_error",
+            message:
+              "You have reached your API usage limits: your organization has crossed its monthly API usage threshold, set based on your organization's API tier. You will regain access on 2026-12-01 at 00:00 UTC.",
+            details: { error_code: "enforced_spend_limit_reached" },
+          },
+          request_id: "req_018EeWyXxfu5pfWkrYcMdjWG",
+        },
+      },
+      // A spend limit the user set, on the organization and on a workspace.
+      {
+        status: 400,
+        body: {
+          type: "error",
+          error: { type: "invalid_request_error", message: "You have reached your specified API usage limits. You will regain access on 2026-12-01 at 00:00 UTC." },
+        },
+      },
+      {
+        status: 400,
+        body: {
+          type: "error",
+          error: { type: "invalid_request_error", message: "You have reached your specified workspace API usage limits. You will regain access on 2026-12-01 at 00:00 UTC." },
+        },
+      },
     ],
     server: { status: 529, body: { type: "error", error: { type: "overloaded_error", message: "Overloaded" } } },
   },
@@ -283,27 +329,41 @@ export const ERRORS: Record<ProviderId, { invalidKey: ErrorCase; rateLimited: Er
       status: 401,
       body: { error: { message: `Incorrect API key provided: fake-llm**********${KEY_TAIL}.`, type: "invalid_request_error", param: null, code: "invalid_api_key" } },
     },
-    rateLimited: { status: 429, body: { error: { message: "Rate limit reached for requests", type: "requests", param: null, code: "rate_limit_exceeded" } } },
+    rateLimited: [
+      { status: 429, body: openaiError("rate_limit_exceeded", "requests", "Rate limit reached for requests") },
+      { status: 429, body: openaiError("slow_down", "rate_limit_error", "Your request rate increased too quickly.") },
+    ],
     quota: [
-      { status: 429, body: { error: { message: "Your organization has no prepaid credits remaining.", type: "insufficient_quota", param: null, code: "credit_balance_exhausted" } } },
+      { status: 429, body: openaiError("credit_balance_exhausted", "insufficient_quota", "Your organization has no prepaid credits remaining.") },
+      { status: 429, body: openaiError("organization_spend_limit_exceeded", null, "Your organization reached its enforced spend limit.") },
+      { status: 429, body: openaiError("project_spend_limit_exceeded", null, "Your project reached its enforced spend limit.") },
+      { status: 429, body: openaiError("organization_usage_limit_exceeded", null, "Your organization reached its OpenAI-assigned usage limit.") },
+      { status: 429, body: openaiError("insufficient_quota", "insufficient_quota", "You exceeded your current quota.") },
     ],
     server: { status: 500, body: { error: { message: "The server had an error while processing your request.", type: "server_error", param: null, code: null } } },
   },
   gemini: {
     invalidKey: { status: 401, body: { error: { code: "authentication", message: `API key not valid: ${FAKE_KEY}` } } },
-    rateLimited: { status: 429, body: { error: { code: "rate_limit_exceeded", message: "Resource has been exhausted" } } },
-    quota: [
+    rateLimited: [
+      { status: 429, body: { error: { code: "rate_limit_exceeded", message: "You have exceeded the per-minute or per-second request or token limit." } } },
+      { status: 429, body: { error: { code: "too_many_requests", message: "Too many requests in a short period." } } },
+      // The daily quota resets: try later, not top up.
       { status: 429, body: { error: { code: "quota_exceeded", message: "You have exceeded your daily quota." } } },
-      { status: 402, body: { error: { code: "payment_required", message: "Your Prepay credit balance is depleted." } } },
+      // The legacy generateContent shape, in case it is ever answered.
+      { status: 429, body: { error: { code: 429, message: "Resource has been exhausted (e.g. check quota).", status: "RESOURCE_EXHAUSTED" } } },
     ],
+    quota: [{ status: 402, body: { error: { code: "payment_required", message: "Your Prepay credit balance is depleted." } } }],
     server: { status: 503, body: { error: { code: "service_unavailable", message: "The model is overloaded." } } },
   },
   perplexity: {
     invalidKey: { status: 401, body: { error: { message: `Invalid API key ...${KEY_TAIL}`, type: "invalid_api_key", code: 401 } } },
-    rateLimited: {
-      status: 429,
-      body: { error: { message: "Token rate limit exceeded (TPM). Retry after the Retry-After interval.", type: "token_rate_limit_exceeded", code: 429 } },
-    },
+    rateLimited: [
+      {
+        status: 429,
+        body: { error: { message: "Token rate limit exceeded (TPM). Retry after the Retry-After interval.", type: "token_rate_limit_exceeded", code: 429 } },
+      },
+      { status: 429, body: { error: { message: "Request rate limit exceeded, please try again later.", type: "request_rate_limit_exceeded", code: 429 } } },
+    ],
     quota: [{ status: 402, body: { error: { message: "Insufficient credits", type: "insufficient_credits", code: 402 } } }],
     server: { status: 500, body: { error: { message: "Internal server error", type: "server_error", code: 500 } } },
   },

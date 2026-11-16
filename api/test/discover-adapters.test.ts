@@ -6,8 +6,9 @@ import { PROVIDER_MAX_BYTES, callProvider } from "../src/llm/http.ts";
 import { ADAPTERS } from "../src/llm/index.ts";
 import { OPENAI_MODEL } from "../src/llm/openai.ts";
 import { PERPLEXITY_MODEL } from "../src/llm/perplexity.ts";
+import { holdsKeyRun, keyRuns, modelItems } from "../src/llm/results.ts";
 import { PROVIDERS, type ProviderId } from "../src/llm/types.ts";
-import { CITES, ERRORS, EXPECTED_ITEMS, FAKE_KEY, HOSTS, MODEL_ITEMS, NOW, SUCCESS, geminiBody, modelJson } from "./discover-fixtures.ts";
+import { CITES, ERRORS, EXPECTED_ITEMS, FAKE_KEY, HOSTS, KEY_TAIL, MODEL_ITEMS, NOW, SUCCESS, geminiBody, modelJson, type Cite } from "./discover-fixtures.ts";
 
 const INTERESTS = ["tide pools", "new telescopes"];
 
@@ -164,6 +165,24 @@ describe.each(PROVIDERS)("%s adapter", (provider) => {
     expect(body.items).toEqual(EXPECTED_ITEMS.slice(0, 2));
   });
 
+  it("reads the JSON from a later fence when the first holds prose or an example, and from outside the fences", async () => {
+    const answer = JSON.stringify({ items: MODEL_ITEMS.slice(0, 2) });
+    const texts = [
+      // Prose in the first fence, an example that is not an item in the second, the answer in the third.
+      `Searching now.\n\`\`\`text\nI looked for [tide pools] and {new telescopes}.\n\`\`\`\n\`\`\`json\n[{"example": true}]\n\`\`\`\n\`\`\`json\n${answer}\n\`\`\``,
+      // A fence of prose, the answer outside any fence.
+      `\`\`\`\nnotes: {"a": [1, 2]}\n\`\`\`\nHere you go: ${answer}`,
+      // The answer in a fence left open (cut off), after a fence of prose.
+      `\`\`\`md\n- one\n\`\`\`\n\`\`\`json\n${answer}`,
+    ];
+    for (const text of texts) {
+      vi.restoreAllMocks();
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockProvider(provider, () => json(success(text)));
+      expect((await discover(provider)).body.items).toEqual(EXPECTED_ITEMS.slice(0, 2));
+    }
+  });
+
   it("keeps the whole items of an answer cut off mid-way, and answers 200 with no items for text that is not JSON", async () => {
     const full = modelJson(MODEL_ITEMS.slice(0, 2));
     // Cut inside the second item, as an answer that ran out of output tokens is.
@@ -266,12 +285,16 @@ describe.each(PROVIDERS)("%s adapter", (provider) => {
     expect(await discover(provider)).toEqual({ status: 401, body: { error: "invalid_key", message: "The provider did not accept the API key" } });
   });
 
-  it("answers 429 rate_limited when the provider limits the key", async () => {
-    mockProvider(provider, () => json(errors.rateLimited.body, errors.rateLimited.status, { "retry-after": "20" }));
-    expect(await discover(provider)).toEqual({
-      status: 429,
-      body: { error: "rate_limited", message: "The provider is limiting requests for this key; try again later" },
-    });
+  it("answers 429 rate_limited when the provider limits the key for a while", async () => {
+    for (const limited of errors.rateLimited) {
+      vi.restoreAllMocks();
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockProvider(provider, () => json(limited.body, limited.status, { "retry-after": "20" }));
+      expect(await discover(provider)).toEqual({
+        status: 429,
+        body: { error: "rate_limited", message: "The provider is limiting requests for this key; try again later" },
+      });
+    }
   });
 
   it("answers 402 quota_exceeded when the key's account has no credit or quota", async () => {
@@ -428,5 +451,129 @@ describe("provider-specific shapes", () => {
     const items = [{ ...MODEL_ITEMS[0], published: "2026-11-01" }];
     mockProvider("perplexity", () => json(SUCCESS.perplexity(JSON.stringify({ items }), CITES.slice(0, 1))));
     expect((await discover("perplexity")).body.items).toEqual(EXPECTED_ITEMS.slice(0, 1));
+  });
+
+  it("perplexity: last_updated is never read as the publication date", async () => {
+    const items = [{ ...MODEL_ITEMS[0], published: null }];
+    // No publication date anywhere; the fixture's last_updated is 2026-11-16.
+    mockProvider("perplexity", () => json(SUCCESS.perplexity(JSON.stringify({ items }), [{ ...(CITES[0] as Cite), date: undefined }])));
+    expect((await discover("perplexity")).body.items).toEqual([{ ...EXPECTED_ITEMS[0], published: null }]);
+  });
+
+  it("anthropic: page_age is when the page last changed, so the model's date wins and page_age is the fallback", async () => {
+    const cite: Cite = { ...(CITES[0] as Cite), date: "2026-11-15" }; // page_age
+    const cases: [unknown, string | null][] = [
+      ["2026-11-12", "2026-11-12T00:00:00Z"], // the model's date, though page_age is later
+      ["Nov 10, 2026", "2026-11-10T00:00:00Z"],
+      ["2027-03-01", "2026-11-15T00:00:00Z"], // ahead: page_age instead
+      ["2 days ago", "2026-11-15T00:00:00Z"], // unreadable: page_age
+      [null, "2026-11-15T00:00:00Z"],
+    ];
+    for (const [stated, expected] of cases) {
+      vi.restoreAllMocks();
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const items = [{ ...MODEL_ITEMS[0], published: stated }];
+      mockProvider("anthropic", () => json(SUCCESS.anthropic(JSON.stringify({ items }), [cite])));
+      expect((await discover("anthropic")).body.items).toEqual([{ ...EXPECTED_ITEMS[0], published: expected }]);
+    }
+    // The model's date decides the window too: an old page updated this week is left out.
+    vi.restoreAllMocks();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockProvider("anthropic", () => json(SUCCESS.anthropic(JSON.stringify({ items: [{ ...MODEL_ITEMS[0], published: "2025-06-01" }] }), [cite])));
+    expect((await discover("anthropic")).body.items).toEqual([]);
+  });
+
+  it("perplexity: an overloaded answer is a provider error, not a rate limit", async () => {
+    for (const status of [429, 503]) {
+      vi.restoreAllMocks();
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockProvider("perplexity", () => json({ error: { message: "Upstream model is overloaded.", type: "overloaded", code: status } }, status));
+      expect((await discover("perplexity")).body.error).toBe("provider_error");
+    }
+  });
+});
+
+describe("error mapping, by the provider's documented codes", () => {
+  const cases: [ProviderId, number, unknown, string][] = [
+    ["openai", 429, { error: { code: "organization_spend_limit_exceeded" } }, "quota_exceeded"],
+    ["openai", 429, { error: { code: "project_spend_limit_exceeded" } }, "quota_exceeded"],
+    ["openai", 429, { error: { code: "organization_usage_limit_exceeded" } }, "quota_exceeded"],
+    ["openai", 429, { error: { code: "insufficient_quota" } }, "quota_exceeded"],
+    ["openai", 429, { error: { code: "credit_balance_exhausted" } }, "quota_exceeded"],
+    ["openai", 429, { error: { code: null, type: "insufficient_quota" } }, "quota_exceeded"],
+    ["openai", 429, { error: { code: "slow_down", type: "rate_limit_error" } }, "rate_limited"],
+    ["openai", 429, null, "rate_limited"],
+    ["anthropic", 429, { error: { type: "rate_limit_error", message: "x", details: { error_code: "enforced_spend_limit_reached" } } }, "quota_exceeded"],
+    ["anthropic", 429, { error: { type: "rate_limit_error", message: "x", details: { error_code: "ramp_limit_exceeded" } } }, "rate_limited"],
+    ["anthropic", 429, { error: { type: "rate_limit_error", message: "x" } }, "rate_limited"],
+    ["anthropic", 400, { error: { type: "invalid_request_error", message: "You have reached your specified API usage limits." } }, "quota_exceeded"],
+    ["anthropic", 400, { error: { type: "invalid_request_error", message: "You have reached your specified workspace API usage limits." } }, "quota_exceeded"],
+    ["anthropic", 400, { error: { type: "invalid_request_error", message: "max_tokens: field required" } }, "provider_error"],
+    ["gemini", 429, { error: { code: "quota_exceeded" } }, "rate_limited"],
+    ["gemini", 402, { error: { code: "payment_required" } }, "quota_exceeded"],
+    ["gemini", 400, { error: { code: "failed_precondition" } }, "provider_error"],
+    ["gemini", 403, { error: { code: "permission_denied" } }, "provider_error"],
+    ["perplexity", 402, null, "quota_exceeded"],
+    ["perplexity", 429, { error: { type: "request_rate_limit_exceeded" } }, "rate_limited"],
+  ];
+  it.each(cases)("%s %i %j is %s", (provider, status, body, expected) => {
+    expect(ADAPTERS[provider].classifyError(status, body)).toBe(expected);
+  });
+});
+
+describe("model text with many fences", () => {
+  const answer = JSON.stringify({ items: MODEL_ITEMS.slice(0, 2) });
+
+  it("finds the answer after many fences of prose and non-item JSON, and gives up past the fence cap", () => {
+    const noise = (n: number) => Array.from({ length: n }, (_, i) => `\`\`\`\n[{"note": ${i}}] and [x]\n\`\`\`\n`).join("");
+    expect(modelItems(`${noise(19)}\`\`\`json\n${answer}\n\`\`\``)).toHaveLength(2);
+    // The 21st fence is past the cap, and so is the text after the 20th.
+    expect(modelItems(`${noise(20)}\`\`\`json\n${answer}\n\`\`\``)).toEqual([]);
+    expect(modelItems(`${noise(20)}${answer}`)).toEqual([]);
+    // The candidate cap is shared: 100 non-item objects in early fences use it up.
+    const objects = (n: number) => `\`\`\`\n[${Array.from({ length: n }, (_, i) => `{"n":${i}}`).join(",")}]\n\`\`\`\n`;
+    expect(modelItems(`${objects(100)}\`\`\`json\n${answer}\n\`\`\``)).toEqual([]);
+    expect(modelItems(`${objects(98)}\`\`\`json\n${answer}\n\`\`\``)).toHaveLength(2);
+  });
+
+  it("stays cheap on hostile text: thousands of fences, deep nesting and many objects", () => {
+    const hostile = [
+      "```\n[\n```\n".repeat(20_000),
+      `\`\`\`\n${"[".repeat(50_000)}${"]".repeat(50_000)}\n\`\`\`\n`.repeat(2) + "[".repeat(50_000),
+      `\`\`\`\n[${'{"a":1},'.repeat(25_000)}]\n\`\`\`\n`.repeat(3),
+      "```".repeat(70_000),
+      "```\n".repeat(50_000),
+      `${"[".repeat(100_000)}${"]".repeat(100_000)}`,
+      '[{"a":'.repeat(40_000),
+      `${"[{}],".repeat(20_000)}`,
+    ];
+    for (const text of hostile) {
+      const started = performance.now();
+      expect(modelItems(text)).toEqual([]);
+      // The local workerd's clock does advance during CPU work (probed: 25 ms for a 3e7 loop). Each case is about 2 ms in Node.
+      expect(performance.now() - started).toBeLessThan(250);
+    }
+  });
+});
+
+describe("key runs", () => {
+  it("finds any 8 consecutive characters of the key, case-sensitively, and nothing shorter", () => {
+    const runs = keyRuns(FAKE_KEY);
+    expect(runs.size).toBe(FAKE_KEY.length - 7);
+    expect(holdsKeyRun(`see ${FAKE_KEY.slice(0, 8)} here`, runs)).toBe(true);
+    expect(holdsKeyRun(`tail ${FAKE_KEY.slice(-8)}`, runs)).toBe(true);
+    expect(holdsKeyRun(`mid${FAKE_KEY.slice(11, 19)}dle`, runs)).toBe(true);
+    expect(holdsKeyRun(FAKE_KEY.slice(3, 10), runs)).toBe(false);
+    expect(holdsKeyRun(`${FAKE_KEY.slice(0, 12).toUpperCase()} ${KEY_TAIL.toUpperCase()}`, runs)).toBe(false);
+    expect(holdsKeyRun("", runs)).toBe(false);
+  });
+
+  it("is linear in the text for the longest key", () => {
+    const key = Array.from({ length: 512 }, (_, i) => String.fromCharCode(0x21 + ((i * 7) % 94))).join("");
+    const runs = keyRuns(key);
+    const text = key.slice(0, 7).repeat(300_000 / 7);
+    const started = performance.now();
+    expect(holdsKeyRun(text, runs)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(250);
   });
 });

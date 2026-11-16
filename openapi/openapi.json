@@ -762,7 +762,7 @@
           },
           "timezone": {
             "type": "string",
-            "description": "IANA time zone of the device; sets what \"today\" is. Defaults to UTC",
+            "description": "IANA time zone name of the device (`UTC`, or Area/Location such as America/Chicago); sets what \"today\" is. Offsets such as +05:00 and abbreviations such as CST are refused. Defaults to UTC",
             "example": "America/Chicago"
           }
         },
@@ -1041,7 +1041,7 @@
             }
           },
           "400": {
-            "description": "invalid_request: no X-LLM-Key header or one of the wrong shape, a body that is not JSON or not sent as application/json, an unknown provider, no interests or more than 20, an interest empty or over 80 characters, or an unknown time zone",
+            "description": "invalid_request: no X-LLM-Key header or one of the wrong shape, a body that is not JSON or not sent as application/json, an unknown provider, no interests or more than 20, an interest empty or over 80 characters, or a time zone that is not a known IANA name",
             "content": {
               "application/json": {
                 "schema": {

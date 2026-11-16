@@ -4,7 +4,7 @@
 // /docs/agent-api/effort, /docs/agent-api/models, /docs/agent-api/migrate-from-sonar/how-to,
 // /api-reference/agent-post, /docs/resources/faq.
 import { DiscoverFailure, type Adapter, type Citation, type DiscoverErrorCode } from "./types.ts";
-import { asArray, asString, isRecord } from "./http.ts";
+import { asArray, asString, errorField, isRecord } from "./http.ts";
 import { INSTRUCTIONS, MAX_ITEMS, MAX_OUTPUT_TOKENS, buildInput } from "./prompt.ts";
 
 /**
@@ -59,7 +59,9 @@ export const perplexity: Adapter = {
       } else if (item.type === "search_results") {
         for (const result of asArray(item.results)) {
           if (isRecord(result) && typeof result.url === "string") {
-            citations.push({ url: result.url, title: asString(result.title), date: asString(result.date) });
+            // `date` is "Date the page was originally published". `last_updated`
+            // is not read: a page changed this week may be years old.
+            citations.push({ url: result.url, title: asString(result.title), published: asString(result.date) });
           }
         }
       }
@@ -67,10 +69,16 @@ export const perplexity: Adapter = {
     return { text: texts.join(""), citations };
   },
 
-  classifyError(status): DiscoverErrorCode {
+  // Docs (read 2026-11-16): https://docs.perplexity.ai/docs/resources/faq (402
+  // when the account runs out of credits) and
+  // /docs/admin/rate-limits-usage-tiers (429 with `error.type`
+  // `request_rate_limit_exceeded` or `token_rate_limit_exceeded`; `overloaded`
+  // is "not a rate limit" but upstream capacity, status not given). No spend
+  // limit or other quota error is documented.
+  classifyError(status, body): DiscoverErrorCode {
     if (status === 401) return "invalid_key";
-    // An account out of credits is answered with 402 Payment Required.
     if (status === 402) return "quota_exceeded";
+    if (errorField(body, "type") === "overloaded") return "provider_error";
     if (status === 429) return "rate_limited";
     return "provider_error";
   },

@@ -14,8 +14,12 @@ export const MAX_EXCERPT = 300;
 const MAX_LINK = 2048;
 /** Model text scanned for JSON. 20 items are about 10 KB. */
 const MAX_TEXT_SCANNED = 200_000;
-/** Item objects looked at, valid or not. */
+/** Item objects looked at, valid or not, across all fences. */
 const MAX_CANDIDATES = 100;
+/** Code fences looked inside. */
+const MAX_FENCES = 20;
+/** An item holding this many consecutive characters of the key is not returned. */
+export const KEY_RUN = 8;
 /** Citations kept from one answer. */
 const MAX_CITATIONS = 500;
 /** A date up to a day ahead counts as now (a date without a time is midnight UTC, and zones run ahead). */
@@ -50,14 +54,35 @@ type ModelItem = z.infer<typeof ModelItem>;
 // ---------------------------------------------------------------------------
 // JSON in model text
 
-/** The text inside the first ``` fence, or the text itself when there is no complete fence. */
-function unfenced(text: string): string {
-  const open = text.indexOf("```");
-  if (open < 0) return text;
-  const lineEnd = text.indexOf("\n", open);
-  if (lineEnd < 0) return text;
-  const close = text.indexOf("```", lineEnd);
-  return close < 0 ? text.slice(lineEnd + 1) : text.slice(lineEnd + 1, close);
+/**
+ * The places JSON may be, in the order they are tried: the inside of each
+ * ``` fence (a fence left open at the end, as in an answer cut off by the
+ * token limit, runs to the end of the text), then the text outside the
+ * fences. Fences past MAX_FENCES are left out. One pass of `indexOf`, so the
+ * pieces together are never longer than the text.
+ */
+function textBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const outside: string[] = [];
+  let at = 0;
+  while (blocks.length < MAX_FENCES) {
+    const open = text.indexOf("```", at);
+    if (open < 0) break;
+    const lineEnd = text.indexOf("\n", open);
+    if (lineEnd < 0) break;
+    outside.push(text.slice(at, open));
+    const close = text.indexOf("```", lineEnd);
+    if (close < 0) {
+      blocks.push(text.slice(lineEnd + 1));
+      at = text.length;
+      break;
+    }
+    blocks.push(text.slice(lineEnd + 1, close));
+    at = close + 3;
+  }
+  if (blocks.length < MAX_FENCES) outside.push(text.slice(at));
+  blocks.push(outside.join("\n"));
+  return blocks;
 }
 
 /**
@@ -68,12 +93,12 @@ function unfenced(text: string): string {
  * and one broken item does not lose the others. Objects nested deeper than an
  * item are not parsed separately, so the work stays linear.
  */
-function candidateObjects(text: string): unknown[] {
+function candidateObjects(text: string, budget: { left: number }): unknown[] {
   const found: unknown[] = [];
   const opens: { char: number; at: number }[] = [];
   let inString = false;
   let escaped = false;
-  for (let i = 0; i < text.length && found.length < MAX_CANDIDATES; i++) {
+  for (let i = 0; i < text.length && budget.left > 0; i++) {
     const c = text.charCodeAt(i);
     if (inString) {
       if (escaped) escaped = false;
@@ -98,6 +123,7 @@ function candidateObjects(text: string): unknown[] {
       if (c === 125 && parent?.char === 91 && opens.length <= 2) {
         try {
           found.push(JSON.parse(text.slice(open.at, i + 1)));
+          budget.left -= 1;
         } catch {
           // Not JSON after all; skipped.
         }
@@ -107,15 +133,26 @@ function candidateObjects(text: string): unknown[] {
   return found;
 }
 
-/** The item objects the model wrote, each checked on its own; malformed ones are dropped. */
+/**
+ * The item objects the model wrote, each checked on its own; malformed ones
+ * are dropped. The model may put prose or an example in one fence and its
+ * answer in another, so each fence is tried in order and then the text
+ * outside them, and the first that holds at least one valid item is used.
+ * The candidate cap is shared by all of them, so many fences cost no more
+ * than one.
+ */
 export function modelItems(text: string): ModelItem[] {
-  const scanned = unfenced(text.slice(0, MAX_TEXT_SCANNED));
-  const items: ModelItem[] = [];
-  for (const candidate of candidateObjects(scanned)) {
-    const parsed = ModelItem.safeParse(candidate);
-    if (parsed.success) items.push(parsed.data);
+  const budget = { left: MAX_CANDIDATES };
+  for (const block of textBlocks(text.slice(0, MAX_TEXT_SCANNED))) {
+    if (budget.left <= 0) break;
+    const items: ModelItem[] = [];
+    for (const candidate of candidateObjects(block, budget)) {
+      const parsed = ModelItem.safeParse(candidate);
+      if (parsed.success) items.push(parsed.data);
+    }
+    if (items.length > 0) return items;
   }
-  return items;
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +224,26 @@ export function lenientDate(input: string | null | undefined): number | null {
   return parseFeedDate(`${match[3]}-${String(month + 1).padStart(2, "0")}-${(match[2] as string).padStart(2, "0")}`);
 }
 
+// ---------------------------------------------------------------------------
+// The key in returned text
+
+/** Every run of KEY_RUN consecutive characters of the key, for `holdsKeyRun`. */
+export function keyRuns(key: string): Set<string> {
+  const runs = new Set<string>();
+  for (let i = 0; i + KEY_RUN <= key.length; i++) runs.add(key.slice(i, i + KEY_RUN));
+  return runs;
+}
+
+/**
+ * Whether the text holds any KEY_RUN consecutive characters of the key
+ * (case-sensitive): one look-up per position, so the work is the text's
+ * length whatever the key's.
+ */
+export function holdsKeyRun(text: string, runs: Set<string>): boolean {
+  for (let i = 0; i + KEY_RUN <= text.length; i++) if (runs.has(text.slice(i, i + KEY_RUN))) return true;
+  return false;
+}
+
 const instantOf = (seconds: number) => new Date(seconds * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 
 // ---------------------------------------------------------------------------
@@ -208,9 +265,10 @@ function interestOf(value: ModelItem["interest"], interests: string[]): string |
  * provider's own metadata says its search returned or cited (the provider's
  * spelling of the URL is returned, never the model's), the URL is a safe
  * https link, and it has a title. Then: text is cleaned and cut, the date is
- * the provider's date for the page or else the model's, a date in the future
- * is dropped, an item older than the window is dropped, a link is returned
- * once, and at most 20 items are returned.
+ * the provider's publication date for the page, else the model's, else the
+ * provider's last-updated date; a date in the future is dropped, an item
+ * older than the window is dropped, a link is returned once, and at most 20
+ * items are returned. The route then drops any item holding a run of the key.
  */
 export function finalItems(output: ProviderOutput, interests: string[], nowSeconds: number): DiscoverItem[] {
   const cited = new Map<string, { url: URL; citation: Citation }>();
@@ -220,7 +278,13 @@ export function finalItems(output: ProviderOutput, interests: string[], nowSecon
     if (!url || !key) continue;
     const known = cited.get(key);
     if (!known) cited.set(key, { url, citation });
-    else known.citation = { ...known.citation, title: known.citation.title ?? citation.title, date: known.citation.date ?? citation.date };
+    else
+      known.citation = {
+        ...known.citation,
+        title: known.citation.title ?? citation.title,
+        published: known.citation.published ?? citation.published,
+        updated: known.citation.updated ?? citation.updated,
+      };
   }
 
   const items: DiscoverItem[] = [];
@@ -237,7 +301,14 @@ export function finalItems(output: ProviderOutput, interests: string[], nowSecon
     const source = plainText(item.source ?? "", MAX_SOURCE) || host;
     const excerpt = plainText(item.description ?? "", MAX_EXCERPT);
 
-    let published = lenientDate(match.citation.date) ?? lenientDate(item.published);
+    // A publication date the provider gives wins; then the model's, when it
+    // reads as a date that is not ahead; then when the provider says the page
+    // last changed, which is later than its publication or the same.
+    const stated = lenientDate(item.published);
+    let published =
+      lenientDate(match.citation.published) ??
+      (stated !== null && stated <= nowSeconds + MAX_FUTURE_SECONDS ? stated : null) ??
+      lenientDate(match.citation.updated);
     if (published !== null && published > nowSeconds + MAX_FUTURE_SECONDS) published = null;
     if (published !== null && published < nowSeconds - MAX_AGE_SECONDS) continue;
 

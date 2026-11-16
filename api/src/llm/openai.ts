@@ -10,6 +10,15 @@ import { INSTRUCTIONS, MAX_OUTPUT_TOKENS, MAX_SEARCHES, buildInput } from "./pro
 export const OPENAI_MODEL = "gpt-6-luna";
 export const OPENAI_HOST = "api.openai.com";
 
+/** 429 codes that mean the account cannot spend more until someone changes its credit or limits. */
+const QUOTA_CODES = new Set([
+  "credit_balance_exhausted",
+  "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+  "insufficient_quota",
+]);
+
 export const openai: Adapter = {
   id: "openai",
   host: OPENAI_HOST,
@@ -71,13 +80,17 @@ export const openai: Adapter = {
     return { text: texts.join(""), citations };
   },
 
+  // Docs (read 2026-11-16): https://developers.openai.com/api/docs/guides/error-codes
+  // and /api/docs/guides/rate-limits. Every billing, spend and usage-limit
+  // error is a 429 that retrying does not cure; "the broader `error.type` can
+  // still be `insufficient_quota`". Anything else on a 429 (`slow_down`, a
+  // request or token rate limit) is a rate limit.
   classifyError(status, body): DiscoverErrorCode {
     if (status === 401) return "invalid_key";
     if (status === 402) return "quota_exceeded";
     if (status === 429) {
       const code = errorField(body, "code");
-      const type = errorField(body, "type");
-      if (code === "credit_balance_exhausted" || code === "insufficient_quota" || type === "insufficient_quota") return "quota_exceeded";
+      if ((code !== undefined && QUOTA_CODES.has(code)) || errorField(body, "type") === "insufficient_quota") return "quota_exceeded";
       return "rate_limited";
     }
     return "provider_error";

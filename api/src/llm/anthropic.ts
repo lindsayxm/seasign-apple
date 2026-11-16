@@ -66,7 +66,8 @@ export const anthropic: Adapter = {
         if (isRecord(block.content)) searchErrors.push(asString(block.content.error_code) ?? "");
         for (const result of asArray(block.content)) {
           if (isRecord(result) && result.type === "web_search_result" && typeof result.url === "string") {
-            citations.push({ url: result.url, title: asString(result.title), date: asString(result.page_age) });
+            // `page_age` is "when the site was last updated", not when the page was published.
+            citations.push({ url: result.url, title: asString(result.title), updated: asString(result.page_age) });
           }
         }
       }
@@ -78,13 +79,27 @@ export const anthropic: Adapter = {
     return { text: texts.join(""), citations };
   },
 
+  // Docs (read 2026-11-16): https://platform.claude.com/docs/en/api/errors and
+  // https://platform.claude.com/docs/en/api/rate-limits ("Reaching your spend
+  // cap", "Setting your own spend limit"). Messages are only tested, never copied.
   classifyError(status, body): DiscoverErrorCode {
     if (status === 401) return "invalid_key";
     if (status === 402) return "quota_exceeded";
-    if (status === 429) return "rate_limited";
-    // An account without credit has been answered with a 400 saying so; the
-    // message is only tested, never copied.
-    if (status === 400 && /credit balance/i.test(errorField(body, "message") ?? "")) return "quota_exceeded";
+    const message = errorField(body, "message") ?? "";
+    if (status === 429) {
+      // The tier's monthly spend cap is a 429 `rate_limit_error` too, told
+      // apart by `error.details.error_code`; it lasts until the next month.
+      // A ramp limit (`ramp_limit_exceeded`) is an ordinary rate limit.
+      const details = isRecord(body) && isRecord(body.error) && isRecord(body.error.details) ? body.error.details : {};
+      if (details.error_code === "enforced_spend_limit_reached" || message.startsWith("You have reached your API usage limits")) return "quota_exceeded";
+      return "rate_limited";
+    }
+    if (status === 400) {
+      // A spend limit the user set on the organization or a workspace.
+      if (/^You have reached your specified (workspace )?API usage limits/.test(message)) return "quota_exceeded";
+      // An account without credit has been answered with a 400 saying so.
+      if (/credit balance/i.test(message)) return "quota_exceeded";
+    }
     return "provider_error";
   },
 };
