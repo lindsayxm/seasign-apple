@@ -550,8 +550,10 @@ describe("model text with many fences", () => {
     for (const text of hostile) {
       const started = performance.now();
       expect(modelItems(text)).toEqual([]);
-      // The local workerd's clock does advance during CPU work (probed: 25 ms for a 3e7 loop). Each case is about 2 ms in Node.
-      expect(performance.now() - started).toBeLessThan(250);
+      // The local workerd's clock does advance during CPU work (probed: 25 ms for a 3e7 loop). Each case is about 2 ms in Node;
+      // work growing with the square of these 100,000 to 200,000 characters would take many seconds. The limit leaves room
+      // for a loaded machine, which once stalled a 12 ms case by over 300 ms (task 22).
+      expect(performance.now() - started).toBeLessThan(2000);
     }
   });
 });
@@ -569,11 +571,42 @@ describe("key runs", () => {
   });
 
   it("is linear in the text for the longest key", () => {
+    // Timed against itself in the same run, not against a fixed limit: on a
+    // loaded machine the 300,000 characters once took 333 ms against a 250 ms
+    // limit, where they take about 12 ms (task 22). Best of five rounds, the
+    // cases taking turns, so that a stall has to hit all five of one case.
     const key = Array.from({ length: 512 }, (_, i) => String.fromCharCode(0x21 + ((i * 7) % 94))).join("");
-    const runs = keyRuns(key);
+    const longest = keyRuns(key);
+    const short = keyRuns(key.slice(0, 16));
+    // Near misses: every 8 characters share seven with the key's start, and none is a run of it.
     const text = key.slice(0, 7).repeat(300_000 / 7);
-    const started = performance.now();
-    expect(holdsKeyRun(text, runs)).toBe(false);
-    expect(performance.now() - started).toBeLessThan(250);
+    const eighth = text.slice(0, Math.floor(text.length / 8));
+    expect(holdsKeyRun(text, longest)).toBe(false);
+    expect(holdsKeyRun(eighth, longest)).toBe(false);
+    expect(holdsKeyRun(text, short)).toBe(false);
+    const cases = {
+      whole: () => holdsKeyRun(text, longest),
+      // The same characters in eight calls of an eighth each.
+      eighths: () => {
+        for (let n = 0; n < 8; n++) holdsKeyRun(eighth, longest);
+      },
+      // The whole text for a 16-character key: 9 runs against 505.
+      shortKey: () => holdsKeyRun(text, short),
+    };
+    const best: Record<keyof typeof cases, number> = { whole: Infinity, eighths: Infinity, shortKey: Infinity };
+    for (let round = 0; round < 5; round++) {
+      for (const name of Object.keys(cases) as (keyof typeof cases)[]) {
+        const started = performance.now();
+        cases[name]();
+        best[name] = Math.min(best[name], performance.now() - started);
+      }
+    }
+    // The clock must have moved for the ratios to mean anything (each is about 12 ms in Node).
+    expect(best.eighths).toBeGreaterThan(0);
+    expect(best.shortKey).toBeGreaterThan(0);
+    // Linear in the text: about 1 (work growing with the square of the text would make it 8).
+    expect(best.whole / best.eighths).toBeLessThan(3);
+    // Independent of the key's length: about 1 (a pass per run of the key would make it about 56).
+    expect(best.whole / best.shortKey).toBeLessThan(4);
   });
 });

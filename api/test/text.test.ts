@@ -252,6 +252,7 @@ describe("htmlToText on hostile input", () => {
     expect(text.length).toBeLessThanOrEqual(300);
     expect(plain.length).toBeLessThanOrEqual(300);
     expect(decoded.length).toBeLessThanOrEqual(input.length);
-    expect(elapsed).toBeLessThan(1000);
+    // The slowest case (2 MB of '&') takes about 150 ms; 3 s leaves room for a loaded machine (task 22).
+    expect(elapsed).toBeLessThan(3000);
   });
 });

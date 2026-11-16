@@ -330,6 +330,12 @@ describe("parseFeed", () => {
 });
 
 describe("parseFeed on hostile input", () => {
+  /**
+   * What "at once" allows: a refusal takes a few milliseconds (one pass over
+   * the text), and what it prevents takes seconds or never ends. Not 500 ms:
+   * stalls of over 300 ms have been seen on a loaded machine (task 22).
+   */
+  const AT_ONCE_MS = 2000;
   const item = (n: number) => `<item><title>Item ${n}</title><link>https://news.example.com/i/${n}</link></item>`;
   const wrap = (inner: string, prolog = "") => `<?xml version="1.0"?>${prolog}<rss version="2.0"><channel><title>T</title>${inner}</channel></rss>`;
 
@@ -343,7 +349,7 @@ describe("parseFeed on hostile input", () => {
     expect(() => parseFeed(xml, FEED)).toThrow(FeedParseError);
     expect(() => parseFeed(wrap(item(1), `<!DOCTYPE r [<!ENTITY big "${"B".repeat(9000)}">]>`), FEED)).toThrow(FeedParseError);
     expect(() => parseFeed(wrap(item(1), "<!DOCTYPE r []>"), FEED)).toThrow(FeedParseError);
-    expect(performance.now() - started).toBeLessThan(500);
+    expect(performance.now() - started).toBeLessThan(AT_ONCE_MS);
   });
 
   it("reads a feed with a DOCTYPE that defines nothing, and leaves unknown references as written", () => {
@@ -365,7 +371,7 @@ describe("parseFeed on hostile input", () => {
     const started = performance.now();
     expect(() => parseFeed("<a>".repeat(200_000) + "x" + "</a>".repeat(200_000), FEED)).toThrow(FeedParseError);
     expect(() => parseFeed(wrap(`<item><title>${"<b>".repeat(70)}deep${"</b>".repeat(70)}</title></item>`), FEED)).toThrow(FeedParseError);
-    expect(performance.now() - started).toBeLessThan(500);
+    expect(performance.now() - started).toBeLessThan(AT_ONCE_MS);
     // Sixty levels inside an item are read.
     const ok = parseFeed(wrap(`<item><link>https://news.example.com/i/1</link><title>${"<b>".repeat(55)}deep${"</b>".repeat(55)}</title></item>`), FEED);
     expect(ok.items[0]?.title).toBe("deep");
@@ -434,7 +440,7 @@ describe("parseFeed on hostile input", () => {
       const started = performance.now();
       expect(() => checkShape(xml)).toThrow(FeedParseError);
       expect(() => parseFeed(xml, FEED)).toThrow(FeedParseError);
-      expect(performance.now() - started).toBeLessThan(500);
+      expect(performance.now() - started).toBeLessThan(AT_ONCE_MS);
     });
 
     it("lets through everything a real feed does, at the edge of each limit", () => {

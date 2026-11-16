@@ -391,15 +391,19 @@ describe("safeFetch", () => {
     });
 
     it("spends one deadline across redirects", async () => {
+      // Each hop answers within the deadline; the two together do not. Timers
+      // only ever fire late, so a loaded machine cannot make this fail. (It
+      // used to need three 40 ms hops to start within 100 ms, 20 ms of slack;
+      // task 22.) The second hop's wait falls due after the deadline, so it is
+      // the last fetch.
       const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
       const spy = mockFetch({
-        "https://a.example.com/0": async () => (await wait(40), redirect("/1")),
-        "https://a.example.com/1": async () => (await wait(40), redirect("/2")),
-        "https://a.example.com/2": async () => (await wait(40), new Response("late")),
+        "https://a.example.com/0": async () => (await wait(70), redirect("/1")),
+        "https://a.example.com/1": async () => (await wait(70), new Response("late")),
       });
 
       expect(await codeOf(safeFetch("https://a.example.com/0", { timeoutMs: 100 }))).toBe("timeout");
-      expect(spy).toHaveBeenCalledTimes(3);
+      expect(spy).toHaveBeenCalledTimes(2);
     });
   });
 

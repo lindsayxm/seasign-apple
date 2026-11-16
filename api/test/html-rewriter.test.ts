@@ -463,7 +463,9 @@ describe("scanPage on hostile input", () => {
   });
 
   // About 2 MB each, the most the fetch lets through. The bound is loose; the
-  // measured times are in memory/architecture.md.
+  // measured times are in memory/architecture.md. The slowest case takes 250 to
+  // 450 ms, so the bound is 10 s, not 3 s: stalls of over 300 ms and slowdowns
+  // of several times have been seen on a loaded machine (task 22).
   const cases: [string, () => string][] = [
     ["130,000 links", () => `<main>${'<a href="/n/x">t</a>'.repeat(100_000)}`],
     ["60,000 links with headline text", () => `<main>${'<a href="/news/some-story-about-things/">Some story about things</a>'.repeat(30_000)}`],
@@ -484,9 +486,9 @@ describe("scanPage on hostile input", () => {
     const scan = await scanPage(html, "text/html");
     const found = articleLinks(scan, page, page);
     feedCandidates(scan, page);
-    expect(performance.now() - started).toBeLessThan(3000);
+    expect(performance.now() - started).toBeLessThan(10_000);
     expect(scan.links.length).toBeLessThanOrEqual(MAX_LINKS_SCANNED);
     expect(scan.feeds.length).toBeLessThanOrEqual(20);
     expect(found.length).toBeLessThanOrEqual(MAX_CANDIDATES);
-  });
+  }, 20_000);
 });
