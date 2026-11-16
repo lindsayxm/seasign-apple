@@ -2,6 +2,10 @@
 // (each Windows zone's default territory, "001"). Outlook and Exchange write
 // these names as TZIDs. Their files normally define the zone in a VTIMEZONE,
 // which is used when present; this table is for the files that do not.
+// Compared with CLDR's windowsZones.xml (main branch) on 2026-11-15: every name
+// there is here with the same zone. Five are written with the zone's current
+// name where CLDR keeps an older alias (Kolkata, Kathmandu, Yangon,
+// Argentina/Buenos_Aires, Indiana/Indianapolis).
 // A test checks that the runtime knows every IANA name listed here.
 export const WINDOWS_ZONES: Readonly<Record<string, string>> = {
   "Dateline Standard Time": "Etc/GMT+12",
@@ -14,12 +18,15 @@ export const WINDOWS_ZONES: Readonly<Record<string, string>> = {
   "Pacific Standard Time (Mexico)": "America/Tijuana",
   "UTC-08": "Etc/GMT+8",
   "Pacific Standard Time": "America/Los_Angeles",
+  "British Columbia Standard Time": "America/Vancouver",
   "US Mountain Standard Time": "America/Phoenix",
   "Mountain Standard Time (Mexico)": "America/Mazatlan",
   "Mountain Standard Time": "America/Denver",
+  "Alberta Standard Time": "America/Edmonton",
   "Yukon Standard Time": "America/Whitehorse",
   "Central America Standard Time": "America/Guatemala",
   "Central Standard Time": "America/Chicago",
+  "Manitoba Standard Time": "America/Winnipeg",
   "Easter Island Standard Time": "Pacific/Easter",
   "Central Standard Time (Mexico)": "America/Mexico_City",
   "Canada Central Standard Time": "America/Regina",

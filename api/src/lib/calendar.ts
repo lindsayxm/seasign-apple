@@ -54,6 +54,10 @@ const MAX_ZONE_RULES = 12;
 const MAX_ZONE_DATES = 400;
 const MAX_ZONE_RULES_PER_FILE = 40;
 const MAX_ZONES_PER_FILE = 50;
+/** Distinct TZID names one file may use without defining them. */
+const MAX_TZIDS_PER_FILE = 50;
+/** What one time zone lookup costs in units of work. */
+const ZONE_WORK = 10;
 /**
  * RRULE and EXRULE lines are renamed before ical.js reads the file, so that
  * it keeps their text as it is. Otherwise it decodes them while parsing, and
@@ -61,6 +65,8 @@ const MAX_ZONES_PER_FILE = 50;
  */
 const RULE = "x-seasign-rrule";
 const EXCLUSION_RULE = "x-seasign-exrule";
+/** The component the events are moved into; see `parseCalendar`. */
+const EVENTS = "x-seasign-events";
 /** Zone maths is only done for times this close to the kept window, measured on the wall clock. */
 const NEAR = 3 * DAY;
 
@@ -165,23 +171,46 @@ type Zone =
   /** No zone at all, or a TZID nobody can interpret: the request's time zone decides. */
   | { type: "floating" };
 
-function zoneOf(property: Property, time: Time): Zone {
+/**
+ * What is left of a file's allowance while it is read: `work` of
+ * `MAX_WORK_PER_FILE`, and the TZIDs looked up so far.
+ */
+type Budget = { work: number; partial: boolean; zones: Map<string, Zone> };
+
+function zoneOf(property: Property, time: Time, budget: Budget): Zone {
   if (time.isDate) return { type: "date" };
   const zone = time.zone;
   if (zone === ICAL.Timezone.utcTimezone) return { type: "utc" };
   if (zone && zone !== ICAL.Timezone.localTimezone && zone.component) return { type: "file", zone };
   const tzid = property.getParameter("tzid");
   if (typeof tzid !== "string") return { type: "floating" };
-  if (isTimeZone(tzid)) return { type: "iana", timeZone: tzid };
-  const mapped = Object.hasOwn(WINDOWS_ZONES, tzid.trim()) ? WINDOWS_ZONES[tzid.trim()] : undefined;
-  if (mapped && isTimeZone(mapped)) return { type: "iana", timeZone: mapped };
-  return { type: "floating" };
+
+  let named = budget.zones.get(tzid);
+  if (!named) {
+    // `Intl` takes a zone name in any mix of capitals, and each spelling
+    // costs a new formatter (about 0.4 ms). A file gets a fixed number of names.
+    if (budget.zones.size >= MAX_TZIDS_PER_FILE) {
+      budget.partial = true;
+      return { type: "floating" };
+    }
+    const mapped = Object.hasOwn(WINDOWS_ZONES, tzid.trim()) ? WINDOWS_ZONES[tzid.trim()] : undefined;
+    if (isTimeZone(tzid)) named = { type: "iana", timeZone: tzid };
+    else if (mapped && isTimeZone(mapped)) named = { type: "iana", timeZone: mapped };
+    else named = { type: "floating" };
+    budget.zones.set(tzid, named);
+  }
+  return named;
 }
 
 type Resolved = { kind: StoredEvent["kind"]; value: number };
 
-/** Places a wall-clock time (seconds, read as if UTC) in a zone. */
-function resolveWall(wall: number, zone: Zone): Resolved {
+/**
+ * Places a wall-clock time (seconds, read as if UTC) in a zone. Asking a zone
+ * for its offset is the dearest thing done per value (about 20 µs), so it is
+ * charged to the budget.
+ */
+function resolveWall(wall: number, zone: Zone, budget: Budget): Resolved {
+  if (zone.type === "file" || zone.type === "iana") budget.work -= ZONE_WORK;
   switch (zone.type) {
     case "date":
       return { kind: "allDay", value: wall };
@@ -206,7 +235,7 @@ function resolveWall(wall: number, zone: Zone): Resolved {
   }
 }
 
-const resolve = (time: Time, zone: Zone): Resolved => resolveWall(wallSeconds(time), zone);
+const resolve = (time: Time, zone: Zone, budget: Budget): Resolved => resolveWall(wallSeconds(time), zone, budget);
 
 const key = (resolved: Resolved) => `${resolved.kind}:${resolved.value}`;
 
@@ -540,9 +569,6 @@ function prepareTimezone(vtimezone: Component): number {
 
 // ───────────────────────── parsing ─────────────────────────
 
-/** `work` is what is left of `MAX_WORK_PER_FILE`. */
-type Budget = { work: number; partial: boolean };
-
 function titleOf(component: Component): string {
   const summary = component.getFirstPropertyValue("summary");
   const text = typeof summary === "string" ? summary : "";
@@ -571,16 +597,22 @@ function isLongOver(component: Component, keepFrom: number): boolean {
   return endWall + NEAR <= keepFrom;
 }
 
-/** The parts of an event that every one of its occurrences shares. */
-type Shape = { title: string; start: Time; zone: Zone; first: Resolved; duration: number };
+/** The parts of an event that every one of its occurrences shares. `startWall` is DTSTART on its own clock. */
+type Shape = { title: string; start: Time; startWall: number; zone: Zone; kind: StoredEvent["kind"]; duration: number };
 
-function shapeOf(component: Component): Shape | null {
+const sameZone = (a: Zone, b: Zone) =>
+  a.type === b.type &&
+  (a.type !== "iana" || a.timeZone === (b as typeof a).timeZone) &&
+  (a.type !== "file" || a.zone === (b as typeof a).zone);
+
+function shapeOf(component: Component, recurring: boolean, budget: Budget): Shape | null {
   const startProperty = component.getFirstProperty("dtstart");
   if (!startProperty) return null;
   const start = startProperty.getFirstValue();
   if (!(start instanceof ICAL.Time) || !plausible(start)) return null;
-  const zone = zoneOf(startProperty, start);
-  const first = resolve(start, zone);
+  const zone = zoneOf(startProperty, start, budget);
+  const startWall = wallSeconds(start);
+  const kind = zone.type === "date" ? "allDay" : zone.type === "floating" ? "floating" : "instant";
 
   let duration = 0;
   const endProperty = component.getFirstProperty("dtend");
@@ -588,20 +620,26 @@ function shapeOf(component: Component): Shape | null {
   if (endProperty) {
     const end = endProperty.getFirstValue();
     if (end instanceof ICAL.Time && plausible(end)) {
-      const resolvedEnd = resolve(end, zoneOf(endProperty, end));
-      // A DTEND of another kind than DTSTART (a date against a date-time) is not usable.
-      if (resolvedEnd.kind === first.kind) duration = resolvedEnd.value - first.value;
+      const endZone = zoneOf(endProperty, end, budget);
+      if (kind !== "instant" || (recurring && sameZone(zone, endZone))) {
+        // On one clock the length is the difference on that clock. For a
+        // series this also spares two zone lookups for a DTSTART years back.
+        // A DTEND of another kind than DTSTART (a date against a date-time) is not usable.
+        if (sameZone(zone, endZone)) duration = wallSeconds(end) - startWall;
+      } else if (endZone.type !== "date" && endZone.type !== "floating") {
+        duration = resolve(end, endZone, budget).value - resolve(start, zone, budget).value;
+      }
     }
   } else if (durationValue instanceof ICAL.Duration) {
     duration = durationValue.toSeconds();
   }
   if (!Number.isFinite(duration) || duration < 0) duration = 0;
-  if (first.kind === "allDay") {
+  if (kind === "allDay") {
     // An all-day event covers whole days, and at least one: no DTEND, or a
     // DTEND equal to DTSTART, both mean a single day.
     duration = Math.max(DAY, Math.ceil(duration / DAY) * DAY);
   }
-  return { title: titleOf(component), start, zone, first, duration };
+  return { title: titleOf(component), start, startWall, zone, kind, duration };
 }
 
 type Window = { keepFrom: number; keepUntil: number };
@@ -628,7 +666,7 @@ function expand(
   const recurring = ruleProperties.length > 0 || listedProperties.length > 0;
   if (!recurring && isLongOver(component, keepFrom)) return;
 
-  const shape = shapeOf(component);
+  const shape = shapeOf(component, recurring, budget);
   if (!shape) {
     budget.partial = true;
     return;
@@ -641,7 +679,8 @@ function expand(
   };
 
   if (!recurring) {
-    if (!overridden?.has(key(shape.first))) emit(shape.first);
+    const only = resolveWall(shape.startWall, zone, budget);
+    if (!overridden?.has(key(only))) emit(only);
     return;
   }
 
@@ -689,7 +728,7 @@ function expand(
       const wall = wallSeconds(value);
       if (wall + NEAR <= keepFrom - duration || wall - NEAR >= keepUntil) continue;
       if (value.isDate) excludedDays.add(wall / DAY);
-      else excluded.add(key(resolve(value, zoneOf(property, value))));
+      else excluded.add(key(resolve(value, zoneOf(property, value, budget), budget)));
     }
   }
 
@@ -703,8 +742,9 @@ function expand(
     emit(occurrence);
   };
 
-  const startWall = wallSeconds(start);
-  offer(shape.first, startWall);
+  // DTSTART is always an occurrence. It is placed only if it can be in the window.
+  const startWall = shape.startWall;
+  if (startWall + duration + NEAR > keepFrom) offer(resolveWall(startWall, zone, budget), startWall);
 
   for (const property of listedProperties) {
     for (const value of property.getValues()) {
@@ -712,8 +752,8 @@ function expand(
       if (!(value instanceof ICAL.Time) || !plausible(value)) continue;
       const wall = wallSeconds(value);
       if (wall + NEAR <= keepFrom - duration || wall - NEAR >= keepUntil) continue;
-      const occurrence = resolve(value, zoneOf(property, value));
-      if (occurrence.kind === shape.first.kind) offer(occurrence, wall);
+      const occurrence = resolve(value, zoneOf(property, value, budget), budget);
+      if (occurrence.kind === shape.kind) offer(occurrence, wall);
     }
   }
 
@@ -732,7 +772,7 @@ function expand(
       }
       budget.work--;
       const wall = day * DAY + secondsIntoDay;
-      const occurrence = resolveWall(wall, zone);
+      const occurrence = resolveWall(wall, zone, budget);
       if (until) {
         // UNTIL is the last moment an occurrence may start: a date, a UTC
         // instant, or a local time like DTSTART's.
@@ -760,6 +800,7 @@ type JCal = [string, unknown[], JCal[]];
  * - an event listing more than 2,000 EXDATE and RDATE values is skipped;
  * - reading stops once the file has used its work budget (`MAX_WORK_PER_FILE`);
  * - at most 500 occurrences are kept.
+ * - past 50 distinct TZIDs without a VTIMEZONE, times are read as floating.
  * A VTIMEZONE that is not a few plain yearly rules is ignored (and so are
  * those past 40 repeating observances or 50 zones in one file); times that
  * name it fall back to the IANA zone of the same name, or to floating.
@@ -785,18 +826,19 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
     throw new CalendarParseError("not a calendar");
   }
 
-  const budget: Budget = { work: MAX_WORK_PER_FILE, partial: false };
+  const budget: Budget = { work: MAX_WORK_PER_FILE, partial: false, zones: new Map() };
 
   // Choose the time zone definitions to keep before ical.js sees any of them:
   // it looks a TZID up in the file's VTIMEZONEs the first time a value is
   // decoded. Done on the parsed data, in one pass, so that a file of tens of
   // thousands of junk VTIMEZONEs costs no more than its size.
-  const components: JCal[] = [];
+  const zoneComponents: JCal[] = [];
+  const eventComponents: JCal[] = [];
   let zones = 0;
   let zoneRules = 0;
   for (const component of parsed[2]) {
     if (component[0] === "vevent") {
-      components.push(component);
+      eventComponents.push(component);
     } else if (component[0] === "vtimezone" && zones < MAX_ZONES_PER_FILE) {
       let cost = -1;
       try {
@@ -807,10 +849,15 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
       if (cost < 0 || zoneRules + cost > MAX_ZONE_RULES_PER_FILE) continue;
       zones++;
       zoneRules += cost;
-      components.push(component);
+      zoneComponents.push(component);
     }
   }
-  const calendar = new ICAL.Component(["vcalendar", parsed[1], components]);
+  // The events go one level down, in a component of their own. For every time
+  // with a TZID it has not seen defined, ical.js searches all the children of
+  // the calendar for a VTIMEZONE: with 30,000 events as children, that search
+  // alone took 8 seconds. This way it searches the zones and one more.
+  const calendar = new ICAL.Component(["vcalendar", parsed[1], [...zoneComponents, [EVENTS, [], eventComponents]]]);
+  const vevents = calendar.getFirstSubcomponent(EVENTS)?.getAllSubcomponents("vevent") ?? [];
 
   const nowSeconds = Math.floor(now.getTime() / 1000);
   const window: Window = { keepFrom: nowSeconds - KEEP_BEFORE, keepUntil: nowSeconds + KEEP_AFTER };
@@ -820,7 +867,7 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
   const masters: Component[] = [];
   const overrides: Component[] = [];
   const overridden = new Map<string, Set<string>>();
-  for (const vevent of calendar.getAllSubcomponents("vevent")) {
+  for (const vevent of vevents) {
     try {
       const idProperty = vevent.getFirstProperty("recurrence-id");
       if (!idProperty) {
@@ -836,7 +883,7 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
         if (wall + NEAR <= window.keepFrom || wall - NEAR >= window.keepUntil) continue;
         let keys = overridden.get(uid);
         if (!keys) overridden.set(uid, (keys = new Set()));
-        keys.add(key(resolve(id, zoneOf(idProperty, id))));
+        keys.add(key(resolve(id, zoneOf(idProperty, id, budget), budget)));
       }
     } catch {
       budget.partial = true;
