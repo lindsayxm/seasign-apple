@@ -1,11 +1,11 @@
 ---
 id: 9
 title: iOS: 7-day history and Saved screens
-status: todo
-owner: 
+status: in-progress
+owner: implementer-2
 depends_on: [8]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:33:55Z
+updated: 2026-11-16T04:43:50Z
 ---
 
 ## Goal
@@ -31,3 +31,5 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. The 
 ## Log
 
 - 2026-11-15T22:33:55Z [li] created (todo)
+- 2026-11-16T04:43:50Z [li] From task 8: FeedItem (cache store) is one row per link with category copied at fetch time; FeedStore.item(link:) finds an item again. Removing a site deletes its cached FeedItems, so History loses them; SavedItem must therefore copy everything it needs (link, title, source, published, dateSource, excerpt, category, notes, savedAt) into the USER store and never depend on FeedItem. The reading view draws a dimmed, inert save mark for this task to make work. Site text is untrusted: clean with the existing FeedRules helpers and show with Text(verbatim:).
+- 2026-11-16T04:43:50Z [implementer-2] status: todo → in-progress — claimed by implementer-2
