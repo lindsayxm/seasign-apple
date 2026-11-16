@@ -1,5 +1,8 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import { startWorker } from "./start-worker.ts";
+
+startWorker();
 
 describe("GET /v1/health", () => {
   it("returns 200 and status ok", async () => {

@@ -1,6 +1,9 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MAX_BODY_BYTES } from "../src/app.ts";
+import { startWorker } from "./start-worker.ts";
+
+startWorker();
 
 const TOO_LARGE = { error: "invalid_request", message: "The request body is too large" };
 

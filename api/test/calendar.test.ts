@@ -6,6 +6,9 @@ import { calendarCacheKey } from "../src/routes/calendar.ts";
 import google from "./fixtures/calendar/google.ics?raw";
 import icloud from "./fixtures/calendar/icloud.ics?raw";
 import outlook from "./fixtures/calendar/outlook.ics?raw";
+import { startWorker } from "./start-worker.ts";
+
+startWorker();
 
 /** Monday 16 November 2026, 10:00 in New York. */
 const NOW = new Date("2026-11-16T15:00:00Z");

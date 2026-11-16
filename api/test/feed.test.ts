@@ -7,6 +7,9 @@ import badDates from "./fixtures/sites/bad-dates.xml?raw";
 import links from "./fixtures/sites/links.html?raw";
 import rdf from "./fixtures/sites/rdf.xml?raw";
 import rss2 from "./fixtures/sites/rss2.xml?raw";
+import { startWorker } from "./start-worker.ts";
+
+startWorker();
 
 /** Monday 16 November 2026, 15:00 UTC. The fixtures' dates are written around it. */
 const NOW = new Date("2026-11-16T15:00:00Z");

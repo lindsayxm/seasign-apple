@@ -5,6 +5,9 @@ import { forecastCacheKey, geocodeCacheKey } from "../src/routes/sky.ts";
 import forecast10001 from "./fixtures/forecast-10001.json";
 import geocode10001 from "./fixtures/geocode-10001.json";
 import geocodeUnknown from "./fixtures/geocode-unknown.json";
+import { startWorker } from "./start-worker.ts";
+
+startWorker();
 
 const GEOCODING_HOST = "geocoding-api.open-meteo.com";
 const FORECAST_HOST = "api.open-meteo.com";

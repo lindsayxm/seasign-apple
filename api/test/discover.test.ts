@@ -5,6 +5,9 @@ import { ADAPTERS } from "../src/llm/index.ts";
 import { PROVIDER_MAX_BYTES, PROVIDER_TIMEOUT_MS, providerDeadline } from "../src/llm/http.ts";
 import { PROVIDERS, type ProviderId } from "../src/llm/types.ts";
 import { CITES, ERRORS, EXPECTED_ITEMS, FAKE_KEY, HOSTS, KEY_PREFIX, KEY_TAIL, MODEL_ITEMS, NOW, SUCCESS, modelJson } from "./discover-fixtures.ts";
+import { startWorker } from "./start-worker.ts";
+
+startWorker();
 
 const INVALID_REQUEST = {
   error: "invalid_request",

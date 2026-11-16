@@ -5,6 +5,9 @@ import atom from "./fixtures/sites/atom.xml?raw";
 import links from "./fixtures/sites/links.html?raw";
 import rss2 from "./fixtures/sites/rss2.xml?raw";
 import section from "./fixtures/sites/section.html?raw";
+import { startWorker } from "./start-worker.ts";
+
+startWorker();
 
 const SECTION = "https://news.example.com/science/";
 const SECTION_FEED = "https://news.example.com/science/feed/?format=rss&v=2";

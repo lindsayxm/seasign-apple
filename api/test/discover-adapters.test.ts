@@ -9,6 +9,9 @@ import { PERPLEXITY_MODEL } from "../src/llm/perplexity.ts";
 import { holdsKeyRun, keyRuns, modelItems } from "../src/llm/results.ts";
 import { PROVIDERS, type ProviderId } from "../src/llm/types.ts";
 import { CITES, ERRORS, EXPECTED_ITEMS, FAKE_KEY, HOSTS, KEY_TAIL, MODEL_ITEMS, NOW, SUCCESS, geminiBody, modelJson, type Cite } from "./discover-fixtures.ts";
+import { startWorker } from "./start-worker.ts";
+
+startWorker();
 
 const INTERESTS = ["tide pools", "new telescopes"];
 
