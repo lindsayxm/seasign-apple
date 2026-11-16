@@ -1,11 +1,11 @@
 ---
 id: 7
 title: API: POST /v1/sites/resolve and POST /v1/feed
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [5]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:33:55Z
+updated: 2026-11-16T02:20:09Z
 ---
 
 ## Goal
@@ -33,3 +33,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. /v1/
 ## Log
 
 - 2026-11-15T22:33:55Z [li] created (todo)
+- 2026-11-16T02:20:09Z [implementer-1] status: todo → in-progress — claimed by implementer-1
