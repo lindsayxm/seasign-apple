@@ -1,11 +1,11 @@
 ---
 id: 4
 title: iOS: design system, Today screen and living scene, zip setting
-status: review
+status: done
 owner: implementer-1
 depends_on: [3]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-16T00:06:06Z
+updated: 2026-11-16T00:17:40Z
 ---
 
 ## Goal
@@ -14,10 +14,10 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Buil
 
 ## Acceptance criteria
 
-- [ ] Today matches the layout of ref-img/02-midday.png in a Simulator screenshot
-- [ ] Screenshots for sunrise, midday, sunset, a moon phase, windy day, cloudy day and a night state are recorded in the task log and resemble the matching ref-img files
-- [ ] Entering a zip in Settings changes the temperature and scene; no location permission is requested
-- [ ] Unit tests cover sun/moon position and the weather-code mapping; tests pass on iOS 18.3 and 27.2 simulators
+- [x] Today matches the layout of ref-img/02-midday.png in a Simulator screenshot
+- [x] Screenshots for sunrise, midday, sunset, a moon phase, windy day, cloudy day and a night state are recorded in the task log and resemble the matching ref-img files
+- [x] Entering a zip in Settings changes the temperature and scene; no location permission is requested
+- [x] Unit tests cover sun/moon position and the weather-code mapping; tests pass on iOS 18.3 and 27.2 simulators
 
 ## Relevant files
 
@@ -40,3 +40,10 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Buil
 - 2026-11-16T00:00:33Z [implementer-1] Verified: 64 tests pass on iPhone 16 (iOS 18.3) and iPhone 17 (iOS 27.2); Release configuration builds. Zip typed in Settings on both sims against wrangler dev: 10001 -> New York 43F night scene with waxing crescent; 94103 -> San Francisco 56F rain; 00601 -> 'We couldn't find that zip code. Try a nearby one.' No CoreLocation import or NSLocation key anywhere. Screenshots (iPhone 16, 1179x2556, same size as the mockups) in /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/task4/: sunrise.png midday.png sunset.png moon-waxing.png moon-full.png moon-waning.png windy-day.png windy-night.png cloudy-day.png cloudy-night.png rain.png snow.png settings.png live-zip.png no-zip.png; iPhone 17 set in /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/task4/ios27/ (same names plus settings-unknown-zip.png). Not checked visually: Reduce Motion (code path draws one still frame).
 - 2026-11-16T00:06:05Z [implementer-1] Follow-up checks: Reduce Motion verified on iPhone 17 (setting on: two rain screenshots 2 s apart are byte-identical; off: they differ). Do/Get, Saved and >> each open their placeholder and Close returns. With the API stopped the app relaunches straight into the cached 10001 sky. Today header now exposes one accessibility element; not checked with VoiceOver itself. Final suite: 64 tests pass on iPhone 16 / iOS 18.3 after the last change (iPhone 17 / iOS 27.2 passed the same 64 one commit earlier; the last commit only changed accessibility modifiers and was built and run there). Left for the lead: ios/Seasign/Today/HealthModel.swift and its tests in SeasignAPITests.swift are no longer used by any screen (not deleted: not created in this session); memory/architecture.md needs the new ios layout.
 - 2026-11-16T00:06:06Z [implementer-1] status: in-progress → review
+- 2026-11-16T00:14:35Z [implementer-1] criterion 1 met: Today matches the layout of ref-img/02-midday.png in a Simulator screenshot
+- 2026-11-16T00:14:35Z [implementer-1] criterion 2 met: Screenshots for sunrise, midday, sunset, a moon phase, windy day, cloudy day and a night state are recorded in the task log and resemble the matching ref-img files
+- 2026-11-16T00:14:35Z [implementer-1] criterion 3 met: Entering a zip in Settings changes the temperature and scene; no location permission is requested
+- 2026-11-16T00:14:35Z [implementer-1] criterion 4 met: Unit tests cover sun/moon position and the weather-code mapping; tests pass on iOS 18.3 and 27.2 simulators
+- 2026-11-16T00:14:35Z [implementer-1] review: PASS, all four criteria verified at c97686e. (1,2) Viewed implementer screenshots beside ref-img 01,02,03,04,06,08,11: layout, colours, type, sun size/position, reflection, clouds, dashes, stars and moon side all match closely; took 9 fresh screenshots from a clean build on both simulators (scratchpad/review4/) that reproduce them. (3) No UI-driving tool, so typing was not driven; instead ran wrangler dev and launched without debug args: iPhone 16 (saved 10001) refetched and showed 43F night with waxing crescent, iPhone 17 (saved 94103) showed 55F overcast with the sun still up at 16:13 PST while the Mac clock was 18:13 CST, both matching curl of /v1/sky; saveZip/unknown-zip paths covered by TodayModelTests. No CoreLocation, no NS*UsageDescription in source or built Info.plist. (4) xcodegen then xcodebuild test: 64 tests pass on iPhone 16/iOS 18.3.1 and iPhone 17/iOS 27.2, no compiler warnings; Release simulator build succeeds and contains no debug strings or localhost URL. Non-blocking findings: stale cached reading shown as live for up to ~2 days offline (SceneState.swift:53,91); polar transition day with only a sunrise or only a sunset falls back to a 12 h estimate instead of isDay (SceneState.swift:75, SkyMath.swift:67-77); sun disc pops in/out at full horizon size at rise/set (SceneRenderer.swift:71); night scene animates at 10 fps continuously for star twinkle (SceneState.swift:37); built app lists iPad in UIDeviceFamily despite TARGETED_DEVICE_FAMILY 1 (scaffold); screenshots live only under /private/tmp; PT Sans Narrow was chosen over the plan's candidate Fira Sans Extra Condensed.
+- 2026-11-16T00:16:51Z [implementer-1] review: correction to the previous note. Valid fresh screenshots are six, not nine (review4/i16-midday, i16-rain-night, i16-live, i17-sunset-cloudy, i17-night-windy, i17-live); four earlier captures were of the home screen and were deleted, because I installed a Debug build made for the iOS 27.2 simulator on the 18.3 simulator, where it cannot launch (missing libswiftCompatibilitySpan.dylib; reviewer error, not a product bug; rebuilt for 18.3 and it launches). Also compared after the first note: ref-img 05, 09, 10, 00-button-meanings and palette.png against moon-full, windy-night, cloudy-day, the icons and Palette.swift; all match, verdict unchanged. Reduce Motion and accessibility labels were checked by code reading only.
+- 2026-11-16T00:17:40Z [implementer-1] status: review → done

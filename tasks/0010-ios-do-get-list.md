@@ -1,11 +1,11 @@
 ---
 id: 10
 title: iOS: Do/Get list
-status: todo
-owner: 
+status: in-progress
+owner: implementer-2
 depends_on: [4]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:33:55Z
+updated: 2026-11-16T00:17:40Z
 ---
 
 ## Goal
@@ -28,3 +28,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. The 
 ## Log
 
 - 2026-11-15T22:33:55Z [li] created (todo)
+- 2026-11-16T00:17:40Z [implementer-2] status: todo → in-progress — claimed by implementer-2
