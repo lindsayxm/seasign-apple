@@ -110,16 +110,63 @@ export function wellFormed(text: string): string {
   return text.isWellFormed() ? text : text.toWellFormed();
 }
 
+/** UTF-16 units looked at on each side of a cut to find where a character ends. */
+const GRAPHEME_WINDOW = 64;
+
+let graphemes: Intl.Segmenter | undefined;
+
+const isHighSurrogate = (c: number) => c >= 0xd800 && c <= 0xdbff;
+const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff;
+/** Whether `text[at]` starts a regional indicator (half of a flag), U+1F1E6 to U+1F1FF. */
+const isRegionalIndicator = (text: string, at: number) =>
+  text.charCodeAt(at) === 0xd83c && text.charCodeAt(at + 1) >= 0xdde6 && text.charCodeAt(at + 1) <= 0xddff;
+
 /**
- * The first `max` UTF-16 units of `text`, less one when the cut would fall
- * inside a surrogate pair. Use this, never a bare `.slice()`, to shorten text
- * that came from a site.
+ * The largest index at or below `max` where a character as a reader sees it
+ * (a grapheme cluster: a flag, a family emoji joined with ZWJ, a skin tone, a
+ * keycap, a letter with its accents) ends. Only GRAPHEME_WINDOW units either
+ * side of `max` are segmented, so the cost does not grow with the text. The
+ * first piece of the window may have started before it, so it is not
+ * trusted; when nothing else in the window ends before `max` (a cluster
+ * longer than the window), the cut falls on the nearest code point instead.
+ */
+function graphemeEnd(text: string, max: number): number {
+  let from = Math.max(0, max - GRAPHEME_WINDOW);
+  if (from > 0 && isLowSurrogate(text.charCodeAt(from))) from -= 1;
+  const window = text.slice(from, Math.min(text.length, max + GRAPHEME_WINDOW));
+  graphemes ??= new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  let end = -1;
+  let first = true;
+  for (const { index } of graphemes.segment(window)) {
+    const at = from + index;
+    if (at > max) break;
+    // The window's own start is a boundary only when it is the text's.
+    if (!first || from === 0) end = at;
+    first = false;
+  }
+  if (end < 0) end = isHighSurrogate(text.charCodeAt(max - 1)) ? max - 1 : max;
+  // Flags pair regional indicators from the start of their run, which may lie
+  // before the window: count back to it (the run is only as long as the text
+  // before the cut) and keep pairs whole.
+  if (end > 0 && isRegionalIndicator(text, end) && end >= 2 && isRegionalIndicator(text, end - 2)) {
+    let count = 0;
+    for (let i = end - 2; i >= 0 && isRegionalIndicator(text, i); i -= 2) count += 1;
+    if (count % 2 === 1) end -= 2;
+  }
+  return end;
+}
+
+/**
+ * The first `max` UTF-16 units of `text` or fewer, ending where a character
+ * as a reader sees it ends: never inside a surrogate pair, a flag, an emoji
+ * joined with ZWJ, a skin tone or keycap sequence, or a letter and its
+ * accents. Use this, never a bare `.slice()`, to shorten text that came from
+ * a site.
  */
 export function cut(text: string, max: number): string {
   if (text.length <= max) return text;
   if (max <= 0) return "";
-  const last = text.charCodeAt(max - 1);
-  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
+  return text.slice(0, graphemeEnd(text, max));
 }
 
 /**
@@ -138,15 +185,16 @@ export function cutSource(text: string, max: number): string {
     // A ";" closes it, anything else that cannot be in a reference means it is not one.
     if (!alnum && c !== 35) return head;
   }
-  return head.slice(0, amp);
+  return cut(head, amp);
 }
 
 // Characters that are removed outright: C0 and C1 controls, DEL, zero-width
-// space, the left-to-right and right-to-left marks, the bidirectional
-// embedding, override and isolate controls (which can make text display in
-// another order than it is stored), and the byte-order mark. Zero-width
-// joiner and non-joiner stay: emoji sequences and some scripts need them.
-const INVISIBLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]+/g;
+// space, the left-to-right, right-to-left and Arabic letter marks, the
+// bidirectional embedding, override and isolate controls (which can make text
+// display in another order than it is stored), and the byte-order mark.
+// Zero-width joiner and non-joiner stay: emoji sequences and some scripts
+// need them.
+const INVISIBLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u061c\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]+/g;
 
 /**
  * Control and direction characters are removed, runs of white space become

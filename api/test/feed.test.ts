@@ -215,6 +215,31 @@ describe("POST /v1/feed", () => {
       expect((await feed([CARELESS])).items).toEqual([]);
     });
 
+    it("drops an item dated long ago instead of stamping it, and leaves out one dated after 2200", async () => {
+      const OLD = { url: "https://old.example.com/", mode: "feed", feedUrl: "https://old.example.com/index.xml" } as const;
+      const entry = (slug: string, date: string) =>
+        `<item><title>The ${slug} item of this feed</title><link>https://old.example.com/posts/${slug}/</link><pubDate>${date}</pubDate></item>`;
+      const text = `<?xml version="1.0"?><!doctype rss><rss version="2.0"><channel><title>Old Site</title>${[
+        // What Hugo writes for a page with no date.
+        entry("hugo", "Mon, 01 Jan 0001 00:00:00 +0000"),
+        entry("sixties", "Wed, 31 Dec 1969 23:00:00 GMT"),
+        entry("far", "Sat, 15 Nov 2300 10:00:00 GMT"),
+        entry("no-time", "Sat, 14 Nov 2026"),
+        entry("offset", "Sun, 15 Nov 2026 10:00:00 GMT+1"),
+      ].join("")}</channel></rss>`;
+      mockWeb({ [OLD.feedUrl]: xml(text) });
+
+      const body = await feed([OLD]);
+
+      expect(body.sites).toEqual([{ index: 0, ok: true }]);
+      expect(body.items.map((item) => [item.link.split("/posts/")[1], item.published, item.dateSource])).toEqual([
+        ["offset/", "2026-11-15T09:00:00Z", "published"],
+        ["no-time/", "2026-11-14T00:00:00Z", "published"],
+      ]);
+      // Every item had a date, so none needed a first-seen time.
+      expect((await env.CACHE.list({ prefix: "feed:seen:" })).keys).toEqual([]);
+    });
+
     it("uses no first-seen record for a feed whose items all have dates", async () => {
       mockWeb(web);
       await feed([NEWS, BLOG, JOURNAL]);
@@ -332,6 +357,26 @@ describe("POST /v1/feed", () => {
         item("Night train returns to the coast line", "/world/2026/11/night-train-returns/", "2026-11-15T14:59:55Z", "first_seen"),
         item("Island ferry service resumes after storm", "/world/2026/11/island-ferry-service-resumes/", "2026-11-14T00:00:00Z", "published"),
         // "Mountain pass closes…" carries <time datetime="2026-11-02">: older than 7 days.
+      ]);
+    });
+
+    it("drops a link whose <time> is long ago, and stamps one whose <time> is after 2200 as first seen", async () => {
+      const ARCHIVE = { url: "https://archive.example.com/world/", mode: "links" } as const;
+      const card = (slug: string, title: string, time: string) =>
+        `<article><a href="/world/2026/11/${slug}/">${title}</a>${time ? `<time datetime="${time}">x</time>` : ""}</article>`;
+      const page = `<!doctype html><html><head><title>Archive</title></head><body><main>${[
+        card("hugo-zero-date", "A page whose date was never filled in", "0001-01-01T00:00:00Z"),
+        card("far-future-date", "A page dated three centuries ahead", "2300-01-01"),
+        card("no-date-at-all", "A page with no date in the markup", ""),
+      ].join("")}</main></body></html>`;
+      mockWeb({ [ARCHIVE.url]: html(page) });
+
+      const body = await feed([ARCHIVE]);
+
+      expect(body.sites).toEqual([{ index: 0, ok: true }]);
+      expect(body.items.map((item) => [item.link.split("/2026/11/")[1], item.published, item.dateSource])).toEqual([
+        ["far-future-date/", "2026-11-15T14:59:59Z", "first_seen"],
+        ["no-date-at-all/", "2026-11-15T14:59:58Z", "first_seen"],
       ]);
     });
 

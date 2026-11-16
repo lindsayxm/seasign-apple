@@ -1,3 +1,4 @@
+import { XMLParser } from "fast-xml-parser";
 import { describe, expect, it } from "vitest";
 import {
   FeedParseError,
@@ -6,6 +7,7 @@ import {
   MAX_ITEMS_SCANNED,
   MAX_MARKUP,
   MAX_TAG_CHARS,
+  MAX_TEXT_RUN,
   checkShape,
   parseFeed,
   parseFeedDate,
@@ -56,6 +58,26 @@ describe("parseFeedDate", () => {
     ["Sat, 14 Nov 2026 09:30:00 GMT (GMT)", "2026-11-14T09:30:00Z"],
     ["Sat,14 Nov 2026 09:30:00 +0100", "2026-11-14T08:30:00Z"],
     ["Sat,14 Nov 2026 09:30:00 GMT", "2026-11-14T09:30:00Z"],
+    // No time: midnight UTC.
+    ["Sat, 14 Nov 2026", "2026-11-14T00:00:00Z"],
+    ["14 Nov 2026", "2026-11-14T00:00:00Z"],
+    ["Sat, 14 Nov 2026 GMT", "2026-11-14T00:00:00Z"],
+    // GMT or UTC with an offset, read as that far east of UTC.
+    ["Sat, 14 Nov 2026 10:30:00 GMT+1", "2026-11-14T09:30:00Z"],
+    ["Sat, 14 Nov 2026 10:30:00 UTC+01:00", "2026-11-14T09:30:00Z"],
+    ["Sat, 14 Nov 2026 10:30:00 GMT-0530", "2026-11-14T16:00:00Z"],
+    ["Sat, 14 Nov 2026 10:30:00 utc-5", "2026-11-14T15:30:00Z"],
+    ["Sat, 14 Nov 2026 10:30 UT+10", "2026-11-14T00:30:00Z"],
+    // A date long past is old, not missing; one far ahead is ahead.
+    ["Mon, 01 Jan 0001 00:00:00 +0000", "0001-01-01T00:00:00Z"],
+    ["0001-01-01T00:00:00Z", "0001-01-01T00:00:00Z"],
+    ["1066-10-14", "1066-10-14T00:00:00Z"],
+    ["Wed, 31 Dec 1969 23:59:59 GMT", "1969-12-31T23:59:59Z"],
+    ["Thu, 01 Jan 70 00:00:00 GMT", "1970-01-01T00:00:00Z"],
+    ["2201-01-01", "2201-01-01T00:00:00Z"],
+    ["Fri, 31 Dec 9999 23:59:59 GMT", "9999-12-31T23:59:59Z"],
+    // Year 4 was a leap year; 1900 was not.
+    ["0004-02-29", "0004-02-29T00:00:00Z"],
   ])("reads %s", (input, expected) => {
     expect(parseFeedDate(input)).toBe(at(expected));
   });
@@ -65,6 +87,7 @@ describe("parseFeedDate", () => {
     "yesterday afternoon",
     "Wed, 32 Foo 2026 10:00:00 GMT",
     "Wed, 31 Feb 2026 10:00:00 GMT",
+    "1900-02-29",
     "2026-13-45T10:00:00Z",
     "2026-02-30",
     "2026-11-12T25:00:00Z",
@@ -77,7 +100,9 @@ describe("parseFeedDate", () => {
     "Tue, 10 Nov 2026 22:00:00 constructor",
     "2026-11-12T07:05:09+99:00",
     "0000-00-00T00:00:00Z",
-    "1066-10-14",
+    "Sat, 14 Nov 2026 10:00:00 EST+1",
+    "Sat, 14 Nov 2026 10:00:00 GMT+17",
+    "Sat, 14 Nov 2026 10:00:00 GMT+",
     "2026-11-11T00:00:00Z and more text after the date",
     "9".repeat(5000),
   ])("refuses %s", (input) => {
@@ -356,7 +381,7 @@ describe("parseFeed on hostile input", () => {
 
   it("cuts long fields", () => {
     const feed = parseFeed(
-      wrap(`<item><title>${"long title ".repeat(5000)}</title><link>https://news.example.com/i/1</link><description>${"&lt;p&gt;text&lt;/p&gt; ".repeat(30_000)}</description></item>`),
+      wrap(`<item><title>${"long title ".repeat(5000)}</title><link>https://news.example.com/i/1</link><description>${"&lt;p&gt;text&lt;/p&gt; ".repeat(5_000)}</description></item>`),
       FEED,
     );
     expect(feed.items[0]?.title.length).toBeLessThanOrEqual(300);
@@ -445,6 +470,129 @@ describe("parseFeed on hostile input", () => {
 
     it("lets the four fixtures through", () => {
       for (const text of [rss2, atom, rdf, badDates]) expect(() => checkShape(text)).not.toThrow();
+    });
+
+    // The parser builds a run of text one character at a time; one run of 1M
+    // two-byte characters needed 64 to 68 MB of heap.
+    describe(`text runs of at most ${MAX_TEXT_RUN} characters`, () => {
+      const inItem = (text: string) => wrap(`<item><link>https://news.example.com/i/1</link><title>t</title><description>${text}</description></item>`);
+      // ASCII; a euro sign (what byte 0x80 decodes to as windows-1252); a CJK character.
+      const letters = ["x", "\u20ac", "\u6587"];
+
+      it.each(letters)("accepts a run of %s exactly at the limit and refuses one more", (letter) => {
+        const fits = inItem(letter.repeat(MAX_TEXT_RUN));
+        expect(() => checkShape(fits)).not.toThrow();
+        expect(parseFeed(fits, FEED).items).toHaveLength(1);
+
+        const over = inItem(letter.repeat(MAX_TEXT_RUN + 1));
+        expect(() => checkShape(over)).toThrow(FeedParseError);
+        expect(() => parseFeed(over, FEED)).toThrow(FeedParseError);
+      });
+
+      it("counts UTF-16 units, as the parser does", () => {
+        expect(() => checkShape(inItem("\u{1F600}".repeat(MAX_TEXT_RUN / 2)))).not.toThrow();
+        expect(() => checkShape(inItem(`x${"\u{1F600}".repeat(MAX_TEXT_RUN / 2)}`))).toThrow(FeedParseError);
+      });
+
+      it("counts text before the first tag, after the last, and in a document with no tag at all", () => {
+        const feed = wrap(item(1));
+        expect(() => checkShape(" ".repeat(MAX_TEXT_RUN) + feed)).not.toThrow();
+        expect(() => checkShape(" ".repeat(MAX_TEXT_RUN + 1) + feed)).toThrow(FeedParseError);
+        expect(() => checkShape(feed + " ".repeat(MAX_TEXT_RUN))).not.toThrow();
+        expect(() => checkShape(feed + " ".repeat(MAX_TEXT_RUN + 1))).toThrow(FeedParseError);
+        expect(() => checkShape("x".repeat(MAX_TEXT_RUN))).not.toThrow();
+        expect(() => checkShape("x".repeat(MAX_TEXT_RUN + 1))).toThrow(FeedParseError);
+      });
+
+      it("counts text either side of a comment or the DOCTYPE as one run", () => {
+        const half = "\u20ac".repeat(MAX_TEXT_RUN / 2);
+        expect(() => checkShape(inItem(`${half}<!-- a comment -->${half}`))).not.toThrow();
+        expect(() => checkShape(inItem(`${half}<!-- a comment -->${half}x`))).toThrow(FeedParseError);
+        // Eight runs joined by empty comments are one run of 1M characters to the parser.
+        expect(() => checkShape(inItem(Array.from({ length: 8 }, () => "\u20ac".repeat(MAX_TEXT_RUN)).join("<!---->")))).toThrow(FeedParseError);
+        const feed = wrap(item(1));
+        expect(() => checkShape(`${half}<!DOCTYPE rss>${half}${feed}`)).not.toThrow();
+        expect(() => checkShape(`${half}<!DOCTYPE rss>${half}x${feed}`)).toThrow(FeedParseError);
+      });
+
+      it("starts a new run at a tag, a processing instruction or CDATA", () => {
+        const full = "\u20ac".repeat(MAX_TEXT_RUN);
+        for (const between of ["<b/>", "<b>", "</b>", "<?pi?>", "<![CDATA[]]>"]) {
+          expect(() => checkShape(wrap(`<item><description>${full}${between}${full}</description></item>`)), between).not.toThrow();
+        }
+        // The most text a feed can hold, in runs of the longest length.
+        const most = wrap(Array.from({ length: 7 }, () => `<item><description>${full}</description></item>`).join(""));
+        expect(most.length).toBeGreaterThan(7 * MAX_TEXT_RUN);
+        expect(() => checkShape(most)).not.toThrow();
+        expect(parseFeed(most, FEED).items).toEqual([]);
+      });
+
+      it("puts no such limit on CDATA", () => {
+        const cdata = "\u20ac".repeat(MAX_FEED_CHARS - 300);
+        const xml = inItem(`<![CDATA[${cdata}]]>`);
+        expect(xml.length).toBeLessThanOrEqual(MAX_FEED_CHARS);
+        expect(() => checkShape(xml)).not.toThrow();
+        expect(parseFeed(xml, FEED).items[0]?.excerpt).toBe(`${"\u20ac".repeat(299)}\u2026`);
+      });
+    });
+
+    // The parser finds attributes with a pattern that quotes do not stop, so
+    // they are counted with that pattern.
+    describe(`at most ${MAX_ATTRIBUTES} attributes, as the parser counts them`, () => {
+      const pairs = (n: number, from = 0) => Array.from({ length: n }, (_v, i) => `a${from + i}=''`).join(" ");
+      const shapes: [string, (n: number) => string][] = [
+        ["plain", (n) => `<x ${Array.from({ length: n }, (_v, i) => `a${i}="v"`).join(" ")}/>`],
+        ["all inside one pair of quotes", (n) => `<x "${pairs(n)}"/>`],
+        ["inside quotes after a real attribute", (n) => `<x a="1" "${pairs(n - 1, 1)}"/>`],
+        ["inside quotes after a doubled =", (n) => `<x a== "${pairs(n)}"/>`],
+        ["without spaces", (n) => `<x "${Array.from({ length: n }, (_v, i) => `a${i}=''`).join("")}"/>`],
+        ["in an element that has content", (n) => `<x "${pairs(n)}">text</x>`],
+      ];
+      // The test parser takes the same options that matter for attributes.
+      const reference = new XMLParser({ preserveOrder: true, ignoreAttributes: false, attributeNamePrefix: "@_", processEntities: false, trimValues: false });
+      const parsedCount = (tag: string): number => {
+        const tree = reference.parse(`<r>${tag}</r>`) as Record<string, unknown>[];
+        const x = (tree[0]?.r as Record<string, unknown>[]).find((node) => "x" in node) as Record<string, unknown>;
+        return Object.keys((x[":@"] as object | undefined) ?? {}).length;
+      };
+
+      it.each(shapes)("agrees with the parser's own count: %s", (_name, make) => {
+        for (const n of [MAX_ATTRIBUTES, MAX_ATTRIBUTES + 1]) {
+          const count = parsedCount(make(n));
+          expect(count).toBe(n);
+          const xml = wrap(`<item><link>https://news.example.com/i/1</link><title>t</title>${make(n)}</item>`);
+          if (count <= MAX_ATTRIBUTES) expect(() => checkShape(xml)).not.toThrow();
+          else expect(() => checkShape(xml)).toThrow(FeedParseError);
+        }
+      });
+
+      it("counts the attributes of a processing instruction", () => {
+        expect(() => checkShape(wrap(item(1), `<?x ${pairs(MAX_ATTRIBUTES)}?>`))).not.toThrow();
+        expect(() => checkShape(wrap(item(1), `<?x ${pairs(MAX_ATTRIBUTES + 1)}?>`))).toThrow(FeedParseError);
+        expect(() => checkShape(wrap(item(1), `<?x "${pairs(MAX_ATTRIBUTES + 1)}"?>`))).toThrow(FeedParseError);
+      });
+
+      it("does not count an = inside a value", () => {
+        const xml = wrap(`<item><link>https://news.example.com/i/1</link><title>t</title><a href="https://news.example.com/?${"k=v&amp;".repeat(200)}"/></item>`);
+        expect(() => checkShape(xml)).not.toThrow();
+      });
+    });
+
+    describe("DOCTYPE", () => {
+      const feed = (doctype: string) => `<?xml version="1.0"?>${doctype}<rss version="2.0"><channel><title>T</title>${item(1)}</channel></rss>`;
+
+      it.each(["<!DOCTYPE rss>", "<!doctype rss>", "<!Doctype rss>", '<!doctype rss PUBLIC "-//Netscape Communications//DTD RSS 0.91//EN" "http://my.netscape.com/publish/formats/rss-0.91.dtd">'])(
+        "reads a feed with %s, in any letter case",
+        (doctype) => {
+          const parsed = parseFeed(feed(doctype), FEED);
+          expect(parsed.title).toBe("T");
+          expect(parsed.items.map((entry) => entry.link)).toEqual(["https://news.example.com/i/1"]);
+        },
+      );
+
+      it.each(["<!doctype rss [ <!ENTITY a 'b'> ]>", "<!Doctype rss [ ]>", "<!DOCTYPE rss><!doctype rss>", "<!doctyperss>"])("still refuses %s", (doctype) => {
+        expect(() => parseFeed(feed(doctype), FEED)).toThrow(FeedParseError);
+      });
     });
   });
 

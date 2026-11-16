@@ -83,6 +83,87 @@ describe("cutting text", () => {
     for (let max = 0; max <= 12; max++) expect(cut(GRIN.repeat(6), max).isWellFormed()).toBe(true);
   });
 
+  describe("on grapheme boundaries", () => {
+    const FLAG = "\u{1F1EB}\u{1F1F7}"; // France: two regional indicators, four units
+    const FAMILY = "\u{1F468}\u200d\u{1F469}\u200d\u{1F467}"; // eight units
+    const THUMB = "\u{1F44D}\u{1F3FD}"; // with a skin tone, four units
+    const KEYCAP = "1\ufe0f\u20e3"; // three units
+    const ACCENTED = "e\u0301"; // e and a combining acute, two units
+    const clusters = [FLAG, FAMILY, THUMB, KEYCAP, ACCENTED, GRIN];
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    /** Whether `head` is `text` cut where a cluster ends. */
+    const endsOnBoundary = (text: string, head: string) =>
+      text.startsWith(head) && (head.length === 0 || [...segmenter.segment(text)].some((piece) => piece.index === head.length) || head.length === text.length);
+
+    it("has Intl.Segmenter in the Workers runtime", () => {
+      expect(typeof Intl.Segmenter).toBe("function");
+      expect([...segmenter.segment(`a${FLAG}${FAMILY}${THUMB}${KEYCAP}${ACCENTED}`)].map((piece) => piece.segment)).toEqual(["a", FLAG, FAMILY, THUMB, KEYCAP, ACCENTED]);
+    });
+
+    it.each(clusters.map((cluster) => [JSON.stringify(cluster), cluster]))("never cuts %s in half", (_name, cluster) => {
+      const text = `ab ${cluster}${cluster} cd`;
+      for (let max = 0; max <= text.length; max++) {
+        const head = cut(text, max);
+        expect(head.length).toBeLessThanOrEqual(max);
+        expect(endsOnBoundary(text, head), `max ${max}: ${JSON.stringify(head)}`).toBe(true);
+      }
+      expect(cut(text, 3 + cluster.length - 1)).toBe("ab ");
+      expect(cut(text, 3 + cluster.length)).toBe(`ab ${cluster}`);
+    });
+
+    it("keeps flags paired however long the run of them", () => {
+      const flags = FLAG.repeat(200);
+      for (const max of [2, 3, 4, 5, 6, 7, 8, 254, 255, 256, 257, 258, 798, 799]) {
+        const head = cut(flags, max);
+        expect(head.length % 4, `max ${max}`).toBe(0);
+        expect(head.length).toBeGreaterThan(max - 4);
+      }
+      // Pairs count from the start of the run, which lies well before the
+      // part of the text that is segmented: after one letter, after two, and
+      // with an odd indicator at the start (which pairs with the next one).
+      for (const [prefix, rest] of [["a", 1], ["ab", 2], ["\u{1F1FA}", 0]] as const) {
+        for (const max of [200, 201, 202, 203, 204, 205, 206, 207, 798]) {
+          const head = cut(`${prefix}${flags}`, max);
+          expect(head.length % 4, `${prefix} max ${max}`).toBe(rest);
+          expect(head.length).toBeGreaterThan(max - 4);
+        }
+      }
+    });
+
+    it("clips with the mark after a whole cluster", () => {
+      expect(clip(`${FAMILY}${FAMILY}${FAMILY}`, 12)).toBe(`${FAMILY}\u2026`);
+      expect(clip(FLAG.repeat(10), 7)).toBe(`${FLAG}\u2026`);
+      expect(clip(`Go${THUMB}${THUMB}${THUMB}`, 12)).toBe(`Go${THUMB}${THUMB}\u2026`);
+      // The old cut kept the hand and dropped its skin tone.
+      expect(htmlToText(`<p>${"\u{1F44B}\u{1F3FF}".repeat(30)}</p>`, 20)).toBe(`${"\u{1F44B}\u{1F3FF}".repeat(4)}\u2026`);
+    });
+
+    it("falls back to a code point boundary inside a cluster longer than it looks at", () => {
+      // 300 combining marks on one letter: one cluster, cut at a code point.
+      const zalgo = `x${"\u0301".repeat(300)}`;
+      expect(cut(zalgo, 200)).toBe(zalgo.slice(0, 200));
+      const emoji = `y${"\u{1F468}\u200d".repeat(100)}`;
+      expect(cut(emoji, 101).isWellFormed()).toBe(true);
+    });
+
+    it("stays fast on 2 MB of flags, joined emoji and combining marks", () => {
+      const MB2 = 2 * 1024 * 1024;
+      const inputs = [FLAG.repeat(MB2 / 4), "\u{1F468}\u200d".repeat(MB2 / 3), `a${"\u0301".repeat(MB2)}`, `${FAMILY} `.repeat(MB2 / 9)];
+      const started = performance.now();
+      for (const input of inputs) {
+        for (const max of [100, 40_000, MB2 - 7]) {
+          const head = cut(input, max);
+          expect(head.length).toBeLessThanOrEqual(max);
+          expect(head.isWellFormed()).toBe(true);
+        }
+        expect(clip(input, 300).length).toBeLessThanOrEqual(300);
+        expect(htmlToText(input, 300).length).toBeLessThanOrEqual(300);
+        expect(plainText(input, 300).length).toBeLessThanOrEqual(300);
+      }
+      expect(performance.now() - started).toBeLessThan(1000);
+    });
+  });
+
   it("drops a character reference the cut went through", () => {
     expect(cutSource("fish &amp; chips", 8)).toBe("fish ");
     expect(cutSource("fish &amp; chips", 9)).toBe("fish ");
@@ -133,6 +214,8 @@ describe("cutting text", () => {
     expect(collapseSpace("invoice\u202egnp.exe")).toBe("invoicegnp.exe");
     expect(collapseSpace("a\u202ab\u202bc\u202cd\u202de\u2066f\u2067g\u2068h\u2069i")).toBe("abcdefghi");
     expect(collapseSpace("a\u200eb\u200fc\ufeffd\u0000e\u007ff")).toBe("abcdef");
+    // The Arabic letter mark, like the other direction marks.
+    expect(collapseSpace("a\u061cb \u061c")).toBe("ab");
     const family = "\u{1F468}\u200d\u{1F469}\u200d\u{1F467}";
     expect(collapseSpace(` ${family} `)).toBe(family);
     expect(collapseSpace("می\u200cخواهم")).toBe("می\u200cخواهم");

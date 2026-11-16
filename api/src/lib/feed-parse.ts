@@ -7,15 +7,18 @@ import { clip, collapseSpace, cut, cutSource, decodeEntities, htmlToText, plainT
 //
 // - Entities: a DOCTYPE with an internal subset, the only place a document
 //   can define entities ("billion laughs", external entities), is refused
-//   before parsing, and the parser is told to expand none
-//   (`processEntities: false`). The five XML references and numeric ones are
-//   decoded by `decodeEntities`, which cannot grow its input.
+//   before parsing, any other DOCTYPE is removed before parsing, and the
+//   parser is told to expand none (`processEntities: false`). The five XML
+//   references and numeric ones are decoded by `decodeEntities`, which
+//   cannot grow its input.
 // - Nesting deeper than MAX_NESTING makes the parser throw.
 // - Memory: fast-xml-parser builds strings and objects per tag and per
-//   attribute, and some shapes of 2 MB (one endless tag, an element with a
-//   hundred thousand attributes, half a million empty elements) need more
-//   than the 128 MB a Worker has. `checkShape` reads the text once before the
-//   parser sees it and refuses those shapes; see the limits below.
+//   attribute, and builds each run of text one character at a time; some
+//   shapes of 2 MB (one endless tag, an element with a hundred thousand
+//   attributes, half a million empty elements) need more than the 128 MB a
+//   Worker has, and one 1 MB run of text needs over 60 MB. `checkShape` reads
+//   the text once before the parser sees it and refuses those shapes; see the
+//   limits below.
 // - At most MAX_ITEMS_SCANNED items are read, and every field is cut before
 //   it is decoded or stripped.
 // - Whatever the parser throws becomes `FeedParseError` with no text of its
@@ -26,8 +29,15 @@ export const MAX_NESTING = 64;
 export const MAX_FEED_CHARS = 1024 * 1024;
 /** Characters of one tag, from "<" to ">". Real tags with long URLs in attributes stay under 3,000. */
 export const MAX_TAG_CHARS = 8192;
-/** Attributes on one element, counted as "=" outside quotes. A root element with every namespace has about 20. */
+/** Attributes on one element or processing instruction, counted as the parser finds them. A root element with every namespace has about 20. */
 export const MAX_ATTRIBUTES = 64;
+/**
+ * Characters of text in one run between tags. The parser builds such a run
+ * one character at a time, and one run of 1M two-byte characters needed
+ * 64 to 68 MB of heap where the same text split into runs of this length
+ * needed 24. An article's full text is rarely a tenth of this.
+ */
+export const MAX_TEXT_RUN = 131_072;
 /** Tags, comments, CDATA sections and processing instructions in one document. 500 items of 40 elements each are 40,000 tags. */
 export const MAX_MARKUP = 60_000;
 export const MAX_ITEMS_SCANNED = 500;
@@ -84,23 +94,36 @@ const ISO_DATE =
   /^(\d{4})-(\d{2})-(\d{2})(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d{1,9})?)?)?\s?(?:([Zz])|([+-])(\d{2}):?(\d{2}))?$/;
 // Optional weekday ("Sat, " or "Sat,"), day, month name, year, time, then an
 // offset or a zone name, then an optional comment such as "(UTC)".
+// The time may be left out (midnight). The zone is an offset (`+0100`,
+// `+01:00`), GMT/UTC/UT with an offset (`GMT+1`, `UTC+01:00`, `GMT-0530`),
+// or a name.
 const RFC822_DATE =
-  /^(?:[A-Za-z]{3,9},?\s?)?(\d{1,2})\s([A-Za-z]{3})[A-Za-z]{0,6}\s(\d{2}|\d{4})\s(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s?(?:([+-])(\d{2}):?(\d{2})|([A-Za-z]{1,5})))?(?:\s?\([^()]{0,40}\))?$/;
+  /^(?:[A-Za-z]{3,9},?\s?)?(\d{1,2})\s([A-Za-z]{3})[A-Za-z]{0,6}\s(\d{2}|\d{4})(?:\s(\d{1,2}):(\d{2})(?::(\d{2}))?)?(?:\s?(?:([+-])(\d{2}):?(\d{2})|(?:GMT|UTC|UT)([+-])(\d{1,2})(?::?(\d{2}))?|([A-Za-z]{1,5})))?(?:\s?\([^()]{0,40}\))?$/i;
 
+/**
+ * Unix seconds for a date and time in a zone `offsetMinutes` east of UTC, or
+ * null when the parts are not a date. Any year a pattern can read counts,
+ * 0000 to 9999: a date long past is old, not missing (Hugo writes
+ * `Mon, 01 Jan 0001` for undated pages), and one far ahead is ahead. Whether
+ * either is shown is the caller's 7-day window.
+ */
 function utcSeconds(year: number, month: number, day: number, hour: number, minute: number, second: number, offsetMinutes: number) {
   if (month < 0 || month > 11 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) return null;
-  if (year < 1970 || year > 2200) return null;
-  const date = new Date(Date.UTC(year, month, day, hour, minute, second));
-  // 31 February and the like roll over into another month: not a date.
-  if (date.getUTCMonth() !== month || date.getUTCDate() !== day) return null;
   if (Math.abs(offsetMinutes) > 16 * 60) return null;
-  return Math.floor(date.getTime() / 1000) - offsetMinutes * 60;
+  // setUTCFullYear, not Date.UTC, which reads years 0 to 99 as 1900 to 1999.
+  const date = new Date(0);
+  date.setUTCFullYear(year, month, day);
+  // 31 February and the like roll over into another month: not a date.
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month || date.getUTCDate() !== day) return null;
+  return Math.floor(date.getTime() / 1000) + hour * 3600 + minute * 60 + second - offsetMinutes * 60;
 }
 
 /**
  * A feed's date as Unix seconds: ISO 8601 / RFC 3339 (`2026-11-14T09:30:00-05:00`,
- * `2026-11-14`) or RFC 822 (`Sat, 14 Nov 2026 09:30:00 GMT`). A time without a
- * zone is read as UTC. Anything else is null.
+ * `2026-11-14`) or RFC 822 (`Sat, 14 Nov 2026 09:30:00 GMT`, `Sat, 14 Nov 2026`).
+ * A time without a zone is read as UTC, a date without a time as midnight.
+ * Anything else is null. The result may be long before 1970 (negative) or
+ * long after now.
  */
 export function parseFeedDate(input: string): number | null {
   const text = collapseSpace(input.slice(0, 64));
@@ -123,10 +146,13 @@ export function parseFeedDate(input: string): number | null {
     if (rfc[7]) {
       offset = (rfc[7] === "-" ? -1 : 1) * (Number(rfc[8]) * 60 + Number(rfc[9]));
     } else if (rfc[10]) {
-      const name = rfc[10].toLowerCase();
+      // "GMT+1" means one hour east of UTC, as feeds write it (not the POSIX reading).
+      offset = (rfc[10] === "-" ? -1 : 1) * (Number(rfc[11]) * 60 + Number(rfc[12] ?? 0));
+    } else if (rfc[13]) {
+      const name = rfc[13].toLowerCase();
       offset = Object.hasOwn(ZONES, name) ? (ZONES[name] as number) : 0;
     }
-    return utcSeconds(year, month, Number(rfc[1]), Number(rfc[4]), Number(rfc[5]), Number(rfc[6] ?? 0), offset);
+    return utcSeconds(year, month, Number(rfc[1]), Number(rfc[4] ?? 0), Number(rfc[5] ?? 0), Number(rfc[6] ?? 0), offset);
   }
   return null;
 }
@@ -443,30 +469,79 @@ function readAtom(feed: XmlNode, feedUrl: URL): ParsedFeed {
 /** The index of the quote that closes the one at `at`, or -1. */
 const closingQuote = (text: string, at: number) => text.indexOf(text[at] as string, at + 1);
 
+// fast-xml-parser 5.12's attribute pattern (`attrsRegx` in OrderedObjParser),
+// copied so that attributes are counted the way the parser finds them. A
+// match is an attribute when it has a value; a bare word is dropped.
+const PARSER_ATTRIBUTE = /([^\s=]+)\s*(=\s*(?:"([^"]*)"|'([^']*)'))?/g;
+
+/**
+ * The attributes the parser will build from the tag or processing
+ * instruction whose text between "<" and ">" (or "?>") is `body`: the text
+ * after the name, read with the parser's own pattern. Quotes do not hide
+ * anything from it: `<x "a='' b=''"/>` has two.
+ */
+function attributeCount(body: string): number {
+  const space = body.search(/\s/);
+  if (space < 0) return 0;
+  const rest = body.slice(space + 1);
+  let count = 0;
+  PARSER_ATTRIBUTE.lastIndex = 0;
+  for (let match = PARSER_ATTRIBUTE.exec(rest); match; match = PARSER_ATTRIBUTE.exec(rest)) {
+    if (match[3] !== undefined || match[4] !== undefined) count += 1;
+  }
+  return count;
+}
+
+/** Where a DOCTYPE stands in a text that passed `checkShape`: `text.slice(start, end)`. */
+export type Shape = { doctype: { start: number; end: number } | null };
+
 /**
  * Reads the text once and throws `FeedParseError` unless every piece of
- * markup is closed and small: a tag is at most MAX_TAG_CHARS long with at
- * most MAX_ATTRIBUTES attributes, there are at most MAX_MARKUP tags, comments,
- * CDATA sections and processing instructions, a "<" starts one of those
- * (never "< " or "<<") and does not stand inside one outside quotes, and a
- * DOCTYPE has no internal subset, which is where entities are defined.
+ * markup is closed and small, and no text is one long run:
+ *
+ * - a tag or processing instruction is at most MAX_TAG_CHARS long, with at
+ *   most MAX_ATTRIBUTES attributes as the parser counts them (its own
+ *   pattern, which quotes do not stop: see `attributeCount`);
+ * - there are at most MAX_MARKUP tags, comments, CDATA sections and
+ *   processing instructions;
+ * - a "<" starts one of those (never "< " or "<<") and does not stand inside
+ *   one outside quotes;
+ * - the only declaration is one DOCTYPE, in any letter case, with no internal
+ *   subset (which is where entities are defined);
+ * - text between markup is at most MAX_TEXT_RUN characters. The parser adds
+ *   text to a string one character at a time and only starts a new one at a
+ *   tag, a processing instruction or CDATA, so text either side of a comment
+ *   or the DOCTYPE counts as one run. CDATA is taken in one piece and has no
+ *   such limit.
  *
  * It finds the end of each piece the way fast-xml-parser 5 does (quotes hide
  * a ">" in an opening tag and in a processing instruction, not in a closing
  * tag), so what is one small tag here is one small tag there. Comments and
  * CDATA are skipped, whatever they hold. Each step moves forward: linear.
+ *
+ * Returns where the DOCTYPE is, so that `parseFeed` can leave it out: the
+ * parser reads only an upper-case `<!DOCTYPE` as one.
  */
-export function checkShape(text: string): void {
+export function checkShape(text: string): Shape {
   if (text.length > MAX_FEED_CHARS) throw new FeedParseError();
+  let doctype: Shape["doctype"] = null;
   let markupCount = 0;
+  // Characters of text the parser has gathered since it last started anew.
+  let run = 0;
+  let textFrom = 0;
   let at = text.indexOf("<");
   while (at >= 0) {
+    run += at - textFrom;
+    if (run > MAX_TEXT_RUN) throw new FeedParseError();
     if (++markupCount > MAX_MARKUP) throw new FeedParseError();
     let end: number;
+    // A comment or the DOCTYPE does not end the run of text around it.
+    let endsRun = true;
     if (text.startsWith("<!--", at)) {
       end = text.indexOf("-->", at + 4);
       if (end < 0) throw new FeedParseError();
       end += 3;
+      endsRun = false;
     } else if (text.startsWith("<![CDATA[", at)) {
       end = text.indexOf("]]>", at + 9);
       if (end < 0) throw new FeedParseError();
@@ -480,20 +555,17 @@ export function checkShape(text: string): void {
       const next = text.charCodeAt(at + 1);
       const instruction = next === 63; // "<?"
       const declaration = next === 33; // "<!"
-      if (declaration && !/^<!doctype\s/i.test(text.slice(at, at + 10))) throw new FeedParseError();
+      if (declaration && (doctype !== null || !/^<!doctype\s/i.test(text.slice(at, at + 10)))) throw new FeedParseError();
       const nameStart = (next >= 65 && next <= 90) || (next >= 97 && next <= 122) || next === 95 || next === 58 || next >= 0x80;
       if (!instruction && !declaration && !nameStart) throw new FeedParseError();
 
       const limit = Math.min(text.length, at + MAX_TAG_CHARS);
-      let attributes = 0;
       end = -1;
       for (let i = at + 2; i < limit; i++) {
         const c = text.charCodeAt(i);
         if (c === 34 || c === 39) {
           i = closingQuote(text, i);
           if (i < 0 || i >= limit) throw new FeedParseError();
-        } else if (c === 61) {
-          attributes += 1;
         } else if (c === 60) {
           // A "<" outside quotes is never part of a tag. In a DOCTYPE the
           // parser's reader takes "<!--" there as a way into a subset.
@@ -506,10 +578,21 @@ export function checkShape(text: string): void {
           break;
         }
       }
-      if (end < 0 || attributes > MAX_ATTRIBUTES) throw new FeedParseError();
+      if (end < 0) throw new FeedParseError();
+      if (declaration) {
+        doctype = { start: at, end };
+        endsRun = false;
+      } else if (attributeCount(text.slice(at + 1, instruction ? end - 2 : end - 1)) > MAX_ATTRIBUTES) {
+        throw new FeedParseError();
+      }
     }
+    if (endsRun) run = 0;
+    textFrom = end;
     at = text.indexOf("<", end);
   }
+  // Text after the last piece of markup is gathered too.
+  if (run + text.length - textFrom > MAX_TEXT_RUN) throw new FeedParseError();
+  return { doctype };
 }
 
 // ---------------------------------------------------------------------------
@@ -521,10 +604,14 @@ export function checkShape(text: string): void {
  * `FeedParseError` when the text is not RSS, RDF or Atom.
  */
 export function parseFeed(text: string, feedUrl: URL): ParsedFeed {
-  checkShape(text);
+  const { doctype } = checkShape(text);
+  // The DOCTYPE declares nothing here (a subset is refused, and no external
+  // DTD is read), and the parser takes a lower-case `<!doctype rss>` for an
+  // element that holds the whole feed. So the parser does not see it.
+  const xml = doctype ? text.slice(0, doctype.start) + text.slice(doctype.end) : text;
   let tree: unknown;
   try {
-    tree = parser().parse(text);
+    tree = parser().parse(xml);
   } catch {
     throw new FeedParseError();
   }

@@ -59,6 +59,28 @@ describe("request body limit", () => {
       expect(outbound).not.toHaveBeenCalled();
     });
 
+    it.each(["10", "0", "-1", "abc", ""])("refuses a 3 MB body whose Content-Length says %j, by counting it", async (length) => {
+      const outbound = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected outbound request"));
+      const body = bodyOf(make, 3 * 1024 * 1024);
+      const request = new Request(`https://example.com${path}`, { method: "POST", headers: { "content-type": "application/json", "content-length": length }, body });
+      expect(request.headers.get("content-length")).toBe(length);
+
+      const response = await exports.default.fetch(request);
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual(TOO_LARGE);
+      expect(outbound).not.toHaveBeenCalled();
+    });
+
+    it("reads a small body whose Content-Length is wrong as what it is", async () => {
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network down"));
+      for (const length of ["1", "abc"]) {
+        const response = await send(path, bodyOf(make, 200), { "content-length": length });
+        expect(response.status).toBe(200);
+        expect(JSON.stringify(await response.json())).toContain("fetch_failed");
+      }
+    });
+
     it("refuses a body that is not JSON at all when it is too large, with the same answer", async () => {
       const response = await send(path, "{".repeat(MAX_BODY_BYTES + 1));
       expect(response.status).toBe(400);
