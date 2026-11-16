@@ -366,6 +366,263 @@
         "required": [
           "links"
         ]
+      },
+      "SiteResolve": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "True when the page was read. The other fields are present only then, `error` only otherwise"
+          },
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_url",
+              "blocked_host",
+              "fetch_failed",
+              "timeout",
+              "too_large",
+              "not_feed",
+              "not_html"
+            ],
+            "description": "Why the page could not be read: invalid_url (not an https address), blocked_host (a private or local address), fetch_failed (unreachable or an error status), timeout, too_large, not_html (neither a web page nor a feed), not_feed (XML that is not RSS or Atom)"
+          },
+          "title": {
+            "type": "string",
+            "description": "The page's title, or the feed's when the address is a feed",
+            "example": "Science | Example News"
+          },
+          "url": {
+            "type": "string",
+            "description": "The address in normal form. Store this and send it to /v1/feed",
+            "example": "https://news.example.com/science/"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "feed",
+              "links"
+            ],
+            "description": "How the site is followed: feed (an RSS or Atom feed, `feedUrl`) or links (article links read from the page itself)"
+          },
+          "feedUrl": {
+            "type": "string",
+            "description": "Only with mode feed: the feed the page advertises, or the address itself when it is a feed",
+            "example": "https://news.example.com/science/feed/"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "SitesError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "internal_error"
+            ],
+            "description": "Machine-readable reason"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable explanation"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "SiteResolveRequest": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The page the user wants to follow, as typed: a section page of a site, a blog's front page, or a feed. https only",
+            "example": "https://news.example.com/science/"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "Feed": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedItem"
+            },
+            "description": "Items of the last 7 days from the sites that could be read, newest first, then items without a date; at most 30 per site and 300 in all. A link appears once, under the first site that has it"
+          },
+          "sites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedSiteStatus"
+            },
+            "description": "One entry per site, in request order"
+          }
+        },
+        "required": [
+          "items",
+          "sites"
+        ]
+      },
+      "FeedItem": {
+        "type": "object",
+        "properties": {
+          "site": {
+            "type": "integer",
+            "description": "Index in the request of the site this item came from",
+            "example": 0
+          },
+          "title": {
+            "type": "string",
+            "description": "Headline as plain text",
+            "example": "A new telescope sees first light"
+          },
+          "link": {
+            "type": "string",
+            "description": "The article's address: an absolute https URL",
+            "example": "https://news.example.com/science/new-telescope-first-light/"
+          },
+          "source": {
+            "type": "string",
+            "description": "Title of the feed or of the site",
+            "example": "Example News"
+          },
+          "published": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "A UTC instant at second precision: when the item was published (`dateSource` published), or when this API first saw its link (first_seen). Null when a feed gives no readable date (none)",
+            "example": "2026-11-15T11:42:55Z"
+          },
+          "dateSource": {
+            "type": "string",
+            "enum": [
+              "published",
+              "first_seen",
+              "none"
+            ],
+            "description": "Where `published` comes from: published (the feed or the page's own date), first_seen (the page gives no date, so it is the time this API first found the link there), none (a feed item without a readable date)"
+          },
+          "excerpt": {
+            "type": "string",
+            "nullable": true,
+            "description": "The site's own summary as plain text, about 300 characters at most; null when it gives none (always null in links mode)",
+            "example": "The observatory released its first images on Friday…"
+          }
+        },
+        "required": [
+          "site",
+          "title",
+          "link",
+          "source",
+          "published",
+          "dateSource",
+          "excerpt"
+        ]
+      },
+      "FeedSiteStatus": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Index of the site in the request",
+            "example": 0
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "True when the site was read"
+          },
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_url",
+              "blocked_host",
+              "fetch_failed",
+              "timeout",
+              "too_large",
+              "not_feed",
+              "not_html"
+            ],
+            "description": "Why the site could not be read: invalid_url (not an https address, or mode feed without feedUrl), blocked_host (a private or local address), fetch_failed (unreachable or an error status), timeout (the site, or the request as a whole, ran out of time), too_large, not_feed (mode feed, but the address did not return RSS or Atom), not_html (mode links, but the address did not return a web page)"
+          }
+        },
+        "required": [
+          "index",
+          "ok"
+        ]
+      },
+      "FeedError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "internal_error"
+            ],
+            "description": "Machine-readable reason"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable explanation"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "FeedRequest": {
+        "type": "object",
+        "properties": {
+          "sites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedSite"
+            },
+            "minItems": 1,
+            "maxItems": 50,
+            "description": "The sites the user follows, 1 to 50"
+          }
+        },
+        "required": [
+          "sites"
+        ]
+      },
+      "FeedSite": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The page the user follows, as /v1/sites/resolve returned it",
+            "example": "https://news.example.com/science/"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "feed",
+              "links"
+            ],
+            "description": "How the site is read, as /v1/sites/resolve returned it"
+          },
+          "feedUrl": {
+            "type": "string",
+            "description": "Required with mode feed: the feed's address",
+            "example": "https://news.example.com/science/feed/"
+          }
+        },
+        "required": [
+          "url",
+          "mode"
+        ]
       }
     },
     "parameters": {}
@@ -492,6 +749,102 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CalendarError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sites/resolve": {
+      "post": {
+        "operationId": "postSitesResolve",
+        "summary": "How to follow a page: its feed, or its own links",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The page's title and how to follow it, or why it could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteResolve"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not JSON, is not sent as application/json, or has no url string",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SitesError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something went wrong in the API; the body says nothing more",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SitesError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/feed": {
+      "post": {
+        "operationId": "postFeed",
+        "summary": "Recent articles from the sites the user follows",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recent items from the sites that could be read, and the state of each site",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not JSON or is not sent as application/json, has no sites or more than 50, or a site without url or mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Something went wrong in the API; the body says nothing more",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedError"
                 }
               }
             }

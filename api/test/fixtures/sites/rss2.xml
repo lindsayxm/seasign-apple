@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by hand in the shape of a WordPress RSS 2.0 feed; no real site was fetched. -->
+<rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:atom="http://www.w3.org/2005/Atom"
+	xmlns:media="http://search.yahoo.com/mrss/">
+<channel>
+	<title>Example News &#187; Science</title>
+	<atom:link href="https://news.example.com/science/feed/" rel="self" type="application/rss+xml" />
+	<link>https://news.example.com/science/</link>
+	<description>Science stories from Example News</description>
+	<lastBuildDate>Mon, 16 Nov 2026 14:05:11 +0000</lastBuildDate>
+	<language>en-US</language>
+	<image>
+		<url>https://news.example.com/icon.png</url>
+		<title>Example News</title>
+		<link>https://news.example.com/</link>
+	</image>
+	<item>
+		<title>A new telescope sees first light &#8212; and it&#8217;s sharp</title>
+		<link>https://news.example.com/science/new-telescope-first-light/</link>
+		<comments>https://news.example.com/science/new-telescope-first-light/#respond</comments>
+		<dc:creator><![CDATA[Priya Raman]]></dc:creator>
+		<pubDate>Mon, 16 Nov 2026 13:45:00 +0000</pubDate>
+		<category><![CDATA[Astronomy]]></category>
+		<guid isPermaLink="false">https://news.example.com/?p=48211</guid>
+		<description><![CDATA[<p>The observatory released its first images on Friday. Astronomers say the mirror &amp; its coating performed &#8220;better than modelled&#8221;. <a class="more" href="https://news.example.com/science/new-telescope-first-light/">Read more</a></p>
+]]></description>
+		<content:encoded><![CDATA[<p>The observatory released its first images on Friday.</p><script>track("x")</script><p>Full text that should not be used when a description exists.</p>]]></content:encoded>
+		<media:content url="https://news.example.com/img/telescope.jpg" medium="image">
+			<media:title type="plain">A photo caption, not the headline</media:title>
+		</media:content>
+	</item>
+	<item>
+		<title><![CDATA[Why <em>tide pools</em> are getting warmer & saltier]]></title>
+		<link>http://news.example.com/science/tide-pools-warmer/?utm_source=rss&#038;utm_medium=feed</link>
+		<pubDate>Fri, 13 Nov 2026 08:15:30 -0500</pubDate>
+		<guid isPermaLink="false">https://news.example.com/?p=48102</guid>
+		<description></description>
+		<content:encoded><![CDATA[<figure><img src="https://news.example.com/img/pools.jpg" alt="Tide pools" /></figure>
+<p>Researchers sampled forty pools along the coast.</p>
+<p>They found temperatures two degrees above the ten-year mean.</p>]]></content:encoded>
+	</item>
+	<item>
+		<title>Soil microbes &amp; the 3 &lt; 5 rule</title>
+		<guid>https://news.example.com/science/soil-microbes-rule/</guid>
+		<pubDate>Tue, 10 Nov 2026 22:00:00 GMT</pubDate>
+		<description>Escaped markup: &lt;p&gt;A field study &amp;amp; a lab study agree.&lt;/p&gt;</description>
+	</item>
+	<item>
+		<title>Last week&#8217;s story about glaciers</title>
+		<link>https://news.example.com/science/glaciers-last-week/</link>
+		<pubDate>Sun, 08 Nov 2026 09:00:00 +0000</pubDate>
+		<description><![CDATA[Older than seven days; must not be returned.]]></description>
+	</item>
+	<item>
+		<title>An item with nowhere to go</title>
+		<guid isPermaLink="false">urn:uuid:5f1c2a00-0000-4000-8000-000000000001</guid>
+		<pubDate>Mon, 16 Nov 2026 12:00:00 +0000</pubDate>
+		<description>No link and a guid that is not an address: left out.</description>
+	</item>
+	<item>
+		<title>A link to a private address</title>
+		<link>https://192.168.1.20/admin/story</link>
+		<pubDate>Mon, 16 Nov 2026 12:30:00 +0000</pubDate>
+	</item>
+</channel>
+</rss>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!-- Written by hand in the shape of an RSS 1.0 (RDF) feed; no real site was fetched. -->
+<rdf:RDF
+  xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+  xmlns="http://purl.org/rss/1.0/"
+  xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel rdf:about="https://journal.example.net/rss">
+    <title>Example Journal: Latest Papers</title>
+    <link>https://journal.example.net/</link>
+    <description>Tables of contents</description>
+    <items>
+      <rdf:Seq>
+        <rdf:li rdf:resource="https://journal.example.net/papers/2026-0142"/>
+        <rdf:li rdf:resource="https://journal.example.net/papers/2026-0139"/>
+      </rdf:Seq>
+    </items>
+  </channel>
+  <item rdf:about="https://journal.example.net/papers/2026-0142">
+    <title>Sediment transport in braided rivers</title>
+    <link>https://journal.example.net/papers/2026-0142</link>
+    <description>We measure bedload over two flood seasons.</description>
+    <dc:creator>M. Alvarez</dc:creator>
+    <dc:date>2026-11-14T00:00:00Z</dc:date>
+  </item>
+  <item rdf:about="https://journal.example.net/papers/2026-0139">
+    <title>A note on lichen growth rates</title>
+    <description>Growth is slower than assumed.</description>
+    <dc:date>2026-11-12</dc:date>
+  </item>
+  <item rdf:about="https://journal.example.net/papers/2026-0101">
+    <title>A paper from the summer</title>
+    <link>https://journal.example.net/papers/2026-0101</link>
+    <dc:date>2026-07-01T00:00:00Z</dc:date>
+  </item>
+</rdf:RDF>

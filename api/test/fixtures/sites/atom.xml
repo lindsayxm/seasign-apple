@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Written by hand in the shape of a static-site generator's Atom feed; no real site was fetched. -->
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en" xml:base="https://blog.example.org/notes/">
+  <title type="text">Field Notes &amp; Sketches</title>
+  <subtitle>A small blog</subtitle>
+  <link rel="self" type="application/atom+xml" href="/notes/atom.xml"/>
+  <link rel="alternate" type="text/html" href="/notes/"/>
+  <id>tag:blog.example.org,2020:/notes</id>
+  <updated>2026-11-16T10:00:00Z</updated>
+  <author><name>Ines Okafor</name></author>
+  <entry>
+    <title type="html">Mapping the &lt;em&gt;old&lt;/em&gt; canal &amp;amp; its locks</title>
+    <link rel="replies" type="text/html" href="2026/canal-locks/#comments"/>
+    <link rel="enclosure" type="audio/mpeg" href="/media/canal.mp3" length="1200"/>
+    <link href="2026/canal-locks/"/>
+    <id>tag:blog.example.org,2026:canal-locks</id>
+    <published>2026-11-15T18:20:00+01:00</published>
+    <updated>2026-11-16T10:00:00Z</updated>
+    <summary type="html">&lt;p&gt;Three days on the towpath with a notebook.&lt;/p&gt;</summary>
+    <content type="html">&lt;p&gt;The full post, which is not the excerpt.&lt;/p&gt;</content>
+  </entry>
+  <entry xml:base="https://blog.example.org/sketches/">
+    <title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">Sketching <i>herons</i> at dusk</div></title>
+    <link rel="alternate" href="heron-dusk.html"/>
+    <id>tag:blog.example.org,2026:heron-dusk</id>
+    <updated>2026-11-12T07:05:09.250Z</updated>
+    <content type="xhtml">
+      <div xmlns="http://www.w3.org/1999/xhtml">
+        <p>Grey <b>herons</b> stand very still.</p>
+        <p>Draw fast &amp; lightly.</p>
+      </div>
+    </content>
+  </entry>
+  <entry>
+    <title>Plain text with &lt;b&gt; in it stays as written</title>
+    <link rel="alternate" type="text/html" href="/notes/2026/plain-text/"/>
+    <id>tag:blog.example.org,2026:plain-text</id>
+    <updated>2026-11-11</updated>
+  </entry>
+  <entry>
+    <title>An entry from October</title>
+    <link href="2026/october/"/>
+    <id>tag:blog.example.org,2026:october</id>
+    <updated>2026-10-20T12:00:00Z</updated>
+  </entry>
+</feed>

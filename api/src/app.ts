@@ -1,6 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { calendar } from "./routes/calendar.ts";
+import { feed } from "./routes/feed.ts";
 import { health } from "./routes/health.ts";
+import { sites } from "./routes/sites.ts";
 import { sky } from "./routes/sky.ts";
 
 // The app is built here, free of runtime-only imports, so that
@@ -10,6 +12,8 @@ export const app = new OpenAPIHono<{ Bindings: CloudflareBindings }>();
 app.route("/", health);
 app.route("/", sky);
 app.route("/", calendar);
+app.route("/", sites);
+app.route("/", feed);
 
 export const openAPIConfig = {
   openapi: "3.0.3",

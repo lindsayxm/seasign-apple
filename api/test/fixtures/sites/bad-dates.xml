@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!-- Written by hand: a feed whose dates are missing, malformed or wrong. -->
+<rss version="2.0">
+<channel>
+	<title>Careless Feed</title>
+	<link>https://careless.example.com/</link>
+	<item>
+		<title>Dated in words, not in a format</title>
+		<link>https://careless.example.com/posts/yesterday</link>
+		<pubDate>yesterday afternoon</pubDate>
+	</item>
+	<item>
+		<title>The thirty-second of a month that does not exist</title>
+		<link>https://careless.example.com/posts/thirty-second</link>
+		<pubDate>Wed, 32 Foo 2026 10:00:00 GMT</pubDate>
+	</item>
+	<item>
+		<title>The one item with a good date</title>
+		<link>https://careless.example.com/posts/good</link>
+		<pubDate>Sun, 15 Nov 2026 10:00:00 GMT</pubDate>
+	</item>
+	<item>
+		<title>No date at all on this one</title>
+		<link>https://careless.example.com/posts/none</link>
+	</item>
+	<item>
+		<title>Month thirteen, day forty-five</title>
+		<link>https://careless.example.com/posts/thirteen</link>
+		<pubDate>2026-13-45T10:00:00Z</pubDate>
+	</item>
+	<item>
+		<title>Scheduled five years ahead</title>
+		<link>https://careless.example.com/posts/future</link>
+		<pubDate>Sat, 15 Nov 2031 10:00:00 GMT</pubDate>
+	</item>
+	<item>
+		<title>Stamped three hours ahead by a wrong zone</title>
+		<link>https://careless.example.com/posts/ahead</link>
+		<pubDate>Mon, 16 Nov 2026 18:00:00 GMT</pubDate>
+	</item>
+	<item>
+		<title>A bare number for a date</title>
+		<link>https://careless.example.com/posts/number</link>
+		<pubDate>1794000000</pubDate>
+	</item>
+	<item>
+		<title>The second of two dates is the good one</title>
+		<link>https://careless.example.com/posts/second-date</link>
+		<pubDate>soon</pubDate>
+		<dc:date xmlns:dc="http://purl.org/dc/elements/1.1/">2026-11-13T06:00:00+02:00</dc:date>
+	</item>
+</channel>
+</rss>
