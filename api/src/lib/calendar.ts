@@ -73,8 +73,12 @@ const MAX_RULES_PER_EVENT = 8;
 // An ordinary busy calendar scaled to MAX_CALENDAR_BYTES holds about 4,400
 // events, 31,000 lines to hand on and a few hundred listed dates (see the
 // large calendar in api/test/calendar-parse.test.ts), so these leave about
-// twice that or more. The costliest file they accept needs about 36 MB of
-// old space (api/scripts/calendar-memory.ts).
+// twice that or more. The costliest file they accept sits at every limit at
+// once (3,500 events of 17 lines handed on, eight of them rules, and 20,000
+// EXDATE values; 1.7 MB) and needs 44 MB of old space, one-byte or two-byte
+// text, and 48 to 56 MB parsed ten times as one request of ten links does
+// (api/scripts/calendar-memory.ts, shape all-limits; figures in
+// memory/architecture.md).
 /** Characters of calendar text read; the route fetches at most this many bytes. */
 export const MAX_CALENDAR_BYTES = 2 * 1024 * 1024;
 /** VEVENTs in one file. */
