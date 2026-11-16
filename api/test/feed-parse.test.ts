@@ -391,6 +391,9 @@ describe("parseFeed on hostile input", () => {
       ["a CDATA section that is never closed", () => wrap("<item><title><![CDATA[ x </title></item>")],
       ["a declaration that is not a DOCTYPE", () => wrap(item(1), '<!ENTITY a "b">')],
       ["a DOCTYPE with an internal subset", () => wrap(item(1), "<!DOCTYPE rss [ <!ELEMENT rss ANY> ]>")],
+      ["a DOCTYPE that opens a subset from inside a comment", () => wrap(item(1), `<!DOCTYPE rss <!-- " [ " --> <!ENTITY a "b"> ]>`)],
+      ["a DOCTYPE with a subset after a quoted bracket", () => wrap(item(1), `<!DOCTYPE rss SYSTEM "[" [ <!ENTITY a "b"> ]>`)],
+      ["an entity declaration outside a DOCTYPE", () => wrap(item(1), `<!DOCTYPE rss SYSTEM "x.dtd"><!ENTITY a "b">`)],
       ["more than 1 MB of text", () => wrap(`<item><link>https://news.example.com/i/1</link><title>${"x".repeat(MAX_FEED_CHARS)}</title></item>`)],
     ];
 

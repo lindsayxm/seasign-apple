@@ -494,8 +494,10 @@ export function checkShape(text: string): void {
           if (i < 0 || i >= limit) throw new FeedParseError();
         } else if (c === 61) {
           attributes += 1;
-        } else if (c === 91 && declaration) {
-          // "<!DOCTYPE x [": an internal subset.
+        } else if ((c === 91 || c === 60) && declaration) {
+          // "<!DOCTYPE x [": an internal subset. A "<" has no place in a
+          // DOCTYPE without one, and the parser's DOCTYPE reader takes a
+          // comment there as a way into a subset.
           throw new FeedParseError();
         } else if (c === 62 && (!instruction || text.charCodeAt(i - 1) === 63)) {
           end = i + 1;
