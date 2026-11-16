@@ -1587,6 +1587,26 @@ describe("what ical.js is handed is bounded", () => {
     expect(() => parseCalendar(unclosed, NOW)).not.toThrow(CalendarTooLargeError);
   });
 
+  it("hands ical.js the first 100 VTIMEZONEs and no more", () => {
+    const empty = Array.from({ length: 100 }, (_, i) => ["BEGIN:VTIMEZONE", `TZID:Empty${i}`, "END:VTIMEZONE"]);
+    const made = (tzid: string) => [
+      "BEGIN:VTIMEZONE",
+      `TZID:${tzid}`,
+      "BEGIN:STANDARD",
+      "DTSTART:19700101T000000",
+      "TZOFFSETFROM:+0200",
+      "TZOFFSETTO:+0200",
+      "END:STANDARD",
+      "END:VTIMEZONE",
+    ];
+    const at = (tzid: string) => vevent(`SUMMARY:${tzid}`, `DTSTART;TZID=${tzid}:20261117T090000`);
+
+    // The 100th zone is read (09:00 at UTC+2 is 07:00 UTC); the 101st is not,
+    // and its made-up name leaves the time floating, read here in UTC.
+    expect(brief(upcoming(calendarOf(...empty.slice(1), made("Made/Kept"), at("Made/Kept"))))).toEqual(["Made/Kept @ 2026-11-17T07:00:00Z"]);
+    expect(brief(upcoming(calendarOf(...empty, made("Made/Late"), at("Made/Late"))))).toEqual(["Made/Late @ 2026-11-17T09:00:00Z"]);
+  });
+
   it("does not hand on a zone too large to be used: more than 60 blocks, or more than 400 listed dates", () => {
     const zone = (tzid: string, blocks: number, dates: number) => [
       "BEGIN:VTIMEZONE",

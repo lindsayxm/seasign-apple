@@ -10,7 +10,8 @@
 //
 // Options: --bytes N (file size, default the route's cap); --links N (parse N
 // copies one after another with all N bodies held, as one request of N links
-// does); --caps 96,64,... (caps tried, largest first); --runs N (runs per cap;
+// does); --two-byte (add one byte that is not UTF-8, so the text decodes to
+// two bytes a character); --caps 96,64,... (caps tried, largest first); --runs N (runs per cap;
 // a cap passes when every run does). Old space does not include the bodies
 // themselves (Buffers live outside the V8 heap).
 import { spawnSync } from "node:child_process";
@@ -187,6 +188,8 @@ const SHAPES: Record<string, (bytes: number) => string> = {
     CAL + lines("BEGIN:VEVENT", "UID:x", "DTSTART:20261117T100000Z") + "SUMMARY:" + `x${CRLF} `.repeat((bytes - 200) / 4) + CRLF + lines("END:VEVENT") + END,
   "long-summaries": (bytes) =>
     fill(bytes, CAL, (i) => lines("BEGIN:VEVENT", `UID:${i}`, "DTSTART:20100114T090000Z", "SUMMARY:" + "\xff".repeat(4000), "END:VEVENT"), END),
+  "long-summaries-in-window": (bytes) =>
+    fill(bytes, CAL, (i) => lines("BEGIN:VEVENT", `UID:${i}`, `DTSTART:${day(i % 7)}`, "SUMMARY:" + "\xff".repeat(4000), "END:VEVENT"), END),
   "huge-description": (bytes) =>
     CAL + lines("BEGIN:VEVENT", "UID:x", "DTSTART:20261117T100000Z") + "DESCRIPTION:" + "\xff".repeat(bytes - 200) + CRLF + lines("END:VEVENT") + END,
   "ignored-lines": (bytes) => fill(bytes, CAL, () => `X:${CRLF}`, END),
@@ -324,11 +327,14 @@ const SHAPES: Record<string, (bytes: number) => string> = {
  * while it parses them one after another) and every result is kept. Prints a
  * line and exits 0, or dies of memory.
  */
-function one(shape: string, bytes: number, links: number): void {
+function one(shape: string, bytes: number, links: number, twoByte: boolean): void {
   const make = SHAPES[shape];
   if (!make) throw new Error(`unknown shape ${shape}`);
   // Built as bytes and decoded as the route decodes a fetched body.
-  const bodies = Array.from({ length: links }, () => Buffer.from(make(bytes), "latin1"));
+  // With --two-byte, one byte that is not UTF-8 on the calendar's own level
+  // makes the decoded text, and every string cut from it, two bytes a character.
+  const text = (twoByte ? (body: string) => body.replace("\r\n", "\r\nX-B:\xff\r\n").slice(0, bytes) : (body: string) => body)(make(bytes));
+  const bodies = Array.from({ length: links }, () => Buffer.from(text, "latin1"));
   const size = bodies[0]?.byteLength ?? 0;
   const results: unknown[] = [];
   const started = performance.now();
@@ -348,7 +354,7 @@ function one(shape: string, bytes: number, links: number): void {
   console.log(`${shape}${times} ${size} bytes: ${outcome}, ${ms} ms, rss ${Math.round(process.memoryUsage().rss / 2 ** 20)} MB`);
 }
 
-function smallestCap(shape: string, bytes: number, links: number, caps: number[], runs: number): void {
+function smallestCap(shape: string, bytes: number, links: number, twoByte: boolean, caps: number[], runs: number): void {
   const script = fileURLToPath(import.meta.url);
   let smallest: number | null = null;
   let last = "";
@@ -357,7 +363,7 @@ function smallestCap(shape: string, bytes: number, links: number, caps: number[]
     for (let run = 0; run < runs && passed; run++) {
       const child = spawnSync(
         process.execPath,
-        [`--max-old-space-size=${cap}`, "--experimental-strip-types", "--no-warnings", script, "--one", shape, "--bytes", String(bytes), "--links", String(links)],
+        [`--max-old-space-size=${cap}`, "--experimental-strip-types", "--no-warnings", script, "--one", shape, "--bytes", String(bytes), "--links", String(links), ...(twoByte ? ["--two-byte"] : [])],
         { encoding: "utf8" },
       );
       passed = child.status === 0;
@@ -381,7 +387,9 @@ const bytes = Number(option("--bytes") ?? MAX_CALENDAR_BYTES);
 const links = Number(option("--links") ?? 1);
 const caps = (option("--caps") ?? "128,112,96,80,64,56,48,40,32,28,24,20,16,12,8").split(",").map(Number);
 const runs = Number(option("--runs") ?? 2);
+const twoByte = args.includes("--two-byte");
+if (twoByte) args.splice(args.indexOf("--two-byte"), 1);
 const single = option("--one");
-if (single) one(single, bytes, links);
+if (single) one(single, bytes, links, twoByte);
 else if (args.length === 0) console.log(Object.keys(SHAPES).join("\n"));
-else for (const shape of args[0] === "all" ? Object.keys(SHAPES) : args) smallestCap(shape, bytes, links, caps, runs);
+else for (const shape of args[0] === "all" ? Object.keys(SHAPES) : args) smallestCap(shape, bytes, links, twoByte, caps, runs);
