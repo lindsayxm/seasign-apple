@@ -6,6 +6,7 @@ import {
   type Forecast,
   type Place,
 } from "../lib/open-meteo.ts";
+import { retryAfterHeader } from "../lib/rate-limit.ts";
 
 // KV lifetimes, in seconds. A zip's place does not move; the weather does.
 const GEOCODE_TTL = 60 * 60 * 24 * 30;
@@ -86,7 +87,7 @@ const SkySchema = z
 
 const ErrorSchema = z
   .object({
-    error: z.enum(["invalid_zip", "unknown_zip", "upstream_error"]).openapi({ description: "Machine-readable reason" }),
+    error: z.enum(["invalid_zip", "unknown_zip", "rate_limited", "upstream_error"]).openapi({ description: "Machine-readable reason" }),
     message: z.string().openapi({ description: "Human-readable explanation" }),
   })
   .openapi("SkyError");
@@ -109,6 +110,10 @@ const getSky = createRoute({
     },
     400: errorResponse("The zip is missing or is not five digits"),
     404: errorResponse("No US place is known for this zip"),
+    429: {
+      ...errorResponse("rate_limited: too many requests from this network; wait Retry-After seconds"),
+      headers: retryAfterHeader(true),
+    },
     502: errorResponse("The weather provider failed; try again later"),
   },
 });

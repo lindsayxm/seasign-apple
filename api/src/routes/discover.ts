@@ -2,6 +2,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { isTimeZone } from "../lib/calendar.ts";
 import { isJsonContentType } from "../lib/site-reader.ts";
+import { retryAfterHeader } from "../lib/rate-limit.ts";
 import { collapseSpace } from "../lib/text.ts";
 import { callProvider } from "../llm/http.ts";
 import { ADAPTERS } from "../llm/index.ts";
@@ -134,7 +135,12 @@ const postDiscover = createRoute({
     ),
     401: errorResponse("invalid_key: the provider did not accept the key"),
     402: errorResponse("quota_exceeded: the key's account has no credit or quota left with the provider; retrying will not help until it is topped up"),
-    429: errorResponse("rate_limited: the provider is limiting requests for this key; try again later"),
+    429: {
+      ...errorResponse(
+        "rate_limited: too many requests from this network (Retry-After gives the seconds to wait), or the provider is limiting requests for this key; try again later. The body has the same shape either way",
+      ),
+      headers: retryAfterHeader(false),
+    },
     500: errorResponse("internal_error: something went wrong in the API"),
     502: errorResponse("provider_error: the provider failed or answered in a way that could not be read"),
     504: errorResponse("timeout: the provider took more than 25 seconds"),

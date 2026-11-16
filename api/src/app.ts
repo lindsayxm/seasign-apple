@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { rateLimit } from "./lib/rate-limit.ts";
 import { calendar } from "./routes/calendar.ts";
 import { discover } from "./routes/discover.ts";
 import { feed } from "./routes/feed.ts";
@@ -9,6 +10,15 @@ import { sky } from "./routes/sky.ts";
 // The app is built here, free of runtime-only imports, so that
 // scripts/openapi.ts can load it in Node to write the spec.
 export const app = new OpenAPIHono<{ Bindings: CloudflareBindings }>();
+
+// Per-client-IP limits on the open routes (src/lib/rate-limit.ts). They are
+// registered first so that a refused request costs no body read, no outbound
+// fetch and no KV access. /v1/health is not limited.
+app.use("/v1/sky", rateLimit("sky"));
+app.use("/v1/calendar/events", rateLimit("calendar"));
+app.use("/v1/sites/resolve", rateLimit("resolve"));
+app.use("/v1/feed", rateLimit("feed"));
+app.use("/v1/discover", rateLimit("discover"));
 
 /**
  * The largest request body any route reads. The biggest honest one is a

@@ -206,6 +206,7 @@
             "enum": [
               "invalid_zip",
               "unknown_zip",
+              "rate_limited",
               "upstream_error"
             ],
             "description": "Machine-readable reason"
@@ -328,6 +329,7 @@
             "type": "string",
             "enum": [
               "invalid_request",
+              "rate_limited",
               "internal_error"
             ],
             "description": "Machine-readable reason"
@@ -427,6 +429,7 @@
             "type": "string",
             "enum": [
               "invalid_request",
+              "rate_limited",
               "internal_error"
             ],
             "description": "Machine-readable reason"
@@ -569,6 +572,7 @@
             "type": "string",
             "enum": [
               "invalid_request",
+              "rate_limited",
               "internal_error"
             ],
             "description": "Machine-readable reason"
@@ -842,6 +846,26 @@
               }
             }
           },
+          "429": {
+            "description": "rate_limited: too many requests from this network; wait Retry-After seconds",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkyError"
+                }
+              }
+            }
+          },
           "502": {
             "description": "The weather provider failed; try again later",
             "content": {
@@ -882,6 +906,26 @@
           },
           "400": {
             "description": "The body is not JSON or is not sent as application/json, has no links or more than 10, or names an unknown time zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many requests from this network; wait Retry-After seconds",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -938,6 +982,26 @@
               }
             }
           },
+          "429": {
+            "description": "rate_limited: too many requests from this network; wait Retry-After seconds",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SitesError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Something went wrong in the API; the body says nothing more",
             "content": {
@@ -978,6 +1042,26 @@
           },
           "400": {
             "description": "The body is not JSON or is not sent as application/json, has no sites or more than 50, or a site without url or mode",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many requests from this network; wait Retry-After seconds",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1071,7 +1155,17 @@
             }
           },
           "429": {
-            "description": "rate_limited: the provider is limiting requests for this key; try again later",
+            "description": "rate_limited: too many requests from this network (Retry-After gives the seconds to wait), or the provider is limiting requests for this key; try again later. The body has the same shape either way",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again",
+                "required": false,
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {

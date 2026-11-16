@@ -13,6 +13,7 @@ import {
   isJsonContentType,
   siteErrorCode,
 } from "../lib/site-reader.ts";
+import { retryAfterHeader } from "../lib/rate-limit.ts";
 import { clip, wellFormed } from "../lib/text.ts";
 
 // The address the user typed is never logged and never put in an error. The
@@ -65,7 +66,7 @@ const SiteResolveSchema = z
 
 const ErrorSchema = z
   .object({
-    error: z.enum(["invalid_request", "internal_error"]).openapi({ description: "Machine-readable reason" }),
+    error: z.enum(["invalid_request", "rate_limited", "internal_error"]).openapi({ description: "Machine-readable reason" }),
     message: z.string().openapi({ description: "Human-readable explanation" }),
   })
   .openapi("SitesError");
@@ -85,6 +86,11 @@ const postSitesResolve = createRoute({
     },
     400: {
       description: "The body is not JSON, is not sent as application/json, or has no url string",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    429: {
+      description: "rate_limited: too many requests from this network; wait Retry-After seconds",
+      headers: retryAfterHeader(true),
       content: { "application/json": { schema: ErrorSchema } },
     },
     500: {

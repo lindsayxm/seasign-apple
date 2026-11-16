@@ -10,6 +10,7 @@ import {
   type ParsedCalendar,
   type UpcomingEvent,
 } from "../lib/calendar.ts";
+import { retryAfterHeader } from "../lib/rate-limit.ts";
 import { SafeFetchError, parseSafeUrl, safeFetch } from "../lib/safe-fetch.ts";
 
 // A calendar link is a credential: whoever holds a Google "secret address"
@@ -98,7 +99,7 @@ const CalendarEventsSchema = z
 
 const ErrorSchema = z
   .object({
-    error: z.enum(["invalid_request", "internal_error"]).openapi({ description: "Machine-readable reason" }),
+    error: z.enum(["invalid_request", "rate_limited", "internal_error"]).openapi({ description: "Machine-readable reason" }),
     message: z.string().openapi({ description: "Human-readable explanation" }),
   })
   .openapi("CalendarError");
@@ -119,6 +120,11 @@ const postCalendarEvents = createRoute({
     400: {
       description:
         "The body is not JSON or is not sent as application/json, has no links or more than 10, or names an unknown time zone",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    429: {
+      description: "rate_limited: too many requests from this network; wait Retry-After seconds",
+      headers: retryAfterHeader(true),
       content: { "application/json": { schema: ErrorSchema } },
     },
     500: {

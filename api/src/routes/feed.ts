@@ -16,6 +16,7 @@ import {
   type StoredItem,
   type StoredSite,
 } from "../lib/site-reader.ts";
+import { retryAfterHeader } from "../lib/rate-limit.ts";
 import { wellFormed } from "../lib/text.ts";
 
 // Site addresses are never logged and never put in a response or an error:
@@ -96,7 +97,7 @@ const FeedSchema = z
 
 const ErrorSchema = z
   .object({
-    error: z.enum(["invalid_request", "internal_error"]).openapi({ description: "Machine-readable reason" }),
+    error: z.enum(["invalid_request", "rate_limited", "internal_error"]).openapi({ description: "Machine-readable reason" }),
     message: z.string().openapi({ description: "Human-readable explanation" }),
   })
   .openapi("FeedError");
@@ -116,6 +117,11 @@ const postFeed = createRoute({
     },
     400: {
       description: "The body is not JSON or is not sent as application/json, has no sites or more than 50, or a site without url or mode",
+      content: { "application/json": { schema: ErrorSchema } },
+    },
+    429: {
+      description: "rate_limited: too many requests from this network; wait Retry-After seconds",
+      headers: retryAfterHeader(true),
       content: { "application/json": { schema: ErrorSchema } },
     },
     500: {
