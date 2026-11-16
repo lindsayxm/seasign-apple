@@ -605,6 +605,111 @@ describe("hostile and broken files", () => {
     }
   });
 
+  describe("time zones that are expensive in bulk", () => {
+    // ical.js expands every observance from its DTSTART the first time a zone
+    // is used. Before these limits, 20 zones of 300 observances took 22 seconds.
+    const zone = (tzid: string, observances: number) => [
+      "BEGIN:VTIMEZONE",
+      `TZID:${tzid}`,
+      ...Array.from({ length: observances }, (_, i) => [
+        "BEGIN:STANDARD",
+        "DTSTART:16010101T020000",
+        "TZOFFSETFROM:+0200",
+        "TZOFFSETTO:+0200",
+        `RRULE:FREQ=YEARLY;BYMONTH=${1 + (i % 12)};BYDAY=1SU`,
+        "END:STANDARD",
+      ]).flat(),
+      "END:VTIMEZONE",
+    ];
+    const at = (tzid: string) => vevent(`SUMMARY:${tzid}`, `DTSTART;TZID=${tzid}:20261117T090000`);
+    // The zones say UTC+2. An event whose zone was dropped is floating: 09:00Z here.
+    const kept = (title: string) => `${title} @ 2026-11-17T07:00:00Z`;
+    const dropped = (title: string) => `${title} @ 2026-11-17T09:00:00Z`;
+
+    it("drops a zone with more than 12 repeating observances", () => {
+      const text = calendarOf(zone("Twelve", 12), zone("Thirteen", 13), at("Twelve"), at("Thirteen"));
+
+      expect(brief(upcoming(text))).toEqual([kept("Twelve"), dropped("Thirteen")]);
+    });
+
+    it("drops the zones past 40 repeating observances in one file", () => {
+      const names = ["A", "B", "C", "D", "E"];
+      const text = calendarOf(...names.map((name) => zone(name, 10)), ...names.map(at));
+
+      expect(brief(upcoming(text))).toEqual([kept("A"), kept("B"), kept("C"), kept("D"), dropped("E")]);
+    });
+
+    it("reads a file of 20 zones with 300 observances each quickly", () => {
+      const names = Array.from({ length: 20 }, (_, i) => `Zone${i}`);
+      const text = calendarOf(...names.map((name) => zone(name, 300)), ...names.map(at));
+
+      const started = performance.now();
+      const found = upcoming(text);
+
+      expect(performance.now() - started).toBeLessThan(2000);
+      expect(found).toHaveLength(20);
+      expect(found.every((event) => event.start === "2026-11-17T09:00:00Z")).toBe(true);
+    });
+
+    it("does not expand a zone for dates far from now", () => {
+      // Each of these would otherwise make the zone expand to the year it names.
+      const text = calendarOf(
+        zone("Slow", 12),
+        vevent("SUMMARY:far future", "DTSTART;TZID=Slow:21991117T090000"),
+        vevent("SUMMARY:not yet begun", "DTSTART;TZID=Slow:21990101T090000", "RRULE:FREQ=DAILY"),
+        vevent("UID:o@example.com", "SUMMARY:series", "DTSTART;TZID=Slow:20261101T090000", "RRULE:FREQ=WEEKLY", "EXDATE;TZID=Slow:99990101T090000"),
+        vevent("SUMMARY:listed far off", "DTSTART;TZID=Slow:20261101T090000", "RDATE;TZID=Slow:20261118T090000,99990101T090000"),
+        vevent("UID:o@example.com", "SUMMARY:far override", "RECURRENCE-ID;TZID=Slow:99981101T090000", "DTSTART;TZID=Slow:99981101T100000"),
+        vevent("SUMMARY:long ago", "DTSTART;TZID=Slow:19050101T090000", "DTEND;TZID=Slow:19050101T100000"),
+        at("Slow"),
+      );
+
+      const started = performance.now();
+      const found = upcoming(text);
+
+      expect(performance.now() - started).toBeLessThan(1000);
+      expect(brief(found)).toEqual([kept("Slow"), "series @ 2026-11-22T07:00:00Z"]);
+    });
+  });
+
+  it("skips an event that lists more than 2,000 EXDATE and RDATE values", () => {
+    const hours = (count: number) =>
+      Array.from({ length: count }, (_, i) =>
+        new Date(Date.UTC(2020, 0, 1) + i * 3600e3).toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z",
+      ).join(",");
+    const series = (title: string, listed: string) =>
+      vevent(`SUMMARY:${title}`, "DTSTART:20261101T090000Z", "RRULE:FREQ=DAILY;COUNT=20", listed);
+    const text = calendarOf(
+      series("at the limit", `EXDATE:20261118T090000Z,${hours(1999)}`),
+      series("over the limit", `EXDATE:${hours(2001)}`),
+      series("over with both", `EXDATE:${hours(1500)}\r\nRDATE:${hours(501)}`),
+      series("huge", `EXDATE:${hours(60000)}`),
+    );
+
+    const started = performance.now();
+    const parsed = parseCalendar(text, NOW);
+
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(parsed.partial).toBe(true);
+    expect(parsed.events.map((event) => `${event.title} ${new Date(event.start * 1000).toISOString().slice(0, 10)}`)).toEqual([
+      "at the limit 2026-11-16",
+      "at the limit 2026-11-17",
+      "at the limit 2026-11-19",
+      "at the limit 2026-11-20",
+    ]);
+  });
+
+  it("stops reading once nine days hold 2,000 occurrences", () => {
+    const text = calendarOf(
+      ...Array.from({ length: 2500 }, (_, i) => vevent(`SUMMARY:e${i}`, "DTSTART;TZID=America/New_York:20261117T090000")),
+    );
+
+    const parsed = parseCalendar(text, NOW);
+
+    expect(parsed.partial).toBe(true);
+    expect(parsed.events).toHaveLength(500);
+  });
+
   it("survives a VTIMEZONE without a TZID or without rules", () => {
     const text = calendarOf(
       ["BEGIN:VTIMEZONE", "BEGIN:STANDARD", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0200", "DTSTART:19700101T000000", "END:STANDARD", "END:VTIMEZONE"],
