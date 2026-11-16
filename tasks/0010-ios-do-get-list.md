@@ -1,11 +1,11 @@
 ---
 id: 10
 title: iOS: Do/Get list
-status: review
+status: done
 owner: implementer-2
 depends_on: [4]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-16T01:06:23Z
+updated: 2026-11-16T01:07:51Z
 ---
 
 ## Goal
@@ -14,9 +14,9 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. The 
 
 ## Acceptance criteria
 
-- [ ] Items can be added to and checked off in each section and survive relaunch
-- [ ] Simulator screenshot recorded in the task log; layout resembles the mockup with DO on top
-- [ ] Tests pass on both simulators
+- [x] Items can be added to and checked off in each section and survive relaunch
+- [x] Simulator screenshot recorded in the task log; layout resembles the mockup with DO on top
+- [x] Tests pass on both simulators
 
 ## Relevant files
 
@@ -41,3 +41,8 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. The 
 - 2026-11-16T01:03:11Z [implementer-2] Differences from the mockup: DO on top (as asked); a CLOSE control on the DO line; the gap under each field is a fixed 48 pt instead of the mockup's ~114 pt (the mockup splits the screen in half, this list flows); type is slightly lighter-looking than the mockup; while typing, the field shows the text as typed, not in caps. Open: the UI snapshot tool lists the checkmark image and title of a done row as extra elements even though the image is accessibilityHidden; not checked with real VoiceOver.
 - 2026-11-16T01:06:23Z [implementer-2] Correction to the safeAreaPadding 'tried' entry: unconfirmed. The same failure (list back at the top, field hidden) happened again without the padding and stopped only when the scroll anchor became .center, so the .bottom anchor explains it. Also checked on iPhone 17 (iOS 27.2): swipe-to-delete removes the row without a crash, and Close returns to Today. The iOS 18 one-done.jpg is the same capture as after-relaunch.jpg (the earlier one was overwritten).
 - 2026-11-16T01:06:23Z [implementer-2] status: in-progress → review
+- 2026-11-16T01:07:51Z [implementer-2] criterion 1 met: Items can be added to and checked off in each section and survive relaunch
+- 2026-11-16T01:07:51Z [implementer-2] criterion 2 met: Simulator screenshot recorded in the task log; layout resembles the mockup with DO on top
+- 2026-11-16T01:07:51Z [implementer-2] criterion 3 met: Tests pass on both simulators
+- 2026-11-16T01:07:51Z [implementer-2] review (lead): ran xcodebuild test on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2): 73 tests passed on each. Viewed with-items and ios27/one-done screenshots: DO on top, GET below, circles, underlined fields, pill ADD buttons, done state shown; close to ref-img/00-do-get-list.png. Persistence covered by ListsModelTests (fresh context) and the implementer's relaunch screenshots. Differences accepted: CLOSE control added, smaller gap under each field.
+- 2026-11-16T01:07:51Z [implementer-2] status: review → done

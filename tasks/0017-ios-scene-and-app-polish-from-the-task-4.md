@@ -1,11 +1,11 @@
 ---
 id: 17
 title: iOS: scene and app polish from the task 4 review
-status: todo
-owner: 
+status: in-progress
+owner: implementer-2
 depends_on: [10]
 created: 2026-11-16T00:17:40Z
-updated: 2026-11-16T00:18:26Z
+updated: 2026-11-16T01:07:51Z
 ---
 
 ## Goal
@@ -35,3 +35,5 @@ Low-severity findings from the task 4 review. (1) A cached sky older than a set 
 
 - 2026-11-16T00:17:40Z [li] created (todo)
 - 2026-11-16T00:18:26Z [li] Correction to the goal, item 7: the user has not been asked about HealthModel.swift. Deleting it is allowed without asking because it was created in this session by the task 2 scaffold (AGENTS.md: ask only before deleting files not created this session).
+- 2026-11-16T01:07:51Z [li] Also from task 10: (9) CapsStyle's textCase uppercases button accessibility labels app-wide (VoiceOver reads 'CLOSE'); uppercase the displayed string instead or set explicit accessibility labels. (10) Check whether SheetScaffold lets content scroll under the status bar and fix it in the scaffold rather than per screen.
+- 2026-11-16T01:07:51Z [implementer-2] status: todo → in-progress — claimed by implementer-2
