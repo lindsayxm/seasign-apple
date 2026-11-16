@@ -32,11 +32,31 @@ import UIKit
         return TodayModel(api: stubbedSkyAPI(transport), context: context, now: { now })
     }
 
-    @Test func startsWithNoZipAndNoSky() throws {
+    @Test func aFreshInstallStartsInChicagoWithNoSkyYet() throws {
         let model = model(context: try inMemoryContext())
-        #expect(model.zip == nil)
+        #expect(model.zip == "60611")
+        #expect(SkyStore.defaultZip == "60611")
         #expect(model.snapshot == nil)
         #expect(model.placeDescription == nil)
+    }
+
+    @Test func aRemovedZipStaysRemoved() throws {
+        let context = try inMemoryContext()
+        let model = model(context: context)
+        model.clearZip()
+        #expect(model.zip == nil)
+
+        // The default is only written when the settings row is first created.
+        let relaunched = self.model(context: context)
+        #expect(relaunched.zip == nil)
+        #expect(SkyStore(context: context).zip == nil)
+    }
+
+    @Test func anExistingZipIsNotReplacedByTheDefault() throws {
+        let context = try inMemoryContext()
+        context.insert(Settings(zip: "10001"))
+        try context.save()
+        #expect(model(context: context).zip == "10001")
     }
 
     @Test func savingAZipFetchesAndCachesTheSky() async throws {
@@ -69,6 +89,7 @@ import UIKit
     @Test func malformedZipIsRejectedWithoutARequest() async throws {
         // Offline transport: a request would surface as `.unavailable`.
         let model = model(context: try inMemoryContext(), transport: SkyStubTransport(offline: true))
+        model.clearZip()
         for text in ["", "1000", "100011", "1000a", "１２３４５"] {
             await #expect(throws: TodayModel.ZipProblem.notFiveDigits, "\(text)") {
                 try await model.saveZip(text)

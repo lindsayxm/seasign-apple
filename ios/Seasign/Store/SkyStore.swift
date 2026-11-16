@@ -6,12 +6,17 @@ import SwiftData
 struct SkyStore {
     let context: ModelContext
 
+    /// The zip a fresh install starts with: downtown Chicago, on Lake Michigan.
+    /// It is only written when the settings row is first created, so a zip the
+    /// user later changes or removes stays as they left it.
+    static let defaultZip = "60611"
+
     /// The single settings row, created if it does not exist yet.
     func settings() -> Settings {
         if let existing = try? context.fetch(FetchDescriptor<Settings>()).first {
             return existing
         }
-        let created = Settings()
+        let created = Settings(zip: Self.defaultZip)
         context.insert(created)
         try? context.save()
         return created

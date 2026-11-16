@@ -8,6 +8,8 @@ TODAY SCREEN (main screen): today's date, temperature and next three calendar ev
 
 LOCATION: The Today horizon follows the real sun, moon and weather over the user's own zip code - allow the user to set their own zip code in the settings panel - don't build it in or ask for their permission to view their location - that feels intrusive. Let the user specify the location. Derive the time of day from the zip code the user enters. 
 
+DEFAULT ZIP: a fresh install starts with zip code 60611 (Chicago), so Today shows a real sky before any setup. The user can change or remove it in Settings.
+
 LIST STORAGE: tables in D1 synced through the API (works for a later Android client. STACK: SwiftData-then-sync model) 
 
 SIGN-IN: The app works without signing in. Until the user signs in with Apple, their data (lists, sites, calendar links, saved items, settings) lives on the device. Signing in uploads it to D1 and turns on sync.

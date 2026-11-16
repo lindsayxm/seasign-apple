@@ -10,7 +10,8 @@ import SwiftData
 /// here: it lives only in the Keychain (`APIKeyStore`).
 @Model
 final class Settings {
-    /// The 5-digit US zip the Today scene follows; nil until the user sets one.
+    /// The 5-digit US zip the Today scene follows. A fresh install starts with
+    /// `SkyStore.defaultZip`; nil only after the user removes it.
     var zip: String?
     /// An `AIMode` raw value; nil is Use My List.
     var aiModeRaw: String?

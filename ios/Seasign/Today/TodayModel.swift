@@ -29,7 +29,7 @@ final class TodayModel {
         }
     }
 
-    /// The saved zip, nil until the user sets one.
+    /// The saved zip: the default on a fresh install, nil once the user removes it.
     private(set) var zip: String?
     /// The latest sky for `zip`, from the cache or the network.
     private(set) var snapshot: SkySnapshot?
