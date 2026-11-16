@@ -30,12 +30,28 @@ final class CachedSky {
 }
 
 /// The SwiftData models of the app, in one place for the container and tests.
+///
+/// They are kept in two store files (see `LocalStore`), split by what losing
+/// them would mean. A new model goes into `cacheModels` only if everything in
+/// it can be fetched again; anything the user typed belongs in `userModels`.
 enum SeasignSchema {
-    static let models: [any PersistentModel.Type] = [Settings.self, CachedSky.self, ListItem.self]
+    /// What the user entered: settings and the Do/Get lists. Never deleted by the app.
+    static let userModels: [any PersistentModel.Type] = [Settings.self, ListItem.self]
+    /// Copies of what the API returned. Safe to throw away.
+    static let cacheModels: [any PersistentModel.Type] = [CachedSky.self]
+    static let models: [any PersistentModel.Type] = userModels + cacheModels
 
-    static func container(inMemory: Bool = false) throws -> ModelContainer {
-        let schema = Schema(models)
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory)
-        return try ModelContainer(for: schema, configurations: [configuration])
+    /// A container that lives only in memory, for tests and previews.
+    static func container(inMemory: Bool = true) throws -> ModelContainer {
+        precondition(inMemory, "use LocalStore.open for the stores on disk")
+        // Each in-memory store gets its own name so that containers never share one.
+        let id = UUID().uuidString
+        return try ModelContainer(
+            for: Schema(models),
+            configurations: [
+                ModelConfiguration("user-\(id)", schema: Schema(userModels), isStoredInMemoryOnly: true),
+                ModelConfiguration("cache-\(id)", schema: Schema(cacheModels), isStoredInMemoryOnly: true),
+            ]
+        )
     }
 }
