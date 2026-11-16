@@ -33,7 +33,21 @@ extension Font {
     }
 }
 
-/// Letter-spaced capitals, the app's text voice ("A SHORT EXPLAINER ON …").
+extension Text {
+    /// Text shown in capitals and spoken as it was written.
+    ///
+    /// The capitals are made in the string, with the original kept as the
+    /// accessibility label. `textCase(.uppercase)` is not used anywhere: it
+    /// also capitalises accessibility labels, including explicit ones on an
+    /// enclosing button, and VoiceOver may then spell a word out ("C-L-O-S-E").
+    init(caps string: String) {
+        self = Text(string.uppercased()).accessibilityLabel(Text(string))
+    }
+}
+
+/// The type of the app's text voice, letter-spaced Jost ("A SHORT EXPLAINER
+/// ON …"). It sets the font and spacing only; the capitals come from
+/// `Text(caps:)`.
 struct CapsStyle: ViewModifier {
     var size: CGFloat
     var medium = false
@@ -45,17 +59,16 @@ struct CapsStyle: ViewModifier {
         content
             .font(scales ? .capsRelative(size, medium: medium) : .caps(size, medium: medium))
             .tracking(size * tracking)
-            .textCase(.uppercase)
     }
 }
 
 extension View {
-    /// Letter-spaced capitals in Jost at a fixed size.
+    /// Letter-spaced Jost at a fixed size, for `Text(caps:)`.
     func caps(_ size: CGFloat, medium: Bool = false, tracking: CGFloat = 0.2) -> some View {
         modifier(CapsStyle(size: size, medium: medium, tracking: tracking))
     }
 
-    /// Letter-spaced capitals in Jost that follow Dynamic Type.
+    /// Letter-spaced Jost that follows Dynamic Type, for `Text(caps:)`.
     func capsRelative(_ size: CGFloat, medium: Bool = false, tracking: CGFloat = 0.2) -> some View {
         modifier(CapsStyle(size: size, medium: medium, tracking: tracking, scales: true))
     }

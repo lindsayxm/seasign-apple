@@ -133,11 +133,11 @@ struct TodayView: View {
 
     private func header(date: HeaderDate, state: SceneState, s: CGFloat) -> some View {
         Group {
-            Text(date.month)
+            Text(caps: date.month)
                 .caps(10.5 * s, medium: true, tracking: 0.1)
                 .foregroundStyle(Palette.dimText)
                 .placed(x: 61 * s, baseline: 66 * s)
-            Text(date.day)
+            Text(caps: date.day)
                 .caps(11.5 * s, medium: true, tracking: 0.03)
                 .foregroundStyle(Palette.white)
                 .placed(x: 102 * s, baseline: 66 * s)
@@ -145,7 +145,7 @@ struct TodayView: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { dayNameWidth = $0 }
                 .placed(x: 57.8 * s, baseline: 130 * s)
             if let temperature = state.temperatureF {
-                Text("\(Int(temperature.rounded()))°F")
+                Text(caps: "\(Int(temperature.rounded()))°F")
                     .caps(14 * s, medium: true, tracking: 0.05)
                     .foregroundStyle(Palette.white)
                     .placed(x: 64 * s, baseline: 166 * s)
@@ -179,7 +179,7 @@ struct TodayView: View {
             Button {
                 destination = .settings
             } label: {
-                Text("Set your zip code in Settings")
+                Text(caps: "Set your zip code in Settings")
                     .caps(9.5, tracking: 0.18)
                     .lineSpacing(3)
                     .multilineTextAlignment(.leading)

@@ -8,10 +8,10 @@ struct PlaceholderScreen: View {
 
     var body: some View {
         SheetScaffold(title: title) {
-            Text(note)
+            Text(caps: note)
                 .capsRelative(11)
                 .foregroundStyle(Palette.dimText)
-            Text("Coming soon")
+            Text(caps: "Coming soon")
                 .capsRelative(11, medium: true)
                 .foregroundStyle(Palette.white)
         }
@@ -30,7 +30,7 @@ struct SheetScaffold<Content: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .center) {
-                    Text(title)
+                    Text(caps: title)
                         .capsRelative(13, medium: true)
                         .foregroundStyle(Palette.white)
                         .accessibilityAddTraits(.isHeader)
@@ -38,7 +38,7 @@ struct SheetScaffold<Content: View>: View {
                     Button {
                         dismiss()
                     } label: {
-                        Text("Close")
+                        Text(caps: "Close")
                             .capsRelative(11)
                             .foregroundStyle(Palette.dimText)
                             .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
@@ -58,6 +58,20 @@ struct SheetScaffold<Content: View>: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(Palette.charcoal.ignoresSafeArea())
+        .statusBarCover()
         .preferredColorScheme(.dark)
+    }
+}
+
+extension View {
+    /// Covers the status bar area with the sheet's charcoal, so content that
+    /// scrolls up goes out of sight under it instead of showing through the
+    /// clock and battery.
+    func statusBarCover() -> some View {
+        overlay(alignment: .top) {
+            Palette.charcoal
+                .ignoresSafeArea(edges: .top)
+                .frame(height: 0)
+        }
     }
 }

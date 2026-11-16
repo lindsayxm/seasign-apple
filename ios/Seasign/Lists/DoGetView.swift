@@ -36,11 +36,7 @@ struct DoGetView: View {
         }
         .background(Palette.charcoal.ignoresSafeArea())
         // Rows scroll out under the status bar, not through it.
-        .overlay(alignment: .top) {
-            Palette.charcoal
-                .ignoresSafeArea(edges: .top)
-                .frame(height: 0)
-        }
+        .statusBarCover()
         .preferredColorScheme(.dark)
     }
 
@@ -75,7 +71,7 @@ struct DoGetView: View {
     /// way out of the sheet.
     private func header(_ kind: ListKind, showsClose: Bool) -> some View {
         HStack(alignment: .center) {
-            Text(kind.label)
+            Text(caps: kind.label)
                 .capsRelative(9.5, tracking: 0.15)
                 .foregroundStyle(Palette.dimText)
                 .accessibilityAddTraits(.isHeader)
@@ -84,7 +80,7 @@ struct DoGetView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Text("Close")
+                    Text(caps: "Close")
                         .capsRelative(9.5, tracking: 0.15)
                         .foregroundStyle(Palette.dimText)
                         .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
@@ -224,8 +220,7 @@ private struct ListItemRow: View {
                 }
                 .frame(width: circle, height: circle)
 
-                // Capitals are made here rather than with `textCase`, which
-                // would also put the button's accessibility label in capitals.
+                // Capitals in the string; the button's label below is what is spoken.
                 Text(item.title.uppercased())
                     .font(.capsRelative(DoGetType.itemSize))
                     .tracking(DoGetType.itemSize * DoGetType.itemTracking)

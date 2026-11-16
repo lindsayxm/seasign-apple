@@ -8,23 +8,23 @@ struct StoreErrorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Seasign can't open your saved data")
+            Text(caps: "Seasign can't open your saved data")
                 .capsRelative(13, medium: true)
                 .foregroundStyle(Palette.white)
                 .accessibilityAddTraits(.isHeader)
             Rectangle()
                 .fill(Palette.rule)
                 .frame(height: 1)
-            Text("Your lists and settings are still on this iPhone. Nothing has been deleted.")
+            Text(caps: "Your lists and settings are still on this iPhone. Nothing has been deleted.")
                 .capsRelative(11, tracking: 0.12)
                 .lineSpacing(4)
                 .foregroundStyle(Palette.white)
-            Text("Restart your iPhone or free up some storage, then try again.")
+            Text(caps: "Restart your iPhone or free up some storage, then try again.")
                 .capsRelative(11, tracking: 0.12)
                 .lineSpacing(4)
                 .foregroundStyle(Palette.dimText)
             Button(action: retry) {
-                Text("Try again")
+                Text(caps: "Try again")
                     .capsRelative(11, medium: true)
                     .foregroundStyle(Palette.charcoal)
                     .padding(.horizontal, 18)

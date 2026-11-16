@@ -24,7 +24,7 @@ struct SettingsView: View {
 
     private var zipSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Zip code")
+            Text(caps: "Zip code")
                 .capsRelative(11)
                 .foregroundStyle(Palette.dimText)
 
@@ -47,7 +47,7 @@ struct SettingsView: View {
                 Button {
                     save()
                 } label: {
-                    Text(isSaving ? "Checking" : "Save")
+                    Text(caps: isSaving ? "Checking" : "Save")
                         .capsRelative(11, medium: true)
                         .foregroundStyle(canSave ? Palette.charcoal : Palette.dimText)
                         .padding(.horizontal, 18)
@@ -63,17 +63,17 @@ struct SettingsView: View {
                 .frame(height: 1)
 
             if let problem {
-                Text(problem.message)
+                Text(caps: problem.message)
                     .capsRelative(10.5, tracking: 0.12)
                     .foregroundStyle(Palette.sun)
                     .accessibilityLabel(problem.message)
             } else if let place = model.placeDescription {
-                Text(place)
+                Text(caps: place)
                     .capsRelative(10.5, medium: true)
                     .foregroundStyle(Palette.white)
             }
 
-            Text("Today follows the sun, moon and weather over this zip code. Seasign never asks for your location.")
+            Text(caps: "Today follows the sun, moon and weather over this zip code. Seasign never asks for your location.")
                 .capsRelative(10, tracking: 0.12)
                 .lineSpacing(4)
                 .foregroundStyle(Palette.dimText)
@@ -84,7 +84,7 @@ struct SettingsView: View {
                     zipText = ""
                     problem = nil
                 } label: {
-                    Text("Remove zip code")
+                    Text(caps: "Remove zip code")
                         .capsRelative(10)
                         .foregroundStyle(Palette.dimText)
                         .underline()
@@ -134,7 +134,7 @@ private struct DebugSceneSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Debug scene")
+            Text(caps: "Debug scene")
                 .capsRelative(11)
                 .foregroundStyle(Palette.sun)
                 .padding(.top, 24)
@@ -143,7 +143,7 @@ private struct DebugSceneSection: View {
             picker("Moon", selection: $moon, options: Self.moons.map { ($0.label, $0.value) })
             picker("Weather", selection: $weather, options: SceneDebugOverride.Weather.allCases.map { ($0.rawValue, $0.rawValue) })
 
-            Text("Debug builds only. Live uses the real clock and the zip's weather.")
+            Text(caps: "Debug builds only. Live uses the real clock and the zip's weather.")
                 .capsRelative(9.5, tracking: 0.12)
                 .foregroundStyle(Palette.dimText)
         }
@@ -151,7 +151,7 @@ private struct DebugSceneSection: View {
 
     private func picker(_ title: String, selection: Binding<String>, options: [(label: String, value: String)]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
+            Text(caps: title)
                 .capsRelative(10)
                 .foregroundStyle(Palette.dimText)
             ScrollView(.horizontal, showsIndicators: false) {
@@ -161,7 +161,7 @@ private struct DebugSceneSection: View {
                         Button {
                             selection.wrappedValue = option.value
                         } label: {
-                            Text(option.label)
+                            Text(caps: option.label)
                                 .capsRelative(10, medium: selected, tracking: 0.12)
                                 .foregroundStyle(selected ? Palette.charcoal : Palette.white)
                                 .padding(.horizontal, 12)
