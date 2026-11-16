@@ -1,11 +1,11 @@
 ---
 id: 19
 title: API: per-IP rate limiting on the open routes, and deployment limits
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [7]
 created: 2026-11-16T03:45:09Z
-updated: 2026-11-16T03:45:09Z
+updated: 2026-11-16T15:59:36Z
 ---
 
 ## Goal
@@ -30,3 +30,6 @@ The plan calls for a per-client-IP rate limit on the routes that need no account
 ## Log
 
 - 2026-11-16T03:45:09Z [li] created (backlog)
+- 2026-11-16T15:59:36Z [li] User approved (2026-11-16) using Cloudflare's Workers Rate Limiting binding for this task.
+- 2026-11-16T15:59:36Z [li] status: backlog → todo
+- 2026-11-16T15:59:36Z [implementer-1] status: todo → in-progress — claimed by implementer-1
