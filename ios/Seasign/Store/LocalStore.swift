@@ -7,8 +7,9 @@ import SwiftData
 ///
 /// - the **user store** (`default.store`): `Settings` and `ListItem`. It holds
 ///   things the user typed and nothing can bring them back, so the app never
-///   deletes, moves or rewrites this file on its own. If it will not open,
-///   `open` throws and the app shows `StoreErrorView`.
+///   deletes or moves this file and never opens it with anything but the full
+///   schema, which would change its tables. If it will not open, `open` throws
+///   and the app shows `StoreErrorView`.
 /// - the **cache store** (`SkyCache.store`): `CachedSky`, a copy of the last
 ///   API response. If the container will not open and the user store is
 ///   healthy, this file is deleted and made again; the next refresh refills it.
@@ -64,26 +65,26 @@ enum LocalStore {
         }
 
         // Something will not open. Find out whether it is the user store by
-        // opening that one alone; if it is, stop here and touch nothing.
+        // opening it with the cache kept in memory. The schema is the same full
+        // one as always: opening the user file with fewer models would make
+        // Core Data migrate it (it would drop the tables of the missing models).
+        let withoutCacheFile: ModelContainer
         do {
-            _ = try ModelContainer(
-                for: Schema(SeasignSchema.userModels),
-                configurations: [userConfiguration(files)]
-            )
+            withoutCacheFile = try container(files, cacheInMemory: true)
         } catch {
+            // The user store is the only file this attempt touched. Stop here
+            // and change nothing.
             throw UserStoreUnreadable(underlying: error)
         }
 
-        // The user store is fine, so the cache store is the problem.
+        // The user store is fine, so the cache file is the problem.
         removeCache(files)
         if let container = try? container(files, cacheInMemory: false) {
             return Opened(container: container, cache: .recreated)
         }
-        do {
-            return Opened(container: try container(files, cacheInMemory: true), cache: .inMemory)
-        } catch {
-            throw UserStoreUnreadable(underlying: error)
-        }
+        // No cache file can be made (a full disk, say). The container that
+        // already opened serves for this launch.
+        return Opened(container: withoutCacheFile, cache: .inMemory)
     }
 
     private static func userConfiguration(_ files: Files) -> ModelConfiguration {

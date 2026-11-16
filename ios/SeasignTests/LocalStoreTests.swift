@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import SwiftData
 import Testing
 
@@ -110,6 +111,99 @@ import Testing
         // The new cache works.
         context.insert(CachedSky(zip: "10001", payload: Data(), fetchedAt: .now))
         try context.save()
+    }
+
+    /// Every table, index and trigger of a store file with its SQL, the
+    /// store's Core Data metadata row, and SQLite's schema counter, read with
+    /// SQLite directly. The counter goes up on every schema change, so it also
+    /// shows a table that was dropped and then created again.
+    private func schemaDump(_ url: URL) throws -> [String] {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path(percentEncoded: false), &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
+            sqlite3_close(db)
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        defer { sqlite3_close(db) }
+        var rows: [String] = []
+        for query in [
+            "SELECT type || ' ' || name || ' ' || coalesce(sql, '') FROM sqlite_master ORDER BY type, name",
+            "SELECT 'schema_version ' || schema_version FROM pragma_schema_version",
+            "SELECT 'metadata ' || Z_VERSION || ' ' || Z_UUID || ' ' || hex(Z_PLIST) FROM Z_METADATA",
+        ] {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            defer { sqlite3_finalize(statement) }
+            while sqlite3_step(statement) == SQLITE_ROW {
+                rows.append(String(cString: sqlite3_column_text(statement, 0)))
+            }
+        }
+        return rows
+    }
+
+    /// Review of task 17: recovering the cache must not migrate the user
+    /// store. Opening it with a schema that lacks `CachedSky` would make Core
+    /// Data treat the model as removed and rewrite the file's schema.
+    @Test func cacheRecoveryDoesNotChangeTheUserStoreSchema() throws {
+        defer { cleanUp() }
+        try seed()
+        let before = try schemaDump(files.user)
+        #expect(before.contains { $0.contains("ZLISTITEM") })
+        try overwriteWithJunk(files.cache)
+
+        do {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .recreated)
+            #expect(try titles(opened.container) == ["Oat milk"])
+        }
+        #expect(try schemaDump(files.user) == before)
+    }
+
+    /// The same for a store written by a build from before the split, which
+    /// still has the old cache table in `default.store`.
+    @Test func cacheRecoveryLeavesAnEarlierSingleStoreAsItWas() throws {
+        defer { cleanUp() }
+        do {
+            let schema = Schema(SeasignSchema.models)
+            let old = try ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, url: files.user)])
+            let context = ModelContext(old)
+            context.insert(ListItem(kind: .todo, title: "Call the vet", createdAt: instant("2026-11-14T12:00:00Z")))
+            try context.save()
+        }
+        // First launch of the split build, which may bring the file up to date.
+        do { _ = try LocalStore.open(files) }
+        let before = try schemaDump(files.user)
+        try overwriteWithJunk(files.cache)
+
+        do {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .recreated)
+            #expect(try titles(opened.container) == ["Call the vet"])
+        }
+        #expect(try schemaDump(files.user) == before)
+    }
+
+    /// When no cache file can be made at all, the app still starts: the user
+    /// store is healthy, so this is not the error screen's case.
+    @Test func aCacheThatCannotBeCreatedLivesInMemory() throws {
+        defer { cleanUp() }
+        try seed()
+        // A plain file where the cache's folder should be.
+        let blocker = directory.appending(path: "blocker")
+        try Data("x".utf8).write(to: blocker)
+        let blocked = LocalStore.Files(user: files.user, cache: blocker.appending(path: "SkyCache.store"))
+
+        let opened = try LocalStore.open(blocked)
+        #expect(opened.cache == .inMemory)
+        #expect(try titles(opened.container) == ["Oat milk"])
+        let context = ModelContext(opened.container)
+        context.insert(CachedSky(zip: "10001", payload: Data(), fetchedAt: .now))
+        context.insert(ListItem(kind: .get, title: "Bread", createdAt: .now))
+        try context.save()
+        #expect(try context.fetch(FetchDescriptor<CachedSky>()).count == 1)
+        // The list item went to disk, not into the in-memory store.
+        #expect(try titles(try LocalStore.open(files).container).sorted() == ["Bread", "Oat milk"])
     }
 
     @Test func aBrokenUserStoreIsReportedAndLeftAlone() throws {
