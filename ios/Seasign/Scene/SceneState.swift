@@ -48,14 +48,11 @@ struct SceneState: Equatable, Sendable {
         nightness > 0
     }
 
-    /// True when something in the scene moves, so it is worth animating.
-    var hasMotion: Bool {
-        precipitation != .none || wind != .calm || clouds != .clear || showsStars
-    }
-
-    /// True when the motion is fast (rain, snow, wind) and needs a high frame rate.
-    var hasFastMotion: Bool {
-        precipitation != .none || wind != .calm
+    /// How often the scene has to be redrawn to show what moves in it.
+    var motion: SceneMotion {
+        if precipitation != .none || wind != .calm { return .fast }
+        if clouds != .clear { return .slow }
+        return showsStars ? .twinkle : .still
     }
 
     /// The scene for `snapshot` at `now`.
@@ -154,6 +151,30 @@ struct SceneState: Equatable, Sendable {
         }
         if wind != .calm { parts.append("windy") }
         return parts.joined(separator: ", ") + " over the water."
+    }
+}
+
+/// What moves in the scene, which sets how often it is redrawn.
+enum SceneMotion: Equatable, Sendable {
+    /// Nothing moves: one frame.
+    case still
+    /// Only the stars: they change brightness in small steps, one redraw every
+    /// `interval` seconds. A clear, calm night lasts for hours, so it must not
+    /// cost an animation.
+    case twinkle
+    /// Drifting clouds: 10 frames a second.
+    case slow
+    /// Rain, snow or wind on the water: 30 frames a second.
+    case fast
+
+    /// Seconds between redraws; nil for a still scene.
+    var interval: TimeInterval? {
+        switch self {
+        case .still: nil
+        case .twinkle: 3
+        case .slow: 1.0 / 10
+        case .fast: 1.0 / 30
+        }
     }
 }
 

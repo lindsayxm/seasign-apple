@@ -194,13 +194,17 @@ struct SceneRenderer: Sendable {
             case .overcast: 0.22
             }
         let scale = layout.scale
+        // Stars change brightness in steps, one every few seconds, so a clear
+        // night needs a redraw only that often. A faster redraw (clouds, wind)
+        // shows the same steps.
+        let twinkleStep = (phase / (SceneMotion.twinkle.interval ?? 3)).rounded(.down)
         for index in 0..<84 {
             let x = CGFloat(random.next(in: 0...1)) * layout.size.width
             let y = CGFloat(random.next(in: 0...1)) * (layout.horizonY - 6 * scale)
             let big = random.next(in: 0...1) > 0.8
             let side = (big ? 1.9 : CGFloat(random.next(in: 0.7...1.2))) * scale
             let base = random.next(in: 0.35...0.9)
-            let twinkle = phase == 0 ? 1 : 0.8 + 0.2 * sin(phase * 0.9 + Double(index) * 2.3)
+            let twinkle = phase == 0 ? 1 : 0.8 + 0.2 * sin(twinkleStep * 2.1 + Double(index) * 2.3)
             let rect = CGRect(x: x - side / 2, y: y - side / 2, width: side, height: side)
             context.fill(
                 big ? Path(ellipseIn: rect) : Path(rect),

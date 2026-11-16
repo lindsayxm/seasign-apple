@@ -2,8 +2,10 @@ import SwiftUI
 
 /// The living sky and water, filling whatever space it is given.
 ///
-/// It animates only while something in the scene moves (clouds, stars, wind,
-/// rain, snow) and Reduce Motion is off; otherwise it draws one still frame.
+/// It redraws only as often as what moves in the scene needs (`SceneMotion`):
+/// 30 frames a second for rain, snow and wind, 10 for drifting clouds, and one
+/// redraw every few seconds on a clear night, when only the stars change. With
+/// nothing moving, or with Reduce Motion on, it draws one still frame.
 /// The sun and moon move because the parent passes a new `SceneState` as the
 /// clock advances, not because of this animation.
 struct SceneView: View {
@@ -15,12 +17,18 @@ struct SceneView: View {
 
     var body: some View {
         Group {
-            if state.hasMotion && !reduceMotion {
-                TimelineView(.animation(minimumInterval: state.hasFastMotion ? 1.0 / 30 : 1.0 / 10)) { timeline in
+            switch reduceMotion ? .still : state.motion {
+            case .still:
+                canvas(phase: 0)
+            case .twinkle:
+                // A plain timer, not an animation: nothing runs between ticks.
+                TimelineView(.periodic(from: start, by: SceneMotion.twinkle.interval ?? 3)) { timeline in
                     canvas(phase: max(0.001, timeline.date.timeIntervalSince(start)))
                 }
-            } else {
-                canvas(phase: 0)
+            case .slow, .fast:
+                TimelineView(.animation(minimumInterval: state.motion.interval)) { timeline in
+                    canvas(phase: max(0.001, timeline.date.timeIntervalSince(start)))
+                }
             }
         }
         .accessibilityElement()

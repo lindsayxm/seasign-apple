@@ -285,6 +285,27 @@ private let losAngeles = TimeZone(identifier: "America/Los_Angeles")!
         #expect(midnight.nightness == 1)
     }
 
+    /// Task 17, item 4: a clear, calm night is not an animation.
+    @Test func redrawRateFollowsWhatMoves() async throws {
+        var sky = try await snapshot(fetchedAt: instant("2026-11-16T05:00:00Z"))
+        sky.current.windGustsMph = 5
+        func motion(at now: String) -> SceneMotion {
+            SceneState.make(snapshot: sky, now: instant(now), deviceTimeZone: newYork).motion
+        }
+        // Clear and calm: still by day, a slow twinkle at night.
+        #expect(motion(at: "2026-11-16T16:00:00Z") == .still)
+        #expect(motion(at: "2026-11-16T05:10:00Z") == .twinkle)
+        sky.current.cloudCoverPercent = 60
+        #expect(motion(at: "2026-11-16T05:10:00Z") == .slow)
+        sky.current.windSpeedMph = 20
+        #expect(motion(at: "2026-11-16T05:10:00Z") == .fast)
+
+        #expect(SceneMotion.still.interval == nil)
+        #expect(SceneMotion.twinkle.interval == 3)
+        #expect(SceneMotion.slow.interval == 0.1)
+        #expect(SceneMotion.fast.interval == 1.0 / 30)
+    }
+
     @Test func twilightBlendsDayIntoNight() {
         #expect(SceneState.nightness(for: .up(progress: 0.99)) == 0)
         #expect(SceneState.nightness(for: .down(sinceSet: 0, untilRise: 50_000)) == 0)
