@@ -1,11 +1,11 @@
 ---
 id: 20
 title: API: discover follow-ups from review, and real-key smoke tests
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-2
 depends_on: []
 created: 2026-11-16T13:14:12Z
-updated: 2026-11-16T13:14:12Z
+updated: 2026-11-16T14:25:47Z
 ---
 
 ## Goal
@@ -29,3 +29,5 @@ From the task 11 review. (L1) api/src/routes/discover.ts:183-185 drops an item o
 ## Log
 
 - 2026-11-16T13:14:12Z [li] created (backlog)
+- 2026-11-16T14:25:47Z [li] status: backlog → todo
+- 2026-11-16T14:25:47Z [implementer-2] status: todo → in-progress — claimed by implementer-2
