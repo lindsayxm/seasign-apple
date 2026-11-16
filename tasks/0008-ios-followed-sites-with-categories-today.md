@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-2
 depends_on: [4]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-16T04:13:53Z
+updated: 2026-11-16T04:36:17Z
 ---
 
 ## Goal
@@ -36,3 +36,5 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Sett
 - 2026-11-16T04:13:53Z [li] depends on: #4, #7 → #4
 - 2026-11-16T04:13:53Z [li] lead: dependency on #7 removed so this can start now. #7's routes and spec passed two reviews; its last round changes no schema (text-run cap, text cleaning, date parsing, body cap), so the generated client will not change.
 - 2026-11-16T04:13:53Z [implementer-2] status: todo → in-progress — claimed by implementer-2
+- 2026-11-16T04:28:32Z [implementer-2] Built in b7e0b09: Site (user store), FeedItem + CachedFeedState (cache store), SeasignAPI.resolveSite/feed with payload-free SitesFailure, FeedModel (resolve-and-add, refresh at launch/foreground at most every 15 min, upsert by link keeping firstFetchedAt, 7-day prune, per-site status), Sites section in Settings, HeadlinesColumn (since start of yesterday in zip zone else phone zone; count from CapsWrapper line counts via HeadlineFit, max 5, no ViewThatFits/scroll), ReadingView (openURL, https only via ArticleLink), -debugFeed YES sample. 207 tests pass on iOS 27.2 (iPhone 17).
+- 2026-11-16T04:36:17Z [implementer-2] Screenshots (iOS 27.2, iPhone 17): Today with -debugFeed sample /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/task8/today-headlines.png; reading view /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/task8/reading-view.png; Settings Sites section (sample, one site failing with timeout) /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/task8/settings-sites.png; Today live against wrangler dev /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/task8/today-live.png. Tests: 207 pass on iPhone 17 (27.2) and iPhone 16 (18.3.1). Live check: api tsc passed, wrangler dev on 8787; added www.nasa.gov/news/ (links mode, 17 articles) and feeds.arstechnica.com/arstechnica/science (feed mode, 14 articles) in the Simulator; Today showed 5 real two-line headlines newest first; reading view showed the Ars excerpt; Read on original site opened Safari. Server stopped. Choices: openURL (default browser, user's cookies/subscriptions) over SFSafariViewController; no-sites prompt line on Today, empty water when nothing since yesterday; max 5 headlines; removing a site deletes its cached items; save control drawn dimmed and inert (task 9).
