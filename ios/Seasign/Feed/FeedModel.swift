@@ -27,6 +27,8 @@ final class FeedModel {
         case noArticles
         /// The API could not be asked.
         case unavailable
+        /// The API's per-network limit refused the check.
+        case rateLimited
         /// The site was fine but could not be written to the phone.
         case notSaved
 
@@ -50,6 +52,8 @@ final class FeedModel {
                 "We found no articles on that page, so it wasn't added. Try the page that lists a section's stories, or the site's feed."
             case .unavailable:
                 "We couldn't check that site. Check your connection and try again."
+            case .rateLimited:
+                ServerRateLimit.message
             case .notSaved:
                 "That site couldn't be saved on this phone. Try again."
             }
@@ -84,6 +88,10 @@ final class FeedModel {
     private(set) var state = FeedState()
     /// True while a refresh is in flight.
     private(set) var isRefreshing = false
+    /// The API's rate limit on `/v1/feed` asked to wait until then:
+    /// automatic refreshes are not sent before it ("Refresh headlines now"
+    /// still is). Resolve is limited separately and does not set it.
+    @ObservationIgnored private(set) var retryNotBefore: Date?
 
     @ObservationIgnored private let api: SeasignAPI
     @ObservationIgnored private let store: FeedStore
@@ -141,7 +149,8 @@ final class FeedModel {
     /// Asks for every site's items, unless the last full refresh is younger
     /// than `refreshInterval` and every site has been read. If the request
     /// fails as a whole, the cached items stay; a site that fails keeps its
-    /// items and shows its problem in Settings.
+    /// items and shows its problem in Settings. After the API's rate limit
+    /// (429), only a forced refresh is sent before its delay has passed.
     func refresh(force: Bool = false) async {
         guard !isFrozen, !isRefreshing else { return }
         let current = now()
@@ -153,6 +162,7 @@ final class FeedModel {
            current >= last, current.timeIntervalSince(last) < Self.refreshInterval {
             return
         }
+        if !force, let retryNotBefore, current < retryNotBefore { return }
         isRefreshing = true
         defer { isRefreshing = false }
         await fetch(sites, isFullRefresh: true)
@@ -173,6 +183,9 @@ final class FeedModel {
         let result: SiteResolveResult
         do {
             result = try await api.resolveSite(url: typed)
+        } catch SeasignAPI.SitesFailure.rateLimited {
+            // Resolve's own limit; it holds nothing else back.
+            throw AddProblem.rateLimited
         } catch {
             throw AddProblem.unavailable
         }
@@ -225,7 +238,17 @@ final class FeedModel {
     private func fetch(_ subset: [Site], isFullRefresh: Bool) async {
         let ids = subset.map(\.id)
         let request = subset.map { FeedAnswer.Request(url: $0.url, mode: $0.mode, feedUrl: $0.feedUrl) }
-        guard !request.isEmpty, let answer = try? await api.feed(sites: request) else { return }
+        guard !request.isEmpty else { return }
+        let answer: FeedAnswer
+        do {
+            answer = try await api.feed(sites: request)
+        } catch {
+            if case .rateLimited(let seconds)? = error as? SeasignAPI.SitesFailure {
+                retryNotBefore = now().addingTimeInterval(TimeInterval(seconds))
+            }
+            return
+        }
+        retryNotBefore = nil
         apply(answer, ids: ids, isFullRefresh: isFullRefresh)
     }
 

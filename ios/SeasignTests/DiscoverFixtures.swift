@@ -64,6 +64,7 @@ final class DiscoverStub: ClientTransport, CustomReflectable, @unchecked Sendabl
     private let lock = NSLock()
     private var status: HTTPResponse.Status = .ok
     private var json = discoverJSONThreeItems
+    private var retryAfter: String?
     private var thrown: (any Error)?
     private var recorded: [Recorded] = []
     private var held: [CheckedContinuation<Void, Never>] = []
@@ -74,10 +75,13 @@ final class DiscoverStub: ClientTransport, CustomReflectable, @unchecked Sendabl
     var requests: [Recorded] { lock.withLock { recorded } }
     var count: Int { lock.withLock { recorded.count } }
 
-    func answer(_ status: HTTPResponse.Status, _ json: String) {
+    /// Answers every request with `status` and `json`, and a `Retry-After`
+    /// header when `retryAfter` is given (Seasign's own 429 sends one).
+    func answer(_ status: HTTPResponse.Status, _ json: String, retryAfter: String? = nil) {
         lock.withLock {
             self.status = status
             self.json = json
+            self.retryAfter = retryAfter
             thrown = nil
         }
     }
@@ -120,10 +124,11 @@ final class DiscoverStub: ClientTransport, CustomReflectable, @unchecked Sendabl
                 lock.withLock { held.append(continuation) }
             }
         }
-        let (status, json, thrown) = lock.withLock { (self.status, self.json, self.thrown) }
+        let (status, json, retryAfter, thrown) = lock.withLock { (self.status, self.json, self.retryAfter, self.thrown) }
         if let thrown { throw thrown }
         var response = HTTPResponse(status: status)
         response.headerFields[.contentType] = "application/json"
+        if let retryAfter { response.headerFields[HTTPField.Name("Retry-After")!] = retryAfter }
         return (response, HTTPBody(json))
     }
 }

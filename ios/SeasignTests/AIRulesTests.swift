@@ -284,12 +284,32 @@ import Testing
         used: Int = 0,
         lastSentAt: Date? = nil,
         keyRefused: Bool = false,
-        isSearching: Bool = false
+        isSearching: Bool = false,
+        retryNotBefore: Date? = nil
     ) -> SearchGate {
         SearchGate(
             mode: mode, key: key, interests: interests, cap: cap, usedToday: used,
-            lastSentAt: lastSentAt, keyRefused: keyRefused, isSearching: isSearching
+            lastSentAt: lastSentAt, keyRefused: keyRefused, isSearching: isSearching,
+            retryNotBefore: retryNotBefore
         )
+    }
+
+    /// Seasign's rate limit delay holds automatic searches like the spacing
+    /// does, whichever ends later; "Search now" is not held.
+    @Test func automaticSearchesWaitForTheServersRetryDelay() {
+        let until = now.addingTimeInterval(60)
+        #expect(gate(retryNotBefore: until).decide(.automatic, now: now) == .tooSoon(until: until))
+        #expect(gate(retryNotBefore: until).decide(.manual, now: now) == .send)
+        #expect(gate(retryNotBefore: until).decide(.automatic, now: until) == .send)
+        // Spacing already over: the delay alone holds.
+        let longAgo = now.addingTimeInterval(-86_400)
+        #expect(gate(lastSentAt: longAgo, retryNotBefore: until).decide(.automatic, now: now) == .tooSoon(until: until))
+        // Spacing ending later than the delay wins.
+        let recent = now.addingTimeInterval(-3600)
+        #expect(gate(lastSentAt: recent, retryNotBefore: until).decide(.automatic, now: now)
+            == .tooSoon(until: recent.addingTimeInterval(8 * 3600)))
+        // A delay in the past holds nothing.
+        #expect(gate(retryNotBefore: now.addingTimeInterval(-1)).decide(.automatic, now: now) == .send)
     }
 
     @Test func myListModeNeverSends() {
@@ -343,7 +363,19 @@ import Testing
 @Suite struct AISearchProblemTests {
     @Test func onlyAnswersThatProveNothingWasBilledGiveTheSearchBack() {
         let refunded = SeasignAPI.DiscoverFailure.allCases.filter { AISearchProblem($0).refundsSearch }
-        #expect(refunded == [.invalidRequest, .invalidKey])
+        #expect(refunded == [.invalidRequest, .invalidKey, .limitedByServer(retryAfter: ServerRateLimit.fallbackDelay)])
+        // The provider's 429 may have been billed.
+        #expect(!AISearchProblem.rateLimited.refundsSearch)
+    }
+
+    /// Seasign's own limit does not blame the provider; the provider's does.
+    @Test func theTwoRateLimitsHaveTheirOwnMessages() {
+        #expect(AISearchProblem(.limitedByServer(retryAfter: 60)) == .limitedByServer)
+        #expect(AISearchProblem.limitedByServer.message == "Too many searches from this network. Try again in a minute.")
+        #expect(AISearchProblem.rateLimited.message == "Your provider is limiting searches right now. Try again later.")
+        #expect(AISearchProblem.limitedByServer.rawValue == "server_rate_limited")
+        #expect(AISearchProblem(rawValue: "server_rate_limited") == .limitedByServer)
+        #expect(AISearchProblem(rawValue: "rate_limited") == .rateLimited)
     }
 
     @Test func onlyAnInvalidKeyStopsAutomaticSearches() {

@@ -278,7 +278,12 @@ enum AISearchProblem: Equatable, Sendable {
     case invalidRequest
     case invalidKey
     case quotaExceeded
+    /// The provider is limiting the key.
     case rateLimited
+    /// Seasign's own per-network limit refused the search before any
+    /// provider call. The delay is not kept here (see `AISearchModel`), so
+    /// the message stays fixed and the stored value round-trips.
+    case limitedByServer
     case providerError
     case timeout
     case internalError
@@ -295,6 +300,7 @@ enum AISearchProblem: Equatable, Sendable {
         case .invalidKey: self = .invalidKey
         case .quotaExceeded: self = .quotaExceeded
         case .rateLimited: self = .rateLimited
+        case .limitedByServer: self = .limitedByServer
         case .providerError: self = .providerError
         case .timeout: self = .timeout
         case .internalError: self = .internalError
@@ -314,6 +320,9 @@ enum AISearchProblem: Equatable, Sendable {
             "Your provider account is out of credit."
         case .rateLimited:
             "Your provider is limiting searches right now. Try again later."
+        case .limitedByServer:
+            // Not the provider's doing, and nothing was billed.
+            "Too many searches from this network. Try again in a minute."
         case .providerError:
             "The provider couldn't run the search. Try again later."
         case .timeout:
@@ -333,9 +342,10 @@ enum AISearchProblem: Equatable, Sendable {
 
     /// Answers that prove the provider was never called, so nothing was
     /// billed and the search is not counted: the API refused the request
-    /// itself (400), or the provider refused the key (401).
+    /// itself (400), the provider refused the key (401), or Seasign's own
+    /// rate limit refused it before any provider call (429 with `Retry-After`).
     var refundsSearch: Bool {
-        self == .invalidRequest || self == .invalidKey
+        self == .invalidRequest || self == .invalidKey || self == .limitedByServer
     }
 
     /// After this, automatic searches stop until the key or provider changes.
@@ -350,6 +360,7 @@ enum AISearchProblem: Equatable, Sendable {
         case .invalidKey: "invalid_key"
         case .quotaExceeded: "quota_exceeded"
         case .rateLimited: "rate_limited"
+        case .limitedByServer: "server_rate_limited"
         case .providerError: "provider_error"
         case .timeout: "timeout"
         case .internalError: "internal_error"
@@ -361,8 +372,8 @@ enum AISearchProblem: Equatable, Sendable {
 
     init?(rawValue: String) {
         let all: [AISearchProblem] = [
-            .invalidRequest, .invalidKey, .quotaExceeded, .rateLimited, .providerError,
-            .timeout, .internalError, .unavailable, .keyUnreadable, .countNotSaved,
+            .invalidRequest, .invalidKey, .quotaExceeded, .rateLimited, .limitedByServer,
+            .providerError, .timeout, .internalError, .unavailable, .keyUnreadable, .countNotSaved,
         ]
         guard let match = all.first(where: { $0.rawValue == rawValue }) else { return nil }
         self = match
@@ -398,6 +409,9 @@ struct SearchGate: Equatable, Sendable {
     var lastSentAt: Date?
     var keyRefused: Bool
     var isSearching: Bool
+    /// Seasign's rate limit asked to wait until then (its `Retry-After`).
+    /// Automatic searches wait for it as they wait for the spacing.
+    var retryNotBefore: Date? = nil
 
     func decide(_ trigger: Trigger, now: Date) -> Decision {
         // With Use My List selected nothing is ever sent, whatever else holds.
@@ -408,11 +422,13 @@ struct SearchGate: Equatable, Sendable {
         guard usedToday < DailyCap.clamp(cap) else { return .capReached }
         if trigger == .automatic {
             guard !keyRefused else { return .stoppedAfterInvalidKey }
-            if let lastSentAt {
-                let next = lastSentAt.addingTimeInterval(DailyCap.spacing(cap: cap))
-                // A clock set back past the last search counts as too soon too.
-                if now < next { return .tooSoon(until: next) }
+            // The later of the spacing and the server's retry delay.
+            var next = lastSentAt.map { $0.addingTimeInterval(DailyCap.spacing(cap: cap)) }
+            if let retryNotBefore, retryNotBefore > (next ?? .distantPast) {
+                next = retryNotBefore
             }
+            // A clock set back past the last search counts as too soon too.
+            if let next, now < next { return .tooSoon(until: next) }
         }
         return .send
     }

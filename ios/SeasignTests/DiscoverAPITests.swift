@@ -98,6 +98,45 @@ import Testing
         }
     }
 
+    /// 429 is told apart by `Retry-After` alone: Seasign's limiter always
+    /// sends it, the provider's limit never does (the route forwards no
+    /// provider headers). A value that is not a whole number is not ours.
+    /// The delay is brought into 1...3600 seconds.
+    @Test(arguments: [
+        ("60", SeasignAPI.DiscoverFailure.limitedByServer(retryAfter: 60)),
+        (" 120 ", .limitedByServer(retryAfter: 120)),
+        ("0", .limitedByServer(retryAfter: 1)),
+        ("-5", .limitedByServer(retryAfter: 1)),
+        ("99999", .limitedByServer(retryAfter: 3600)),
+        ("soon", .rateLimited),
+        ("Wed, 21 Oct 2026 07:28:00 GMT", .rateLimited),
+        ("", .rateLimited),
+    ] as [(String, SeasignAPI.DiscoverFailure)])
+    func a429IsOursOnlyWithANumericRetryAfter(header: String, expected: SeasignAPI.DiscoverFailure) async {
+        let stub = DiscoverStub()
+        // A body holding the key, as a misbehaving server might send.
+        stub.answer(.init(code: 429), #"{"error":"rate_limited","message":"limited \#(fakeKey)"}"#, retryAfter: header)
+        do {
+            _ = try await stubbedDiscoverAPI(stub).discover(key: key, provider: .anthropic, interests: ["x"], timezone: nil)
+            Issue.record("expected a failure")
+        } catch {
+            #expect(error as? SeasignAPI.DiscoverFailure == expected)
+            var dumped = ""
+            dump(error, to: &dumped)
+            #expect(!dumped.contains(fakeKey))
+            #expect(!String(reflecting: error).contains(fakeKey))
+            #expect(!error.localizedDescription.contains(fakeKey))
+        }
+    }
+
+    @Test func a429WithoutRetryAfterIsTheProviders() async {
+        let stub = DiscoverStub()
+        stub.answer(.init(code: 429), discoverErrorJSON("rate_limited"))
+        await #expect(throws: SeasignAPI.DiscoverFailure.rateLimited) {
+            try await stubbedDiscoverAPI(stub).discover(key: key, provider: .anthropic, interests: ["x"], timezone: nil)
+        }
+    }
+
     /// A time zone the API might not know is left out rather than sent: the
     /// API would answer 400 to every search.
     @Test(arguments: ["GMT-0500", "Mars/Olympus_Mons", "EST", ""])

@@ -21,6 +21,8 @@ final class EventsModel {
         case link(LinkProblem)
         /// The API could not be asked.
         case unavailable
+        /// The API's per-network limit refused the check.
+        case rateLimited
         /// The link was fine but could not be written to the phone.
         case notSaved
 
@@ -38,6 +40,8 @@ final class EventsModel {
                 problem.message
             case .unavailable:
                 "We couldn't check that link. Check your connection and try again."
+            case .rateLimited:
+                ServerRateLimit.message
             case .notSaved:
                 "That calendar couldn't be saved on this phone. Try again."
             }
@@ -55,6 +59,9 @@ final class EventsModel {
     private(set) var links: [CalendarLink] = []
     /// The latest events, from the cache or the network.
     private(set) var snapshot: EventsSnapshot?
+    /// The API's rate limit asked to wait until then: refreshes are not
+    /// sent before it (adding a link in Settings still is).
+    @ObservationIgnored private(set) var retryNotBefore: Date?
 
     @ObservationIgnored private let api: SeasignAPI
     @ObservationIgnored private let store: EventsStore
@@ -126,9 +133,17 @@ final class EventsModel {
                 return
             }
         }
-        guard let answer = try? await api.calendarEvents(links: links.map(\.url), timezone: zone) else {
+        if let retryNotBefore, now() < retryNotBefore { return }
+        let answer: CalendarAnswer
+        do {
+            answer = try await api.calendarEvents(links: links.map(\.url), timezone: zone)
+        } catch {
+            // What is on screen stays; after a 429 nothing is asked again
+            // until the delay has passed.
+            if case .rateLimited(let seconds)? = error as? SeasignAPI.CalendarFailure { hold(seconds) }
             return
         }
+        retryNotBefore = nil
         // The links or the zone may have changed while the request was in
         // flight; whatever changed them asks again.
         guard ids == links.map(\.id), zone == timeZone().identifier else { return }
@@ -148,9 +163,13 @@ final class EventsModel {
         let answer: CalendarAnswer
         do {
             answer = try await api.calendarEvents(links: [url], timezone: zone)
+        } catch SeasignAPI.CalendarFailure.rateLimited(let seconds) {
+            hold(seconds)
+            throw AddProblem.rateLimited
         } catch {
             throw AddProblem.unavailable
         }
+        retryNotBefore = nil
         guard let status = answer.calendars.first(where: { $0.index == 0 }) else {
             throw AddProblem.unavailable
         }
@@ -186,6 +205,10 @@ final class EventsModel {
         links = store.links()
         setSnapshot(links.isEmpty ? nil : snapshot?.removing(link: id))
         await refresh()
+    }
+
+    private func hold(_ seconds: Int) {
+        retryNotBefore = now().addingTimeInterval(TimeInterval(seconds))
     }
 
     private func checkRoom(for url: String) throws {

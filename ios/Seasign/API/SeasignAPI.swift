@@ -82,6 +82,9 @@ struct SeasignAPI: Sendable {
         case unknownZip
         /// The server or the weather provider could not be reached or failed.
         case unavailable
+        /// The API's own per-network limit (429): wait `retryAfter` seconds
+        /// (`ServerRateLimit.delay`) before asking again.
+        case rateLimited(retryAfter: Int)
     }
 
     /// `GET /v1/sky`: weather now, and sun and moon times for today and
@@ -91,6 +94,7 @@ struct SeasignAPI: Sendable {
         do {
             output = try await client.getSky(query: .init(zip: zip))
         } catch {
+            if let delay = ServerRateLimit.delay(after: error) { throw SkyFailure.rateLimited(retryAfter: delay) }
             throw SkyFailure.unavailable
         }
         switch output {
@@ -101,6 +105,8 @@ struct SeasignAPI: Sendable {
             throw SkyFailure.invalidZip
         case .notFound:
             throw SkyFailure.unknownZip
+        case .tooManyRequests(let response):
+            throw SkyFailure.rateLimited(retryAfter: ServerRateLimit.delay(response.headers.Retry_hyphen_After))
         default:
             throw SkyFailure.unavailable
         }
@@ -115,6 +121,8 @@ struct SeasignAPI: Sendable {
         case invalidRequest
         /// The server could not be reached, failed, or sent something unreadable.
         case unavailable
+        /// The API's own per-network limit (429): wait `retryAfter` seconds.
+        case rateLimited(retryAfter: Int)
     }
 
     /// `POST /v1/calendar/events`: the events of up to ten calendar links that
@@ -129,6 +137,7 @@ struct SeasignAPI: Sendable {
             )
         } catch {
             // The error is dropped on purpose: its description includes the request.
+            if let delay = ServerRateLimit.delay(after: error) { throw CalendarFailure.rateLimited(retryAfter: delay) }
             throw CalendarFailure.unavailable
         }
         switch output {
@@ -137,6 +146,8 @@ struct SeasignAPI: Sendable {
             return CalendarAnswer(body)
         case .badRequest:
             throw CalendarFailure.invalidRequest
+        case .tooManyRequests(let response):
+            throw CalendarFailure.rateLimited(retryAfter: ServerRateLimit.delay(response.headers.Retry_hyphen_After))
         default:
             throw CalendarFailure.unavailable
         }
@@ -150,6 +161,9 @@ struct SeasignAPI: Sendable {
         case invalidRequest
         /// The server could not be reached, failed, or sent something unreadable.
         case unavailable
+        /// The API's own per-network limit (429): wait `retryAfter` seconds.
+        /// Resolve and feed are limited separately.
+        case rateLimited(retryAfter: Int)
     }
 
     /// `POST /v1/sites/resolve`: how the page at `url` can be followed, or why
@@ -160,6 +174,7 @@ struct SeasignAPI: Sendable {
         do {
             output = try await client.postSitesResolve(body: .json(.init(url: url)))
         } catch {
+            if let delay = ServerRateLimit.delay(after: error) { throw SitesFailure.rateLimited(retryAfter: delay) }
             throw SitesFailure.unavailable
         }
         switch output {
@@ -170,6 +185,8 @@ struct SeasignAPI: Sendable {
             return result
         case .badRequest:
             throw SitesFailure.invalidRequest
+        case .tooManyRequests(let response):
+            throw SitesFailure.rateLimited(retryAfter: ServerRateLimit.delay(response.headers.Retry_hyphen_After))
         default:
             throw SitesFailure.unavailable
         }
@@ -191,6 +208,7 @@ struct SeasignAPI: Sendable {
                 }))
             )
         } catch {
+            if let delay = ServerRateLimit.delay(after: error) { throw SitesFailure.rateLimited(retryAfter: delay) }
             throw SitesFailure.unavailable
         }
         switch output {
@@ -199,6 +217,8 @@ struct SeasignAPI: Sendable {
             return FeedAnswer(body)
         case .badRequest:
             throw SitesFailure.invalidRequest
+        case .tooManyRequests(let response):
+            throw SitesFailure.rateLimited(retryAfter: ServerRateLimit.delay(response.headers.Retry_hyphen_After))
         default:
             throw SitesFailure.unavailable
         }
@@ -208,15 +228,33 @@ struct SeasignAPI: Sendable {
     /// for a server that could not be reached or answered with something
     /// unreadable. Payload-free: the generated client's errors describe the
     /// request, and this request carries the user's key in a header.
+    ///
+    /// The API answers 429 for two reasons with the same body: the provider
+    /// is limiting the user's key (`rateLimited`, sent without
+    /// `Retry-After`), or Seasign's own per-network limit refused the request
+    /// before any provider call (`limitedByServer`, always with
+    /// `Retry-After`). They are told apart by that header alone.
     enum DiscoverFailure: Error, Equatable, CaseIterable {
         case invalidRequest
         case invalidKey
         case quotaExceeded
+        /// The provider is limiting the key (429 without a usable `Retry-After`).
         case rateLimited
+        /// Seasign's own limit (429 with `Retry-After`): nothing reached the
+        /// provider. Carries only the delay in seconds (`ServerRateLimit.delay`).
+        case limitedByServer(retryAfter: Int)
         case providerError
         case timeout
         case internalError
         case unavailable
+
+        static var allCases: [DiscoverFailure] {
+            [
+                .invalidRequest, .invalidKey, .quotaExceeded, .rateLimited,
+                .limitedByServer(retryAfter: ServerRateLimit.fallbackDelay),
+                .providerError, .timeout, .internalError, .unavailable,
+            ]
+        }
     }
 
     /// `POST /v1/discover`: recent publications on `interests`, found by
@@ -248,7 +286,17 @@ struct SeasignAPI: Sendable {
                 ))
             )
         } catch {
-            // Dropped on purpose: a ClientError describes the request, key header included.
+            // Dropped on purpose: a ClientError describes the request, key
+            // header included. Only the status and `Retry-After` are read.
+            // A 429 lands here when its `Retry-After` is not a number (the
+            // generated client fails to decode it): that is not ours, so it
+            // is the provider's limit.
+            if ServerRateLimit.status(of: error) == 429 {
+                if let raw = ServerRateLimit.header(of: error), let seconds = ServerRateLimit.parse(raw) {
+                    throw DiscoverFailure.limitedByServer(retryAfter: ServerRateLimit.delay(seconds))
+                }
+                throw DiscoverFailure.rateLimited
+            }
             throw DiscoverFailure.unavailable
         }
         switch output {
@@ -261,7 +309,12 @@ struct SeasignAPI: Sendable {
             throw DiscoverFailure.invalidKey
         case .code402:
             throw DiscoverFailure.quotaExceeded
-        case .tooManyRequests:
+        case .tooManyRequests(let response):
+            // Ours always sends `Retry-After`; the route forwards no provider
+            // headers, so a provider 429 never has one.
+            if let seconds = response.headers.Retry_hyphen_After {
+                throw DiscoverFailure.limitedByServer(retryAfter: ServerRateLimit.delay(seconds))
+            }
             throw DiscoverFailure.rateLimited
         case .badGateway:
             throw DiscoverFailure.providerError
@@ -273,6 +326,56 @@ struct SeasignAPI: Sendable {
             throw DiscoverFailure.unavailable
         }
     }
+}
+
+/// The API's own per-network rate limit (429 `rate_limited` with
+/// `Retry-After`, declared on sky, calendar, sites/resolve, feed and
+/// discover). The app never retries on its own because of it; each model
+/// only holds its automatic refreshes until the delay has passed.
+enum ServerRateLimit {
+    /// The delay the app honours, in seconds: a value from the server is
+    /// brought into this range, so a strange one can neither stop refreshes
+    /// for long nor let them run at once.
+    static let delayRange = 1...3600
+    /// Used when a 429 on a route that requires `Retry-After` arrives
+    /// without a readable one. The API sends 60.
+    static let fallbackDelay = 60
+
+    /// Fixed text for Settings when sky, calendar or sites answer 429.
+    static let message = "Too many requests from this network. Try again in a minute."
+
+    /// `seconds` brought into `delayRange`; nil is `fallbackDelay`.
+    static func delay(_ seconds: Int?) -> Int {
+        guard let seconds else { return fallbackDelay }
+        return min(delayRange.upperBound, max(delayRange.lowerBound, seconds))
+    }
+
+    /// A `Retry-After` value as a whole number of seconds; nil for anything
+    /// else (an HTTP date, text, empty).
+    static func parse(_ value: String) -> Int? {
+        Int(value.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// For a route whose 429 must carry `Retry-After`: the delay when
+    /// `error` is the generated client failing to read a 429 (no or an
+    /// unreadable header, or an unexpected body), else nil. Reads only the
+    /// status and that one header; the error itself is dropped by the caller.
+    static func delay(after error: any Error) -> Int? {
+        guard status(of: error) == 429 else { return nil }
+        return delay(header(of: error).flatMap(parse))
+    }
+
+    /// The HTTP status of the response the generated client failed to read, if any.
+    static func status(of error: any Error) -> Int? {
+        (error as? ClientError)?.response?.status.code
+    }
+
+    /// That response's `Retry-After`, as sent.
+    static func header(of error: any Error) -> String? {
+        (error as? ClientError)?.response?.headerFields[retryAfter]
+    }
+
+    private static let retryAfter = HTTPField.Name("Retry-After")!
 }
 
 /// Refuses every redirect, so the completed task carries the 3xx answer

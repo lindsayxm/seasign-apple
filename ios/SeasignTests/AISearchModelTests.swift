@@ -191,6 +191,69 @@ private final class AIClock: @unchecked Sendable {
         #expect(s.ai.problem == problem)
     }
 
+    /// Acceptance criterion: Seasign's own rate limit (429 with
+    /// `Retry-After`) refused the search before any provider call, so it is
+    /// given back and gets its own message, which does not blame the provider.
+    @Test func ourRateLimitIsGivenBackWithItsOwnMessage() async throws {
+        let s = try setup()
+        stub.answer(.init(code: 429), discoverErrorJSON("rate_limited"), retryAfter: "60")
+        await s.ai.searchNow()
+        #expect(stub.count == 1)
+        #expect(s.ai.usedToday == 0)
+        #expect(s.ai.problem == .limitedByServer)
+        #expect(s.ai.problem?.message == "Too many searches from this network. Try again in a minute.")
+        // Not the key's fault: automatic searches are not stopped.
+        #expect(!s.ai.keyRefused)
+        let row = try #require(try s.context.fetch(FetchDescriptor<Settings>()).first)
+        #expect(row.aiKeyRefused == nil)
+        #expect(row.aiLastProblemRaw == "server_rate_limited")
+        // Search now stays allowed.
+        #expect(s.ai.canSearchNow)
+    }
+
+    /// Acceptance criterion: the provider's 429 (no `Retry-After`, or one
+    /// that is not a number) may have been billed, so it still counts.
+    @Test(arguments: [nil, "soon"] as [String?])
+    func theProvidersRateLimitStillCounts(retryAfter: String?) async throws {
+        let s = try setup()
+        stub.answer(.init(code: 429), discoverErrorJSON("rate_limited"), retryAfter: retryAfter)
+        await s.ai.searchNow()
+        #expect(s.ai.usedToday == 1)
+        #expect(s.ai.problem == .rateLimited)
+        #expect(s.ai.problem?.message == "Your provider is limiting searches right now. Try again later.")
+        #expect(!s.ai.keyRefused)
+        #expect(s.ai.retryNotBefore == nil)
+    }
+
+    /// Automatic searches wait for the delay Seasign's limit asked for (and
+    /// the spacing, which runs from when the refused search was sent).
+    @Test func ourRateLimitHoldsOffAutomaticSearches() async throws {
+        let s = try setup(cap: 20)
+        stub.answer(.init(code: 429), discoverErrorJSON("rate_limited"), retryAfter: "120")
+        let sentAt = clock.now
+        await s.ai.searchNow()
+        #expect(s.ai.retryNotBefore == sentAt.addingTimeInterval(120))
+        stub.answer(.ok, discoverJSONThreeItems)
+        clock.advance(90)
+        await s.ai.refreshIfDue()
+        #expect(stub.count == 1)
+        // Search now is not held; it just asks again.
+        await s.ai.searchNow()
+        #expect(stub.count == 2)
+        #expect(s.ai.problem == nil)
+        #expect(s.ai.usedToday == 1)
+    }
+
+    /// A delay from the server is kept within 1 to 3600 seconds.
+    @Test func anOutlandishDelayIsClamped() async throws {
+        let s = try setup()
+        stub.answer(.init(code: 429), discoverErrorJSON("rate_limited"), retryAfter: "999999")
+        let sentAt = clock.now
+        await s.ai.searchNow()
+        #expect(s.ai.retryNotBefore == sentAt.addingTimeInterval(3600))
+        #expect(s.ai.usedToday == 0)
+    }
+
     /// The count is written before the request leaves.
     @Test func theSearchIsCountedWhenSent() async throws {
         let s = try setup()
@@ -826,8 +889,9 @@ private final class AIClock: @unchecked Sendable {
             #expect(ai.setMode(.aiSearch))
             await ai.searchNow()
             // Every answer the API can give, so every problem path runs.
-            for code in [400, 401, 402, 429, 500, 502, 504] {
-                stub.answer(.init(code: code), #"{"error":"x","message":"\#(fakeKey)"}"#)
+            // 429 twice: the provider's (no Retry-After) and Seasign's own.
+            for (code, retryAfter) in [(400, nil), (401, nil), (402, nil), (429, nil), (429, "60"), (500, nil), (502, nil), (504, nil)] as [(Int, String?)] {
+                stub.answer(.init(code: code), #"{"error":"x","message":"\#(fakeKey)"}"#, retryAfter: retryAfter)
                 try ai.saveKey(fakeKey)
                 await ai.searchNow()
                 #expect(!String(describing: ai.problem as Any).contains(fakeKey))

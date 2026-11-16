@@ -12,6 +12,8 @@ final class TodayModel {
         case notFiveDigits
         case unknown
         case unavailable
+        /// The API's per-network limit refused the check.
+        case rateLimited
 
         var message: String {
             switch self {
@@ -21,6 +23,8 @@ final class TodayModel {
                 "We couldn't find that zip code. Try a nearby one."
             case .unavailable:
                 "We couldn't check that zip code. Check your connection and try again."
+            case .rateLimited:
+                ServerRateLimit.message
             }
         }
     }
@@ -29,6 +33,9 @@ final class TodayModel {
     private(set) var zip: String?
     /// The latest sky for `zip`, from the cache or the network.
     private(set) var snapshot: SkySnapshot?
+    /// The API's rate limit asked to wait until then: refreshes are not
+    /// sent before it (the zip check in Settings still is).
+    @ObservationIgnored private(set) var retryNotBefore: Date?
 
     private let api: SeasignAPI
     private let store: SkyStore
@@ -62,13 +69,22 @@ final class TodayModel {
     }
 
     /// Fetches the sky for the saved zip unless the current one is fresh. On
-    /// failure the cached sky stays on screen.
+    /// failure the cached sky stays on screen; after the API's rate limit
+    /// (429) nothing is asked again until its delay has passed.
     func refresh(force: Bool = false) async {
         guard let zip else { return }
         if !force, let snapshot, now().timeIntervalSince(snapshot.fetchedAt) < Self.refreshInterval {
             return
         }
-        guard let sky = try? await api.sky(zip: zip) else { return }
+        if let retryNotBefore, now() < retryNotBefore { return }
+        let sky: Components.Schemas.Sky
+        do {
+            sky = try await api.sky(zip: zip)
+        } catch {
+            holdIfRateLimited(error)
+            return
+        }
+        retryNotBefore = nil
         // The zip may have changed while the request was in flight.
         guard zip == self.zip else { return }
         let fresh = SkySnapshot(sky, fetchedAt: now())
@@ -88,9 +104,13 @@ final class TodayModel {
             throw ZipProblem.unknown
         } catch SeasignAPI.SkyFailure.invalidZip {
             throw ZipProblem.notFiveDigits
+        } catch SeasignAPI.SkyFailure.rateLimited(let seconds) {
+            hold(seconds)
+            throw ZipProblem.rateLimited
         } catch {
             throw ZipProblem.unavailable
         }
+        retryNotBefore = nil
         let fresh = SkySnapshot(sky, fetchedAt: now())
         store.setZip(candidate)
         store.cache(fresh)
@@ -103,6 +123,14 @@ final class TodayModel {
         store.setZip(nil)
         zip = nil
         snapshot = nil
+    }
+
+    private func holdIfRateLimited(_ error: any Error) {
+        if case .rateLimited(let seconds)? = error as? SeasignAPI.SkyFailure { hold(seconds) }
+    }
+
+    private func hold(_ seconds: Int) {
+        retryNotBefore = now().addingTimeInterval(TimeInterval(seconds))
     }
 
     static func isValidZip(_ text: String) -> Bool {

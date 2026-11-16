@@ -11,9 +11,12 @@ import SwiftData
 /// - A search is counted when it is sent, before the request leaves, in the
 ///   same main-actor turn as the check, so two refreshes that race can never
 ///   pass the cap. Only an answer that proves nothing was billed gives the
-///   search back: 400 `invalid_request` and 401 `invalid_key`.
+///   search back: 400 `invalid_request`, 401 `invalid_key`, and Seasign's own
+///   rate limit (429 with `Retry-After`, `DiscoverFailure.limitedByServer`).
+///   A 429 without `Retry-After` is the provider's limit and stays counted.
 /// - Automatic searches (launch, return to the foreground) are spaced at
-///   least 24 h / cap apart; "Search now" ignores the spacing, never the cap.
+///   least 24 h / cap apart, and wait out the delay Seasign's rate limit
+///   asked for; "Search now" ignores both, never the cap.
 /// - After 401 `invalid_key`, automatic searches stop until the key or
 ///   provider changes.
 /// - The key is read from the Keychain at send time and handed to the API
@@ -70,6 +73,11 @@ final class AISearchModel {
     private(set) var providerChangedSinceKey = false
     /// Searches sent per day (`SearchDay.key`).
     private(set) var counts: [String: Int] = [:]
+    /// Seasign's rate limit asked automatic searches to wait until then.
+    /// Kept in memory only: `aiLastSentAt`, which is stored, already holds
+    /// automatic searches off for at least `DailyCap.spacing` (over an hour),
+    /// longer than any delay `ServerRateLimit` accepts.
+    @ObservationIgnored private(set) var retryNotBefore: Date?
 
     @ObservationIgnored private let api: SeasignAPI
     @ObservationIgnored private let context: ModelContext
@@ -308,7 +316,8 @@ final class AISearchModel {
             usedToday: counts[SearchDay.key(now, timeZone: zone())] ?? 0,
             lastSentAt: settingsRow().aiLastSentAt,
             keyRefused: keyRefused,
-            isSearching: isSearching
+            isSearching: isSearching,
+            retryNotBefore: retryNotBefore
         )
     }
 
@@ -348,6 +357,9 @@ final class AISearchModel {
             setProblem(nil)
         } catch {
             let failure = (error as? SeasignAPI.DiscoverFailure).map(AISearchProblem.init) ?? .unavailable
+            if case .limitedByServer(let seconds)? = error as? SeasignAPI.DiscoverFailure {
+                retryNotBefore = now().addingTimeInterval(TimeInterval(seconds))
+            }
             if failure.refundsSearch {
                 refund(day: day)
             }
