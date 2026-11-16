@@ -4,11 +4,19 @@ import { MAX_BODY_BYTES } from "../src/app.ts";
 
 const TOO_LARGE = { error: "invalid_request", message: "The request body is too large" };
 
-/** Every route that reads a body, with a body that would be valid if it were small. */
-const routes: [string, (padding: string) => unknown][] = [
-  ["/v1/calendar/events", (padding) => ({ links: ["https://calendar.example.com/a.ics"], padding })],
-  ["/v1/sites/resolve", (padding) => ({ url: "https://news.example.com/", padding })],
-  ["/v1/feed", (padding) => ({ sites: [{ url: "https://news.example.com/", mode: "links" }], padding })],
+/** An obviously fake LLM key, for the route that needs one. */
+const FAKE_KEY = "fake-llm-key-for-tests-0000";
+
+/**
+ * Every route that reads a body, with a body that would be valid if it were
+ * small, the headers it needs, and how it answers a valid body when the host
+ * it fetches from does not answer: [status, a code the body holds].
+ */
+const routes: [string, (padding: string) => unknown, Record<string, string>, [number, string]][] = [
+  ["/v1/calendar/events", (padding) => ({ links: ["https://calendar.example.com/a.ics"], padding }), {}, [200, "fetch_failed"]],
+  ["/v1/sites/resolve", (padding) => ({ url: "https://news.example.com/", padding }), {}, [200, "fetch_failed"]],
+  ["/v1/feed", (padding) => ({ sites: [{ url: "https://news.example.com/", mode: "links" }], padding }), {}, [200, "fetch_failed"]],
+  ["/v1/discover", (padding) => ({ provider: "openai", interests: ["tide pools"], padding }), { "x-llm-key": FAKE_KEY }, [502, "provider_error"]],
 ];
 
 const send = (path: string, body: BodyInit, headers: Record<string, string> = {}) =>
@@ -38,11 +46,11 @@ describe("request body limit", () => {
     expect(MAX_BODY_BYTES).toBe(64 * 1024);
   });
 
-  describe.each(routes)("POST %s", (path, make) => {
+  describe.each(routes)("POST %s", (path, make, needed, [okStatus, okCode]) => {
     it("refuses a body one byte over the limit, before any outbound request", async () => {
       const outbound = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected outbound request"));
 
-      const response = await send(path, bodyOf(make, MAX_BODY_BYTES + 1));
+      const response = await send(path, bodyOf(make, MAX_BODY_BYTES + 1), needed);
 
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual(TOO_LARGE);
@@ -52,7 +60,7 @@ describe("request body limit", () => {
     it("refuses a large body sent without a Content-Length, by counting it", async () => {
       const outbound = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected outbound request"));
 
-      const response = await send(path, streamed(bodyOf(make, 3 * 1024 * 1024)));
+      const response = await send(path, streamed(bodyOf(make, 3 * 1024 * 1024)), needed);
 
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual(TOO_LARGE);
@@ -62,7 +70,7 @@ describe("request body limit", () => {
     it.each(["10", "0", "-1", "abc", ""])("refuses a 3 MB body whose Content-Length says %j, by counting it", async (length) => {
       const outbound = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected outbound request"));
       const body = bodyOf(make, 3 * 1024 * 1024);
-      const request = new Request(`https://example.com${path}`, { method: "POST", headers: { "content-type": "application/json", "content-length": length }, body });
+      const request = new Request(`https://example.com${path}`, { method: "POST", headers: { "content-type": "application/json", "content-length": length, ...needed }, body });
       expect(request.headers.get("content-length")).toBe(length);
 
       const response = await exports.default.fetch(request);
@@ -75,14 +83,14 @@ describe("request body limit", () => {
     it("reads a small body whose Content-Length is wrong as what it is", async () => {
       vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network down"));
       for (const length of ["1", "abc"]) {
-        const response = await send(path, bodyOf(make, 200), { "content-length": length });
-        expect(response.status).toBe(200);
-        expect(JSON.stringify(await response.json())).toContain("fetch_failed");
+        const response = await send(path, bodyOf(make, 200), { "content-length": length, ...needed });
+        expect(response.status).toBe(okStatus);
+        expect(JSON.stringify(await response.json())).toContain(okCode);
       }
     });
 
     it("refuses a body that is not JSON at all when it is too large, with the same answer", async () => {
-      const response = await send(path, "{".repeat(MAX_BODY_BYTES + 1));
+      const response = await send(path, "{".repeat(MAX_BODY_BYTES + 1), needed);
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual(TOO_LARGE);
     });
@@ -92,9 +100,9 @@ describe("request body limit", () => {
       vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network down"));
 
       for (const body of [bodyOf(make, MAX_BODY_BYTES), streamed(bodyOf(make, MAX_BODY_BYTES))]) {
-        const response = await send(path, body);
-        expect(response.status).toBe(200);
-        expect(JSON.stringify(await response.json())).toContain("fetch_failed");
+        const response = await send(path, body, needed);
+        expect(response.status).toBe(okStatus);
+        expect(JSON.stringify(await response.json())).toContain(okCode);
       }
     });
   });

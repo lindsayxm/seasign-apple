@@ -626,6 +626,150 @@
           "url",
           "mode"
         ]
+      },
+      "Discover": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoverItem"
+            },
+            "description": "Recent publications found by the provider's web search, at most 20, each link once. Only pages the provider's own search results or citations include are returned; may be empty"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "anthropic",
+              "openai",
+              "gemini",
+              "perplexity"
+            ],
+            "description": "The provider that was asked"
+          },
+          "searchedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the search was answered, UTC, second precision",
+            "example": "2026-11-15T14:00:00Z"
+          }
+        },
+        "required": [
+          "items",
+          "provider",
+          "searchedAt"
+        ]
+      },
+      "DiscoverItem": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Headline as plain text, at most 300 characters",
+            "example": "A new telescope sees first light"
+          },
+          "link": {
+            "type": "string",
+            "description": "The page's address as the provider's search returned it: an absolute https URL",
+            "example": "https://news.example.com/science/new-telescope-first-light/"
+          },
+          "source": {
+            "type": "string",
+            "description": "Publication or site name, at most 120 characters; the host name when none is given",
+            "example": "Example News"
+          },
+          "published": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "When it was published, as a UTC instant at second precision; null when unknown. Never in the future",
+            "example": "2026-11-14T00:00:00Z"
+          },
+          "excerpt": {
+            "type": "string",
+            "nullable": true,
+            "description": "One sentence on what it is about, written by the model, at most 300 characters; null when it gave none",
+            "example": "The observatory released its first images on Friday."
+          },
+          "interest": {
+            "type": "string",
+            "nullable": true,
+            "description": "Which of the request's interests it matched, as sent; null when unclear",
+            "example": "new telescopes"
+          }
+        },
+        "required": [
+          "title",
+          "link",
+          "source",
+          "published",
+          "excerpt",
+          "interest"
+        ]
+      },
+      "DiscoverError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "invalid_key",
+              "rate_limited",
+              "quota_exceeded",
+              "provider_error",
+              "timeout",
+              "internal_error"
+            ],
+            "description": "Machine-readable reason"
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed human-readable text for the code; never the provider's own words"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "DiscoverRequest": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "anthropic",
+              "openai",
+              "gemini",
+              "perplexity"
+            ],
+            "description": "Whose API the key is for"
+          },
+          "interests": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "description": "Topics to find recent publications on: 1 to 20, each 1 to 80 characters after trimming",
+            "example": [
+              "tide pools",
+              "new telescopes"
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA time zone of the device; sets what \"today\" is. Defaults to UTC",
+            "example": "America/Chicago"
+          }
+        },
+        "required": [
+          "provider",
+          "interests"
+        ]
       }
     },
     "parameters": {}
@@ -848,6 +992,120 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FeedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/discover": {
+      "post": {
+        "operationId": "postDiscover",
+        "summary": "Recent publications on the user's interests, found by the user's own LLM provider",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 512,
+              "pattern": "^[\\x21-\\x7e]+$",
+              "description": "The user's own API key for the chosen provider, from the device's Keychain. Used for this one call and never stored or logged. 16 to 512 printable ASCII characters, no spaces",
+              "example": "example-key-not-real-0000"
+            },
+            "required": true,
+            "description": "The user's own API key for the chosen provider, from the device's Keychain. Used for this one call and never stored or logged. 16 to 512 printable ASCII characters, no spaces",
+            "name": "x-llm-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the search found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Discover"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request: no X-LLM-Key header or one of the wrong shape, a body that is not JSON or not sent as application/json, an unknown provider, no interests or more than 20, an interest empty or over 80 characters, or an unknown time zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_key: the provider did not accept the key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverError"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "quota_exceeded: the key's account has no credit or quota left with the provider; retrying will not help until it is topped up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: the provider is limiting requests for this key; try again later",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal_error: something went wrong in the API",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "provider_error: the provider failed or answered in a way that could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "timeout: the provider took more than 25 seconds",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverError"
                 }
               }
             }

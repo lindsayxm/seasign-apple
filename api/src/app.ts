@@ -1,5 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { calendar } from "./routes/calendar.ts";
+import { discover } from "./routes/discover.ts";
 import { feed } from "./routes/feed.ts";
 import { health } from "./routes/health.ts";
 import { sites } from "./routes/sites.ts";
@@ -55,6 +56,7 @@ app.route("/", sky);
 app.route("/", calendar);
 app.route("/", sites);
 app.route("/", feed);
+app.route("/", discover);
 
 export const openAPIConfig = {
   openapi: "3.0.3",
