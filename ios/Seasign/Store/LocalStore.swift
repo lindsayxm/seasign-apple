@@ -6,7 +6,8 @@ import SwiftData
 /// There are two SQLite files in one `ModelContainer`:
 ///
 /// - the **user store** (`default.store`): `SeasignSchema.userModels`
-///   (`Settings`, `ListItem`, `CalendarLink`, `Site`, `SavedItem`). It holds
+///   (`Settings`, `ListItem`, `CalendarLink`, `Site`, `SavedItem`,
+///   `SearchCount`). It holds
 ///   things the user typed and nothing can bring them back, so the app never
 ///   deletes or moves this file and never opens it with anything but the full
 ///   schema, which would change its tables. If it will not open, `open` throws
