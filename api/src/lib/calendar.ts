@@ -949,7 +949,8 @@ function expand(
 
   for (const property of listedProperties) {
     for (const value of property.getValues()) {
-      // A period, an implausible year, or a date listed for a timed event is not used.
+      // An implausible year, or a date listed for a timed event, is not used;
+      // nor would a period be, though none is handed to ical.js (`holdsPeriod`).
       if (!(value instanceof ICAL.Time) || !plausible(value)) continue;
       const wall = wallSeconds(value);
       if (wall + NEAR <= keepFrom - duration || wall - NEAR >= keepUntil) continue;
@@ -1140,6 +1141,20 @@ function valueCount(value: string): number {
   return count;
 }
 
+/**
+ * Whether a line is an RDATE that ical.js would read as periods. Its
+ * `detectType` for RDATE looks at the whole value, before it is split at
+ * commas, and makes every value of the line a period when a "/" is anywhere
+ * in it, whatever VALUE says. A period keeps every piece between slashes
+ * (`period.fromICAL` splits at each "/" and keeps them all), so one value to
+ * `valueCount` can be any number of pieces: 2 MB of slashes is a million. And
+ * a value in the list without a "/" makes it throw, which refuses the whole
+ * file. Periods are not used here, so such a line is not handed on at all, in
+ * an event or in a zone's block, and sets `partial` (task 22). Tested on the
+ * very value handed on, so a "/" in a TZID does not count.
+ */
+const holdsPeriod = (name: string, value: string) => name === "RDATE" && value.includes("/");
+
 /** A line's property name as read here: upper case, trimmed, a group ("a.DTSTART") dropped. `at` is where the name ends. */
 function propertyName(line: string, at: number): string {
   const name = line.slice(0, at).trim().toUpperCase();
@@ -1154,15 +1169,17 @@ const rebuilt = (name: string, scanned: Scanned, value: string) => `${name}${sca
  * What `readableLines` hands ical.js for a property line it keeps as it is
  * (the properties read once, EXDATE, RDATE, a zone's TZID), how many EXDATE
  * or RDATE values ical.js makes of that, and whether a TZID was left out;
- * also the name and value as read here. Null for a line that is not a
- * property. For the tests.
+ * also the name and value as read here. `text` is null, and `listed` 0, for
+ * an RDATE holding a period, which is not handed on (`holdsPeriod`). Null for
+ * a line that is not a property. For the tests.
  */
-export function handedLine(line: string): { name: string; value: string; text: string; listed: number; unreadTzid: boolean } | null {
+export function handedLine(line: string): { name: string; value: string; text: string | null; listed: number; unreadTzid: boolean } | null {
   const at = line.search(/[;:]/);
   const scanned = at < 0 ? null : scanParameters(line, at);
   if (!scanned) return null;
   const name = propertyName(line, at);
   const value = line.slice(scanned.value);
+  if (holdsPeriod(name, value)) return { name, value, text: null, listed: 0, unreadTzid: scanned.unreadTzid };
   return { name, value, text: rebuilt(name, scanned, value), listed: valueCount(value), unreadTzid: scanned.unreadTzid };
 }
 
@@ -1210,6 +1227,9 @@ const pending = (kind: Pending["kind"]): Pending => ({
  *   is refused (`CalendarTooLargeError`);
  * - an event with more than MAX_RULES_PER_EVENT rules or MAX_LISTED_DATES
  *   listed dates is left out, and sets `partial`;
+ * - an RDATE line whose value holds a "/" (periods, to ical.js, of any number
+ *   of pieces; `holdsPeriod`) is left out, in an event or a zone's block, and
+ *   sets `partial`; the rest of the event or zone is read;
  * - a property read once is given once: the first in an event, the last in a
  *   zone's block, as they are read;
  * - nothing inside an event (alarms), inside an unknown component, or at the
@@ -1359,6 +1379,9 @@ function readableLines(unfolded: string, budget: Budget): string {
       if (name === "RRULE" || name === "EXRULE") {
         if (++current.rules > MAX_RULES_PER_EVENT) drop(current);
         else current.lines.push(`X-SEASIGN-${name}:${value}`);
+      } else if (holdsPeriod(name, value)) {
+        // Not handed on, so not counted either.
+        budget.partial = true;
       } else if (name === "EXDATE" || name === "RDATE") {
         current.listed += valueCount(value);
         if (current.listed > MAX_LISTED_DATES) drop(current);
@@ -1384,6 +1407,9 @@ function readableLines(unfolded: string, budget: Budget): string {
       else if (name === "RRULE") {
         if (++current.rules > MAX_ZONE_RULES) drop(current);
         else block.lines.push(`X-SEASIGN-RRULE:${value}`);
+      } else if (holdsPeriod(name, value)) {
+        // `readZone` would not use it, and it is neither handed on nor counted.
+        budget.partial = true;
       } else if (name === "RDATE") {
         current.listed += valueCount(value);
         if (current.listed > MAX_ZONE_DATES) drop(current);
@@ -1448,6 +1474,8 @@ function cleanEvent(vevent: JCal, budget: Budget): JCal {
  * - a VEVENT or VTIMEZONE inside another component is not read;
  * - calendars after the first 20 in one file are not read;
  * - a line that is not a property (no colon) is left out;
+ * - an RDATE line holding a period ("/") is left out, its other values with
+ *   it; an event that repeated only by such a line is read as a single event;
  * - a TZID parameter not handed to ical.js (it holds a quote or a backslash,
  *   or is over 300 characters) leaves that time floating.
  * A VTIMEZONE that `readZone` cannot use is ignored (and so are those past 50

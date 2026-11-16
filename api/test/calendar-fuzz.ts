@@ -1,11 +1,16 @@
 // Random content lines for checking that `readableLines` and ical.js agree on
 // where a line's parameters end and its value begins (task 18, round 2): the
 // EXDATE and RDATE values counted on a line must be the values ical.js makes
-// of the line it is handed, or the limits on listed dates do not hold.
+// of the line it is handed, or the limits on listed dates do not hold. Values
+// are counted by their pieces, since ical.js keeps every "/"-separated piece of
+// a period; an RDATE holding "/" is never handed on (task 22).
 // calendar-handed.test.ts runs a bounded number of these. A long run, from api/:
 //   node --experimental-strip-types --no-warnings -e 'import("./test/calendar-fuzz.ts").then((m) => console.log(m.checkLines(1, 1_000_000), m.checkFiles(2, 2_000)))'
 import ICAL from "ical.js";
 import { CalendarParseError, handedLine, parseCalendar } from "../src/lib/calendar.ts";
+
+/** The pieces ical.js made of a value: 1 for a date, every piece for a period, however many. */
+export const pieces = (value: unknown): number => (Array.isArray(value) ? value.reduce((sum: number, piece) => sum + pieces(piece), 0) : 1);
 
 /** A small seeded generator (mulberry32), so a failing case can be found again. */
 export function mulberry32(seed: number): () => number {
@@ -21,9 +26,9 @@ export function mulberry32(seed: number): () => number {
 
 /** What parameters and values are made of: every character that ends or escapes something, and the words that matter. */
 const PIECES = [
-  '"', '"', ":", ":", ";", ";", ",", ",", "^", "\\", "=", "n", " ", "'", "a", "/", "T", "0",
-  "^'", "^^", "^n", "\\,", "\\\\", "\\;", "\\:", '="', '",', '":', "TZID", "tzid", "RANGE", "VALUE", "DATE", "DATE-TIME",
-  "20200101T000000Z", "20200101", "Europe/Berlin", ",".repeat(40),
+  '"', '"', ":", ":", ";", ";", ",", ",", "^", "\\", "=", "n", " ", "'", "a", "/", "/", "T", "0", "P",
+  "^'", "^^", "^n", "\\,", "\\\\", "\\;", "\\:", '="', '",', '":', "TZID", "tzid", "RANGE", "VALUE", "DATE", "DATE-TIME", "PERIOD",
+  "20200101T000000Z", "20200101", "Europe/Berlin", ",".repeat(40), "20200101T000000Z/PT1H", "/PT1H", "//", "/".repeat(40),
 ];
 const PARAMETER_NAMES = ["TZID", "tzid", "Tzid", "RANGE", "VALUE", "X-A", "", "TZID ", "CN"];
 const PROPERTY_NAMES = ["EXDATE", "RDATE", "exdate", "a.RDATE", "EXDATE ", "UID", "SUMMARY", "DTSTART", "TZID"];
@@ -58,11 +63,13 @@ export type LineReport = {
   checked: number;
   /** Lines `handedLine` does not take for a property (no value); `readableLines` leaves them out. */
   notProperty: number;
-  /** Handed lines ical.js throws on (a value it cannot decode, such as an RDATE period); the file is then refused whole. */
+  /** RDATE lines holding "/" (periods to ical.js), which are not handed on. */
+  periodsLeftOut: number;
+  /** Handed lines ical.js throws on; the file would then be refused whole. */
   refused: number;
-  /** The first few such lines that are not RDATE periods, to see why. */
+  /** The first few of them, to see why. */
   refusedLines: string[];
-  /** EXDATE and RDATE values ical.js made of the handed lines, all of them counted the same here. */
+  /** EXDATE and RDATE pieces ical.js made of the handed lines, all of them counted the same here. */
   listed: number;
   /** Lines on which ical.js and this file disagree, in all. */
   mismatches: number;
@@ -72,14 +79,14 @@ export type LineReport = {
 
 /**
  * Hands `count` random lines on as `readableLines` would, parses each with
- * ical.js, and checks: an EXDATE or RDATE gives as many values as counted
- * here; ical.js reads the value exactly where it is read here (the property
+ * ical.js, and checks: ical.js does not throw on it; an EXDATE or RDATE gives
+ * as many pieces as values counted here, and none is a period; ical.js reads the value exactly where it is read here (the property
  * parses as it does with the same value and no TZID or RANGE before it); and
  * the only parameters it sees are the ones handed on.
  */
 export function checkLines(seed: number, count: number): LineReport {
   const random = mulberry32(seed);
-  const report: LineReport = { checked: 0, notProperty: 0, refused: 0, refusedLines: [], listed: 0, mismatches: 0, kinds: {} };
+  const report: LineReport = { checked: 0, notProperty: 0, periodsLeftOut: 0, refused: 0, refusedLines: [], listed: 0, mismatches: 0, kinds: {} };
   for (let i = 0; i < count; i++) {
     const line = randomLine(random);
     const handed = handedLine(line);
@@ -87,31 +94,38 @@ export function checkLines(seed: number, count: number): LineReport {
       report.notProperty++;
       continue;
     }
-    report.checked++;
     let failed = false;
     const fail = (why: string) => {
       if (!failed) report.mismatches++;
       failed = true;
       const kind = (report.kinds[why] ??= { count: 0, examples: [] });
       kind.count++;
-      if (kind.examples.length < 3) kind.examples.push({ line, handed: handed.text });
+      if (kind.examples.length < 3) kind.examples.push({ line, handed: handed.text ?? "(not handed on)" });
     };
+    if (handed.text === null) {
+      report.periodsLeftOut++;
+      if (!(handed.name === "RDATE" && handed.value.includes("/"))) fail("left out a line that is not an RDATE period");
+      if (handed.listed !== 0) fail("counted values on a line not handed on");
+      continue;
+    }
+    const text = handed.text;
+    report.checked++;
     let property: unknown[];
     try {
-      property = parsedProperty(handed.text);
+      property = parsedProperty(text);
     } catch {
       report.refused++;
-      // An RDATE with "/" in it is a period, which ical.js decodes as it parses; anything else is worth a look.
-      if (!(handed.name === "RDATE" && handed.value.includes("/")) && report.refusedLines.length < 5) report.refusedLines.push(handed.text);
+      if (report.refusedLines.length < 5) report.refusedLines.push(text);
       continue;
     }
     if (handed.name === "EXDATE" || handed.name === "RDATE") {
-      const theirs = property.length - 3;
+      const theirs = pieces(property.slice(3));
       report.listed += theirs;
       if (theirs !== handed.listed) fail(theirs > handed.listed ? "ical.js made more values than counted" : "ical.js made fewer values than counted");
+      if (property[2] === "period") fail("ical.js read a period");
     }
     // The same value with only the VALUE parameter (which sets the type) must parse the same.
-    const valueType = /;VALUE=[A-Z-]+$/.exec(handed.text.slice(0, handed.text.length - handed.value.length - 1))?.[0] ?? "";
+    const valueType = /;VALUE=[A-Z-]+$/.exec(text.slice(0, text.length - handed.value.length - 1))?.[0] ?? "";
     let plain: unknown[] | null = null;
     try {
       plain = parsedProperty(`${handed.name}${valueType}:${handed.value}`);
@@ -122,7 +136,7 @@ export function checkLines(seed: number, count: number): LineReport {
     const parameters = Object.keys(property[1] as object);
     if (parameters.some((name) => name !== "tzid" && name !== "range")) fail(`ical.js saw parameters ${parameters.join(",")}`);
     // What was handed on before the value: the name, then at most a TZID, a RANGE and a VALUE, in that order and form.
-    const ours = HANDED_HEAD.exec(handed.text.slice(0, handed.text.length - handed.value.length - 1));
+    const ours = HANDED_HEAD.exec(text.slice(0, text.length - handed.value.length - 1));
     if (!ours) fail("handed on parameters of another form");
     else {
       if (parameters.includes("tzid") !== (ours[1] !== undefined)) fail("TZID handed on and TZID read differ");
@@ -138,30 +152,36 @@ export type FileReport = {
   files: number;
   refusedTooLarge: number;
   refused: number;
-  /** The most listed values ical.js was handed in one event, one zone and one file. */
+  /** The most listed values ical.js was handed in one event, one zone and one file, counted by their pieces. */
   mostPerEvent: number;
   mostPerZone: number;
   mostPerFile: number;
+  /** EXDATE and RDATE properties ical.js read as periods. */
+  periods: number;
 };
 
 /**
  * Builds `count` calendars from random EXDATE and RDATE lines (three events
- * of `perEvent` lines, two zones of `perZone` RDATE lines), parses each with
- * `parseCalendar`, and records the most listed values ical.js was handed per
- * event, zone and file, which must stay within the limits.
+ * of `perEvent` lines, two zones of `perZone` RDATE lines; "/" included),
+ * parses each with `parseCalendar`, and records the most listed values
+ * ical.js was handed per event, zone and file, counted by their pieces, which
+ * must stay within the limits, and how many it read as periods.
  */
 export function checkFiles(seed: number, count: number, perEvent = 120, perZone = 40): FileReport {
   const random = mulberry32(seed);
-  const report: FileReport = { files: 0, refusedTooLarge: 0, refused: 0, mostPerEvent: 0, mostPerZone: 0, mostPerFile: 0 };
-  // Without "/", which makes an RDATE a period that ical.js may throw on (refusing the whole file).
-  const listedLine = (name: string) => randomLine(random).replace(/^[^;:]*/, name).replaceAll("/", "");
+  const report: FileReport = { files: 0, refusedTooLarge: 0, refused: 0, mostPerEvent: 0, mostPerZone: 0, mostPerFile: 0, periods: 0 };
+  const listedLine = (name: string) => randomLine(random).replace(/^[^;:]*/, name);
   const parse = ICAL.parse;
   ICAL.parse = ((input: string) => {
     const result = parse(input) as unknown[];
     let file = 0;
     const listedIn = (component: unknown[]) => {
       let sum = 0;
-      for (const property of component[1] as unknown[][]) if (property[0] === "exdate" || property[0] === "rdate") sum += property.length - 3;
+      for (const property of component[1] as unknown[][]) {
+        if (property[0] !== "exdate" && property[0] !== "rdate") continue;
+        if (property[2] === "period") report.periods++;
+        sum += pieces(property.slice(3));
+      }
       return sum;
     };
     for (const calendar of (Array.isArray(result[0]) ? result : [result]) as unknown[][]) {

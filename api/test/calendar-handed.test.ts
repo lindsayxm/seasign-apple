@@ -3,8 +3,8 @@
 // value begins (task 18, round 2).
 import ICAL from "ical.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CalendarTooLargeError, MAX_LISTED_PER_FILE, handedLine, parseCalendar, upcomingEvents } from "../src/lib/calendar.ts";
-import { checkFiles, checkLines } from "./calendar-fuzz.ts";
+import { CalendarTooLargeError, MAX_CALENDAR_BYTES, MAX_LISTED_PER_FILE, handedLine, parseCalendar, upcomingEvents } from "../src/lib/calendar.ts";
+import { checkFiles, checkLines, pieces } from "./calendar-fuzz.ts";
 
 /** Monday 16 November 2026, 15:00 UTC. */
 const NOW = new Date("2026-11-16T15:00:00Z");
@@ -36,10 +36,19 @@ const hiddenByQuotes = (commas: number, end = "20200101T000000Z") =>
 /** Escapes in the last parameter: ical.js finds the value by the unescaped length, which `\,` shortens. */
 const hiddenByEscapes = (escapes: number, commas: number) => `;TZID="${"\\,".repeat(escapes)}:${",".repeat(commas)}":20200101T000000Z`;
 
-/** The EXDATE and RDATE values in what ICAL.parse returned, per event, per zone and in all. */
-function listedHanded(result: unknown): { events: number[]; zones: number[]; total: number } {
+/**
+ * The EXDATE and RDATE values in what ICAL.parse returned, per event, per zone
+ * and in all, each counted by its pieces; and how many properties ical.js
+ * typed as periods.
+ */
+function listedHanded(result: unknown): { events: number[]; zones: number[]; total: number; periods: number } {
+  let periods = 0;
   const count = (component: unknown[]) =>
-    (component[1] as unknown[][]).reduce((sum, property) => sum + (property[0] === "exdate" || property[0] === "rdate" ? property.length - 3 : 0), 0);
+    (component[1] as unknown[][]).reduce((sum, property) => {
+      if (property[0] !== "exdate" && property[0] !== "rdate") return sum;
+      if (property[2] === "period") periods++;
+      return sum + pieces(property.slice(3));
+    }, 0);
   const events: number[] = [];
   const zones: number[] = [];
   const calendars = (Array.isArray((result as unknown[])[0]) ? result : [result]) as unknown[][];
@@ -49,7 +58,7 @@ function listedHanded(result: unknown): { events: number[]; zones: number[]; tot
       if (component[0] === "vtimezone") zones.push((component[2] as unknown[][]).reduce((sum: number, block) => sum + count(block), 0));
     }
   }
-  return { events, zones, total: [...events, ...zones].reduce((a, b) => a + b, 0) };
+  return { events, zones, total: [...events, ...zones].reduce((a, b) => a + b, 0), periods };
 }
 
 /** Parses with ICAL.parse watched; returns the result and what ical.js made of what it was handed. */
@@ -74,6 +83,13 @@ describe("listed dates are counted on the value ical.js is handed", () => {
     // ical.js on the handed line makes as many.
     const parsed = ICAL.parse(`BEGIN:VCALENDAR\nBEGIN:VEVENT\n${handed?.text}\nEND:VEVENT\nEND:VCALENDAR`) as unknown[];
     expect(listedHanded(parsed).total).toBe(4 * 285 + 1);
+  });
+
+  it("counts a period's pieces: ical.js keeps every piece between slashes", () => {
+    // Why an RDATE holding "/" is not handed on (task 22): one value to a count of commas, 10,001 pieces to ical.js.
+    const line = `RDATE:20261118T090000Z/PT1H${"/".repeat(9999)}`;
+    const parsed = ICAL.parse(`BEGIN:VCALENDAR\nBEGIN:VEVENT\n${line}\nEND:VEVENT\nEND:VCALENDAR`) as unknown[];
+    expect(listedHanded(parsed)).toMatchObject({ total: 10_001, periods: 1 });
   });
 
   it("hands on an event of the review's lines only while it is within 2,000 values, and says so when it is not", () => {
@@ -142,6 +158,81 @@ describe("listed dates are counted on the value ical.js is handed", () => {
   });
 });
 
+describe("an RDATE holding a period is not handed on (task 22)", () => {
+  // ical.js reads an RDATE as periods when its value holds a "/" anywhere,
+  // whatever VALUE says, and keeps every piece between slashes: one value to
+  // the count, any number of pieces to ical.js. A list in which one value has
+  // no "/" made it throw, and the whole file was refused. Periods were never
+  // used, so such a line is left out before ical.js sees it.
+  const startsOf = (parsed: { events: { start: number }[] }) => parsed.events.map((event) => new Date(event.start * 1000).toISOString()).sort();
+  const rdatesIn = (input: string) => input.split("\n").filter((line) => line.startsWith("RDATE"));
+
+  it.each([
+    ["a period with a duration", "RDATE;VALUE=PERIOD:20261118T090000Z/PT1H"],
+    ["a period with an end", "RDATE:20261118T090000Z/20261118T100000Z"],
+    ["a date and a period in one list (ical.js threw on this)", "RDATE:20261119T090000Z,20261118T090000Z/PT1H"],
+    ["a period marked VALUE=DATE", "RDATE;VALUE=DATE:20261118/20261119"],
+    ["a period with a TZID", "RDATE;TZID=Europe/Berlin:20261118T090000/PT1H"],
+    ["a bare slash", "RDATE:/"],
+    ["pieces that are not times", "RDATE:a/b/c"],
+    ["200,000 pieces", `RDATE:20261118T090000Z/PT1H${"/".repeat(200_000)}`],
+  ])("leaves out %s, keeps the event's other dates, and says so", (_name, line) => {
+    expect(handedLine(line)).toMatchObject({ name: "RDATE", text: null, listed: 0 });
+    const watched = parseWatched(calendarOf(series(line, "RDATE:20261120T090000Z", "EXDATE:20261117T090000Z")));
+    expect(rdatesIn(watched.input)).toEqual(["RDATE:20261120T090000Z"]);
+    expect(watched.handed).toMatchObject({ events: [2], periods: 0 });
+    expect(watched.parsed.partial).toBe(true);
+    // The series (16th to 18th, less the 17th) and its other RDATE.
+    expect(startsOf(watched.parsed)).toEqual(["2026-11-16T09:00:00.000Z", "2026-11-18T09:00:00.000Z", "2026-11-20T09:00:00.000Z"]);
+  });
+
+  it("hands on an RDATE whose TZID has a slash but whose value has none, and an EXDATE with a slash", () => {
+    expect(handedLine("RDATE;TZID=Europe/Berlin:20261119T090000")).toMatchObject({ text: "RDATE;TZID=Europe/Berlin:20261119T090000", listed: 1 });
+    // EXDATE has no period reading: to ical.js the slash is a character of one value.
+    const exdate = handedLine("EXDATE:2026/1,2")?.text as string;
+    expect(exdate).toBe("EXDATE:2026/1,2");
+    expect(listedHanded(ICAL.parse(`BEGIN:VCALENDAR\nBEGIN:VEVENT\n${exdate}\nEND:VEVENT\nEND:VCALENDAR`))).toMatchObject({ total: 2, periods: 0 });
+
+    const parsed = parseCalendar(calendarOf(vevent("SUMMARY:x", "DTSTART;TZID=Europe/Berlin:20261117T090000", "RDATE;TZID=Europe/Berlin:20261119T090000")), NOW);
+    expect(parsed.partial).toBe(false);
+    expect(upcomingEvents(parsed.events, NOW, "UTC").map((event) => event.start).sort()).toEqual(["2026-11-17T08:00:00Z", "2026-11-19T08:00:00Z"]);
+  });
+
+  it("reads an event whose only repeat was a period RDATE as a single event", () => {
+    // Without the line the event no longer repeats: it is shown once, at DTSTART, if that is near.
+    const near = parseWatched(calendarOf(vevent("SUMMARY:once", "DTSTART:20261117T090000Z", "DTEND:20261117T100000Z", "RDATE:20261118T090000Z/PT1H")));
+    expect(rdatesIn(near.input)).toEqual([]);
+    expect(near.parsed.partial).toBe(true);
+    expect(startsOf(near.parsed)).toEqual(["2026-11-17T09:00:00.000Z"]);
+    // A DTSTART long past is then over, like any single event.
+    const past = parseCalendar(calendarOf(vevent("SUMMARY:once", "DTSTART:20200101T090000Z", "RDATE:20261118T090000Z/PT1H")), NOW);
+    expect(past).toEqual({ events: [], partial: true });
+  });
+
+  it("leaves out a period RDATE in a zone's block, and still uses the zone", () => {
+    const text = calendarOf(
+      zone("Within", "RDATE:19800101T000000/PT1H", "RDATE:19810101T000000", `RDATE:19820101T000000/PT1H${"/".repeat(100_000)}`),
+      vevent("SUMMARY:x", "DTSTART;TZID=Within:20261117T090000"),
+    );
+    const watched = parseWatched(text);
+    expect(rdatesIn(watched.input)).toEqual(["RDATE:19810101T000000"]);
+    expect(watched.handed).toMatchObject({ zones: [1], periods: 0 });
+    expect(watched.parsed.partial).toBe(true);
+    expect(upcomingEvents(watched.parsed.events, NOW, "UTC").map((event) => event.start)).toEqual(["2026-11-17T07:00:00Z"]);
+  });
+
+  it("reads a 2 MB file that is one RDATE of a million pieces, handing ical.js none of them", () => {
+    const head = calendarOf(vevent("SUMMARY:x", "DTSTART:20261117T090000Z", "RDATE:20261118T090000Z/PT1H@"));
+    const text = head.replace("@", "/".repeat(MAX_CALENDAR_BYTES - head.length + 1));
+    expect(text.length).toBe(MAX_CALENDAR_BYTES);
+    const watched = parseWatched(text);
+    expect(watched.input.length).toBeLessThan(200);
+    expect(watched.handed).toMatchObject({ total: 0, periods: 0 });
+    expect(watched.parsed.partial).toBe(true);
+    expect(startsOf(watched.parsed)).toEqual(["2026-11-17T09:00:00.000Z"]);
+  });
+});
+
 describe("parameters are handed on only in a form ical.js reads as written", () => {
   it("reads Outlook's quoted zone names, colons and all", () => {
     const tzid = "(UTC-06:00) Central Time (US & Canada)";
@@ -192,10 +283,13 @@ describe("parameters are handed on only in a form ical.js reads as written", () 
 describe("random lines: what is counted is what ical.js makes of the handed line", () => {
   it("agrees on every one of 20,000 random lines", () => {
     const report = checkLines(18, 20_000);
-    expect(report.checked).toBeGreaterThan(18_000);
-    expect(report.listed).toBeGreaterThan(50_000);
-    // Only RDATE periods ical.js cannot decode are refused.
+    expect(report.checked).toBeGreaterThan(16_000);
+    expect(report.listed).toBeGreaterThan(45_000);
+    // Lines with "/" were made, and the RDATEs among them left out.
+    expect(report.periodsLeftOut).toBeGreaterThan(1_500);
+    // ical.js throws on no line it is handed.
     expect(report.refusedLines).toEqual([]);
+    expect(report.refused).toBe(0);
     expect(report.kinds).toEqual({});
     expect(report.mismatches).toBe(0);
   });
@@ -204,6 +298,7 @@ describe("random lines: what is counted is what ical.js makes of the handed line
     const report = checkFiles(19, 100);
     expect(report.files).toBe(100);
     expect(report.refused).toBe(0);
+    expect(report.periods).toBe(0);
     expect(report.mostPerEvent).toBeLessThanOrEqual(2000);
     expect(report.mostPerZone).toBeLessThanOrEqual(400);
     expect(report.mostPerFile).toBeLessThanOrEqual(MAX_LISTED_PER_FILE);

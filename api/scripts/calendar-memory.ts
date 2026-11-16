@@ -14,7 +14,7 @@
 // two bytes a character); --caps 96,64,... (caps tried, largest first); --runs N (runs per cap;
 // a cap passes when every run does); --count (with --one: also print how many
 // lines ical.js was handed and how many EXDATE and RDATE values it made of
-// them). Old space does not include the bodies themselves (Buffers live
+// them, counting every piece of a period). Old space does not include the bodies themselves (Buffers live
 // outside the V8 heap).
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -135,6 +135,48 @@ export function ordinaryCalendar(count: number): string {
   out.push(END);
   return out.join("");
 }
+
+/**
+ * Every limit at once: 3,500 events of 17 lines handed on, eight of them
+ * rules, the first ten listing 2,000 EXDATE values (`all-limits`), long past
+ * or (`inWindow`) in this week. With `period`, the tenth lists 1,999 and one
+ * more event has an RDATE period of as many pieces as fit in what is left of
+ * `bytes` (less a few bytes, so that --two-byte does not cut the end off).
+ */
+function allLimits(bytes: number, inWindow: boolean, period: boolean): string {
+  const count = 3500;
+  const listers = MAX_LISTED_PER_FILE / 2000;
+  const listing = (n: number) =>
+    Array.from({ length: n }, (_, k) => (inWindow ? stamp(Date.UTC(2026, 10, 10) / 1000 + k * 600) : stamp(Date.UTC(2020, 0, 1) / 1000 + k * 3600))).join(",");
+  const full = listing(2000);
+  const short = period ? listing(1999) : full;
+  const tail = period ? lines("BEGIN:VEVENT", "UID:p", "DTSTART:20261117T090000Z", "RDATE:20261118T090000Z/PT1H@", "END:VEVENT") + END : END;
+  const text = fill(
+    bytes,
+    CAL,
+    (i) =>
+      i >= count
+        ? "\0".repeat(bytes)
+        : lines(
+            "BEGIN:VEVENT",
+            `UID:${i}`,
+            inWindow ? `SUMMARY:e${i}` : "SUMMARY:s",
+            "STATUS:x",
+            inWindow ? "DTSTART:20261117T090000Z" : "DTSTART:20100114T090000Z",
+            inWindow ? "DTEND:20261117T100000Z" : "DTEND:20100114T100000Z",
+            "DURATION:PT1H",
+            inWindow ? `RECURRENCE-ID:${day(i % 7)}` : "RECURRENCE-ID:20100114T090000Z",
+            ..."12345678".split("").map((n) => `RRULE:FREQ=DAILY;INTERVAL=${n}`),
+            ...(i < listers ? [`EXDATE:${i === listers - 1 ? short : full}`] : []),
+            "END:VEVENT",
+          ),
+    tail,
+  );
+  return period ? text.replace("@", "/".repeat(Math.max(0, bytes - 16 - text.length + 1))) : text;
+}
+
+/** The pieces ical.js made of a value: 1 for a date, every piece for a period. */
+const pieces = (value: unknown): number => (Array.isArray(value) ? value.reduce((sum: number, piece) => sum + pieces(piece), 0) : 1);
 
 /**
  * The shapes. Each builds about `bytes` of text. A character `\xff` stands for
@@ -325,58 +367,27 @@ const SHAPES: Record<string, (bytes: number) => string> = {
   // Every limit at once, without any trick: 3,500 events of 17 lines handed on
   // (BEGIN, the seven properties read once, eight rules, END), the first ten
   // with one EXDATE line of 2,000 values each (MAX_LISTED_PER_FILE).
-  "all-limits": (bytes) => {
-    const count = 3500;
-    const listing = Array.from({ length: 2000 }, (_, n) => stamp(Date.UTC(2020, 0, 1) / 1000 + n * 3600)).join(",");
-    return fill(
-      bytes,
-      CAL,
-      (i) =>
-        i >= count
-          ? "\0".repeat(bytes)
-          : lines(
-              "BEGIN:VEVENT",
-              `UID:${i}`,
-              "SUMMARY:s",
-              "STATUS:x",
-              "DTSTART:20100114T090000Z",
-              "DTEND:20100114T100000Z",
-              "DURATION:PT1H",
-              "RECURRENCE-ID:20100114T090000Z",
-              ..."12345678".split("").map((n) => `RRULE:FREQ=DAILY;INTERVAL=${n}`),
-              ...(i < MAX_LISTED_PER_FILE / 2000 ? [`EXDATE:${listing}`] : []),
-              "END:VEVENT",
-            ),
-      END,
-    );
-  },
+  "all-limits": (bytes) => allLimits(bytes, false, false),
   // The same in the window: every event starts now, overrides an instance this
   // week, and the listed dates are around now.
-  "all-limits-in-window": (bytes) => {
-    const count = 3500;
-    const listing = Array.from({ length: 2000 }, (_, n) => stamp(Date.UTC(2026, 10, 10) / 1000 + n * 600)).join(",");
-    return fill(
-      bytes,
-      CAL,
-      (i) =>
-        i >= count
-          ? "\0".repeat(bytes)
-          : lines(
-              "BEGIN:VEVENT",
-              `UID:${i}`,
-              `SUMMARY:e${i}`,
-              "STATUS:x",
-              "DTSTART:20261117T090000Z",
-              "DTEND:20261117T100000Z",
-              "DURATION:PT1H",
-              `RECURRENCE-ID:${day(i % 7)}`,
-              ..."12345678".split("").map((n) => `RRULE:FREQ=DAILY;INTERVAL=${n}`),
-              ...(i < MAX_LISTED_PER_FILE / 2000 ? [`EXDATE:${listing}`] : []),
-              "END:VEVENT",
-            ),
-      END,
-    );
-  },
+  "all-limits-in-window": (bytes) => allLimits(bytes, true, false),
+  // Each of those plus one event whose RDATE is a period of as many pieces as
+  // the rest of the 2 MB holds (about 300,000): one value to a count of commas,
+  // every piece to ical.js (task 22). The last EXDATE line is one value short,
+  // so the file is at MAX_LISTED_PER_FILE as counted before task 22.
+  "all-limits-period": (bytes) => allLimits(bytes, false, true),
+  "all-limits-in-window-period": (bytes) => allLimits(bytes, true, true),
+  // One RDATE line of a period with about 2 million pieces, in an event and in a zone's block.
+  "rdate-period-pieces": (bytes) =>
+    CAL + lines("BEGIN:VEVENT", "UID:x", "DTSTART:20261117T090000Z") + "RDATE:20261118T090000Z/PT1H" + "/".repeat(bytes - 200) + CRLF + lines("END:VEVENT") + END,
+  "zone-rdate-period-pieces": (bytes) =>
+    CAL +
+    lines("BEGIN:VTIMEZONE", "TZID:Z", "BEGIN:STANDARD", "DTSTART:16010101T020000", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100") +
+    "RDATE:19800101T000000/PT1H" +
+    "/".repeat(bytes - 400) +
+    CRLF +
+    lines("END:STANDARD", "END:VTIMEZONE", "BEGIN:VEVENT", "UID:x", "DTSTART;TZID=Z:20261117T090000", "END:VEVENT") +
+    END,
   // Commas hidden from a count that takes a quote anywhere in a parameter to
   // open a quoted stretch. ical.js honours a quote only right after `=`, so its
   // value starts at the first colon and holds every comma (task 18, review 1).
@@ -436,13 +447,13 @@ function one(shape: string, bytes: number, links: number, twoByte: boolean): voi
       const walk = (component: unknown) => {
         if (!Array.isArray(component) || !Array.isArray(component[1])) return;
         for (const property of component[1] as unknown[][]) {
-          if (property[0] === "exdate" || property[0] === "rdate") values += property.length - 3;
+          if (property[0] === "exdate" || property[0] === "rdate") values += pieces(property.slice(3));
         }
         for (const child of (component[2] as unknown[]) ?? []) walk(child);
       };
       for (let at = input.indexOf("\n"); at >= 0; at = input.indexOf("\n", at + 1)) lines++;
       for (const calendar of Array.isArray(result[0]) ? result : [result]) walk(calendar);
-      handed = `, handed ${lines + 1} lines and ${values} listed values`;
+      handed = `, handed ${lines + 1} lines and ${values} listed values (pieces)`;
       return result;
     }) as typeof ICAL.parse;
   }
