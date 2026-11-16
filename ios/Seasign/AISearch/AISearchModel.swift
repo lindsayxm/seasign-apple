@@ -18,6 +18,11 @@ import SwiftData
 ///   provider changes.
 /// - The key is read from the Keychain at send time and handed to the API
 ///   call; this model never keeps it in a property.
+/// - "No key" and "the Keychain could not be read" are kept apart
+///   (`KeyStatus`): an unreadable Keychain (before the first unlock after a
+///   restart) sends nothing, switches nothing off and never asks for the key
+///   again. It is read again on every search attempt, when the app becomes
+///   active and when Settings opens.
 @MainActor
 @Observable
 final class AISearchModel {
@@ -50,8 +55,10 @@ final class AISearchModel {
     /// The interests as typed.
     private(set) var interestsText = ""
     private(set) var dailyCap = DailyCap.default
-    /// Whether the Keychain holds a key. The key itself is never held here.
-    private(set) var hasKey = false
+    /// What the Keychain last said about the key. The key itself is never held here.
+    private(set) var keyStatus: KeyStatus = .unknown
+    /// The Keychain holds a key (and could be read).
+    var hasKey: Bool { keyStatus == .saved }
     /// The provider refused the key; automatic searches are stopped.
     private(set) var keyRefused = false
     /// How the last search went wrong, for Settings only.
@@ -100,19 +107,12 @@ final class AISearchModel {
         dailyCap = DailyCap.clamp(settings.aiDailyCap)
         keyRefused = settings.aiKeyRefused ?? false
         problem = settings.aiLastProblemRaw.flatMap(AISearchProblem.init(rawValue:))
-        var keyIsKnownMissing = false
-        do {
-            hasKey = try keyStore.read() != nil
-            keyIsKnownMissing = !hasKey
-        } catch {
-            hasKey = false
-            problem = .keyUnreadable
-        }
         // The pill never shows a state that is not true: a store restored to
         // another phone arrives without the key (it never leaves the device),
         // and interests may have been emptied. A Keychain that cannot be read
-        // right now leaves the choice alone.
-        if mode == .aiSearch, keyIsKnownMissing || interests.isEmpty {
+        // right now leaves the choice alone (see `readKey`).
+        _ = readKey()
+        if mode == .aiSearch, interests.isEmpty {
             mode = .myList
             write { $0.aiModeRaw = AIMode.myList.rawValue }
         }
@@ -131,7 +131,7 @@ final class AISearchModel {
     }
 
     var precondition: AIPrecondition {
-        AIPrecondition(hasKey: hasKey, interests: interests)
+        AIPrecondition(key: keyStatus, interests: interests)
     }
 
     /// AI search is on and can run: the toggle is on Let AI Search, and a key
@@ -220,7 +220,7 @@ final class AISearchModel {
         } catch {
             throw .notSaved
         }
-        hasKey = true
+        keyStatus = .saved
         keyGeneration += 1
         keyRefused = false
         providerChangedSinceKey = false
@@ -240,7 +240,7 @@ final class AISearchModel {
         } catch {
             throw .notRemoved
         }
-        hasKey = false
+        keyStatus = .missing
         keyGeneration += 1
         keyRefused = false
         providerChangedSinceKey = false
@@ -251,6 +251,38 @@ final class AISearchModel {
         }
         if mode == .aiSearch { setMode(.myList) }
         updateVisibility()
+    }
+
+    // MARK: The key's status
+
+    /// Asks the Keychain again whether a key is stored. Called when the app
+    /// becomes active and when Settings opens, so a Keychain that could not
+    /// be read at launch (the phone not yet unlocked) is noticed once it can.
+    func refreshKeyStatus() {
+        _ = readKey()
+    }
+
+    /// Reads the key and records what the Keychain said. Returns the key for
+    /// the caller's local use only. A key found clears an unreadable-key
+    /// problem; no key moves the pill back to Use My List; a read that fails
+    /// marks the status unknown and changes nothing else.
+    private func readKey() -> APIKey? {
+        let key: APIKey?
+        do {
+            key = try keyStore.read()
+        } catch {
+            keyStatus = .unknown
+            setProblem(.keyUnreadable)
+            updateVisibility()
+            return nil
+        }
+        keyStatus = key == nil ? .missing : .saved
+        if problem == .keyUnreadable { setProblem(nil) }
+        if key == nil, mode == .aiSearch {
+            setMode(.myList)
+        }
+        updateVisibility()
+        return key
     }
 
     // MARK: Searching
@@ -269,7 +301,7 @@ final class AISearchModel {
     private func gate(now: Date) -> SearchGate {
         SearchGate(
             mode: mode,
-            hasKey: hasKey,
+            key: keyStatus,
             interests: interests,
             cap: dailyCap,
             usedToday: counts[SearchDay.key(now, timeZone: zone())] ?? 0,
@@ -287,21 +319,13 @@ final class AISearchModel {
         let current = now()
         let timeZone = zone()
         let day = SearchDay.key(current, timeZone: timeZone)
-        guard gate(now: current).decide(trigger, now: current) == .send else { return }
-
-        let key: APIKey
-        do {
-            guard let stored = try keyStore.read() else {
-                hasKey = false
-                if mode == .aiSearch { setMode(.myList) }
-                updateVisibility()
-                return
-            }
-            key = stored
-        } catch {
-            setProblem(.keyUnreadable)
-            return
-        }
+        // The Keychain is asked first, so the gate sees what it says now: a
+        // key that could not be read at launch counts once it can, and one
+        // that cannot be read now sends nothing.
+        let stored = readKey()
+        guard gate(now: current).decide(trigger, now: current) == .send,
+              let key = stored
+        else { return }
         guard charge(day: day, at: current) else {
             setProblem(.countNotSaved)
             return
@@ -449,6 +473,25 @@ extension AISearchModel {
         model.isFrozen = true
         model.lastSearch = LastSearch(at: now.addingTimeInterval(-2 * 3600), found: 3)
         return model
+    }
+
+    /// Debug-only: what `-debugAI` uses when its sample could not be built.
+    /// The fake key in an `InMemoryKeyStore`, never the real Keychain, and
+    /// frozen, so nothing is ever sent. With a key present, opening it
+    /// changes nothing in `context` that a normal launch would not.
+    static func debugFallback(feed: FeedModel, context: ModelContext) -> AISearchModel {
+        let model = AISearchModel(
+            context: context,
+            keyStore: InMemoryKeyStore(APIKey(typed: sampleKey)),
+            feed: feed
+        )
+        model.isFrozen = true
+        return model
+    }
+
+    /// For the tests: whether this model sends nothing and keeps its key in memory.
+    var isDebugFrozenInMemory: Bool {
+        isFrozen && keyStore is InMemoryKeyStore
     }
 }
 #endif

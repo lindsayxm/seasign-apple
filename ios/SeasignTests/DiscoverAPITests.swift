@@ -78,6 +78,10 @@ import Testing
         (502, "provider_error", .providerError),
         (504, "timeout", .timeout),
         (503, "internal_error", .unavailable),
+        // A redirect is never followed (see RedirectTests); if one comes
+        // back it is a failure like any status the API does not send.
+        (307, "internal_error", .unavailable),
+        (301, "internal_error", .unavailable),
     ])
     func eachErrorStatusMapsToItsFailure(status: Int, code: String, expected: SeasignAPI.DiscoverFailure) async {
         let stub = DiscoverStub()
@@ -92,6 +96,77 @@ import Testing
             #expect(!String(reflecting: error).contains(fakeKey))
             #expect(!error.localizedDescription.contains(fakeKey))
         }
+    }
+
+    /// A time zone the API might not know is left out rather than sent: the
+    /// API would answer 400 to every search.
+    @Test(arguments: ["GMT-0500", "Mars/Olympus_Mons", "EST", ""])
+    func aDoubtfulTimeZoneIsLeftOut(zone: String) async throws {
+        let stub = DiscoverStub()
+        _ = try await stubbedDiscoverAPI(stub).discover(key: key, provider: .anthropic, interests: ["x"], timezone: zone)
+        let recorded = try #require(stub.requests.first)
+        let object = try #require(try JSONSerialization.jsonObject(with: recorded.body) as? [String: Any])
+        #expect(object["timezone"] == nil)
+        #expect(object["interests"] as? [String] == ["x"])
+    }
+
+    @Test func gmtIsSentAsUTC() async throws {
+        let stub = DiscoverStub()
+        _ = try await stubbedDiscoverAPI(stub).discover(key: key, provider: .anthropic, interests: ["x"], timezone: "GMT")
+        let recorded = try #require(stub.requests.first)
+        let object = try #require(try JSONSerialization.jsonObject(with: recorded.body) as? [String: Any])
+        #expect(object["timezone"] as? String == "UTC")
+    }
+
+    // MARK: https only for the key (Release builds)
+
+    /// With the Release rule on, a server that is not https never receives
+    /// the key: nothing reaches the transport at all.
+    @Test(arguments: ["http://example.test", "HTTP://example.test", "ftp://example.test", "example.test"])
+    func withTheHTTPSRuleOnAPlainServerGetsNothing(server: String) async throws {
+        let stub = DiscoverStub()
+        let api = SeasignAPI(serverURL: try #require(URL(string: server)), transport: stub, keyNeedsHTTPS: true)
+        await #expect(throws: SeasignAPI.DiscoverFailure.unavailable) {
+            try await api.discover(key: key, provider: .anthropic, interests: ["x"], timezone: nil)
+        }
+        #expect(stub.count == 0)
+    }
+
+    @Test(arguments: ["https://example.test", "HTTPS://example.test"])
+    func withTheHTTPSRuleOnAnHTTPSServerIsCalled(server: String) async throws {
+        let stub = DiscoverStub()
+        let api = SeasignAPI(serverURL: try #require(URL(string: server)), transport: stub, keyNeedsHTTPS: true)
+        _ = try await api.discover(key: key, provider: .anthropic, interests: ["x"], timezone: nil)
+        #expect(stub.count == 1)
+        #expect(stub.requests.first?.request.headerFields[RawKeyHeader.name] == fakeKey)
+    }
+
+    /// Debug builds talk to `wrangler dev` over plain http.
+    @Test func withTheHTTPSRuleOffAPlainServerIsCalled() async throws {
+        let stub = DiscoverStub()
+        let api = SeasignAPI(serverURL: URL(string: "http://localhost:8787")!, transport: stub, keyNeedsHTTPS: false)
+        _ = try await api.discover(key: key, provider: .anthropic, interests: ["x"], timezone: nil)
+        #expect(stub.count == 1)
+    }
+
+    /// The rule follows the build: on in Release, off in Debug (tests run Debug).
+    @Test func theRuleIsOffOnlyInDebugBuilds() {
+        #if DEBUG
+        #expect(SeasignAPI.keyNeedsHTTPSByDefault == false)
+        #else
+        #expect(SeasignAPI.keyNeedsHTTPSByDefault == true)
+        #endif
+        #expect(SeasignAPI.defaultServerURL.scheme == (SeasignAPI.keyNeedsHTTPSByDefault ? "https" : "http"))
+    }
+
+    /// The shared session keeps nothing between requests.
+    @Test func theSessionStoresNoCookiesCacheOrCredentials() {
+        let configuration = SeasignAPI.session.configuration
+        #expect(configuration.httpCookieStorage == nil)
+        #expect(configuration.httpShouldSetCookies == false)
+        #expect(configuration.urlCache == nil)
+        #expect(configuration.urlCredentialStorage == nil)
+        #expect(SeasignAPI.session.delegate is RefuseRedirects)
     }
 
     @Test func anUnreadableAnswerIsUnavailable() async {

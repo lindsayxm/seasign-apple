@@ -71,7 +71,12 @@ struct SeasignApp: App {
                 showSaved: defaults.bool(forKey: "debugSaved"),
                 showAI: showAI
             )
-            let ai = sample.ai ?? AISearchModel(context: container.mainContext, feed: sample.feed, zone: zone)
+            // With `-debugAI` the real Keychain is never used, even when the
+            // samples could not be built: the fallback holds the fake key in
+            // memory and sends nothing.
+            let ai = sample.ai ?? (showAI
+                ? AISearchModel.debugFallback(feed: sample.feed, context: container.mainContext)
+                : AISearchModel(context: container.mainContext, feed: sample.feed, zone: zone))
             return .ready(container, today, lists, events, sample.feed, sample.saved, ai)
             #else
             let ai = AISearchModel(context: container.mainContext, feed: feed, zone: zone)
@@ -87,26 +92,34 @@ struct SeasignApp: App {
     /// any flag on, Saved uses that store too (empty unless `showSaved`),
     /// so saving a sample headline never writes into the user's own store.
     /// The AI sample also keeps its settings, its count and its fake key in
-    /// memory, so the user's store and the real Keychain are not touched.
-    private static func debugSamples(
+    /// memory, so the user's store and the real Keychain are not touched;
+    /// if the feed sample cannot be built, the AI model is still the frozen
+    /// in-memory fallback, never one on the real Keychain. `ai` is nil only
+    /// when `showAI` is off or no in-memory store could be made.
+    static func debugSamples(
         feed: FeedModel,
         saved: SavedModel,
         showFeed: Bool,
         showSaved: Bool,
-        showAI: Bool
+        showAI: Bool,
+        feedSample: (ModelContext) throws -> FeedModel = { try FeedModel.sample(context: $0) }
     ) -> (feed: FeedModel, saved: SavedModel, ai: AISearchModel?) {
         guard showFeed || showSaved || showAI,
               let container = try? SeasignSchema.inMemoryContainer()
         else { return (feed, saved, nil) }
         let context = ModelContext(container)
-        let sampleFeed = showFeed ? (try? FeedModel.sample(context: context)) ?? feed : feed
+        let sampleFeed = showFeed ? (try? feedSample(context)) ?? feed : feed
         let sampleSaved = showSaved
             ? (try? SavedModel.sample(context: context, includingAI: showAI)) ?? SavedModel(context: context)
             : SavedModel(context: context)
         var ai: AISearchModel?
-        if showAI, sampleFeed !== feed {
-            sampleFeed.addSampleAIItems()
-            ai = AISearchModel.sample(feed: sampleFeed, context: context)
+        if showAI {
+            if sampleFeed !== feed {
+                sampleFeed.addSampleAIItems()
+                ai = AISearchModel.sample(feed: sampleFeed, context: context)
+            } else {
+                ai = AISearchModel.debugFallback(feed: sampleFeed, context: context)
+            }
         }
         return (sampleFeed, sampleSaved, ai)
     }

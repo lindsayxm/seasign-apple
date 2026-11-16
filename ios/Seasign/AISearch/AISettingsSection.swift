@@ -65,6 +65,8 @@ struct AISettingsSection: View {
         }
         .onAppear {
             interestsDraft = model.interestsText
+            // A Keychain that could not be read before may be readable now.
+            model.refreshKeyStatus()
         }
         .onDisappear {
             commitInterests()
@@ -137,7 +139,27 @@ struct AISettingsSection: View {
     private var keySection: some View {
         VStack(alignment: .leading, spacing: 8) {
             label("API key")
-            if model.hasKey && !isReplacingKey {
+            if model.keyStatus == .unknown && !isReplacingKey {
+                // The Keychain cannot be read right now: the key is probably
+                // there, so this does not ask for it. Replace stays possible.
+                HStack(alignment: .center, spacing: 16) {
+                    Text(caps: "Key can't be read now")
+                        .capsRelative(11.5, medium: true)
+                        .foregroundStyle(Palette.sun)
+                    Spacer(minLength: 8)
+                    textButton("Try again") {
+                        model.refreshKeyStatus()
+                    }
+                    .accessibilityLabel("Read the API key again")
+                    textButton("Replace") {
+                        keyProblem = nil
+                        isReplacingKey = true
+                        focus = .key
+                    }
+                    .accessibilityLabel("Replace API key")
+                }
+                .frame(minHeight: 44)
+            } else if model.hasKey && !isReplacingKey {
                 HStack(alignment: .center, spacing: 16) {
                     Text(caps: "Key saved")
                         .capsRelative(11.5, medium: true)

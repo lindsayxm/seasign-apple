@@ -32,7 +32,104 @@ import Testing
         let cut = InterestList.parse(long)
         #expect(cut.interests == [String(repeating: "a", count: 80), "short"])
         #expect(cut.trim.shortened == 1)
-        #expect(cut.trim.message == "Interests are cut to 80 characters.")
+        #expect(cut.trim.message == "Interests are cut to 80 characters (an emoji can count as several).")
+    }
+
+    // The API's rule: at most 400 UTF-16 units as sent, and 1 to 80 code
+    // points (Unicode scalars). These sit on both sides of the boundary
+    // with characters made of several scalars.
+
+    /// A flag is two scalars (regional indicators): 40 fit, 41 do not.
+    @Test func flagsAreCountedAsTheAPICountsThem() {
+        let flag = "\u{1F1FA}\u{1F1F8}"
+        let forty = String(repeating: flag, count: 40)
+        #expect(forty.count == 40 && forty.unicodeScalars.count == 80 && forty.utf16.count == 160)
+        let fits = InterestList.parse(forty)
+        #expect(fits.interests == [forty])
+        #expect(fits.trim.isEmpty)
+
+        let cut = InterestList.parse(String(repeating: flag, count: 41))
+        #expect(cut.interests == [forty])
+        #expect(cut.trim.shortened == 1)
+        // Swift counted 41 characters, under the old 80-character rule.
+        #expect(String(repeating: flag, count: 41).count == 41)
+    }
+
+    /// A family is seven scalars joined by ZWJ: 11 fit (77), a 12th does not
+    /// and is not split, so no half family is sent.
+    @Test func familyEmojiAreNeverSplit() {
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"
+        #expect(family.count == 1 && family.unicodeScalars.count == 7)
+        let eleven = String(repeating: family, count: 11)
+        #expect(InterestList.parse(eleven).interests == [eleven])
+        #expect(InterestList.parse(eleven).trim.isEmpty)
+
+        let twelve = InterestList.parse(String(repeating: family, count: 12))
+        #expect(twelve.interests == [eleven])
+        #expect(twelve.trim.shortened == 1)
+
+        // 77 scalars of families plus "abc" is exactly 80; one letter more is
+        // cut back to 80 at the letter, not inside a family.
+        #expect(InterestList.parse(eleven + "abc").interests == [eleven + "abc"])
+        #expect(InterestList.parse(eleven + "abcd").interests == [eleven + "abc"])
+    }
+
+    /// A subdivision flag (England) is seven scalars, tag characters included.
+    @Test func tagSequenceFlagsKeepTheirTags() {
+        let england = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}"
+        #expect(england.unicodeScalars.count == 7)
+        let interest = String(repeating: "a", count: 73) + england
+        #expect(InterestList.parse(interest).interests == [interest])
+        let over = String(repeating: "a", count: 74) + england
+        #expect(InterestList.parse(over).interests == [String(repeating: "a", count: 74)])
+    }
+
+    /// "é" written as e + combining acute is two scalars: 40 fit, 41 do not.
+    @Test func combiningSequencesAreCountedByScalar() {
+        let e = "e\u{0301}"
+        let forty = String(repeating: e, count: 40)
+        #expect(InterestList.parse(forty).interests == [forty])
+        let cut = InterestList.parse(String(repeating: e, count: 41))
+        #expect(cut.interests == [forty])
+        #expect(cut.interests[0].unicodeScalars.count == 80)
+    }
+
+    /// A cut that ends at a space does not leave it at the end.
+    @Test func aCutEndingInASpaceIsTrimmed() {
+        let text = String(repeating: "a", count: 79) + " bcd"
+        #expect(InterestList.parse(text).interests == [String(repeating: "a", count: 79)])
+    }
+
+    /// One character of more than 80 scalars cannot be cut to fit: it is
+    /// left out and Settings says it is too long, instead of the API
+    /// refusing every search with it.
+    @Test func anInterestNoCutCanFitIsLeftOutWithAMessage() {
+        let tower = "e" + String(repeating: "\u{0301}", count: 80)
+        #expect(tower.count == 1 && tower.unicodeScalars.count == 81)
+        let parsed = InterestList.parse(tower + ", tide pools")
+        #expect(parsed.interests == ["tide pools"])
+        #expect(parsed.trim.tooLong == 1)
+        #expect(parsed.trim.shortened == 0)
+        #expect(parsed.trim.message == "One interest is too long to use and was left out.")
+        #expect(InterestList.parse(tower + "," + tower).trim.message == "2 interests are too long to use and were left out.")
+        // Exactly 80 scalars in one character fits.
+        let eighty = "e" + String(repeating: "\u{0301}", count: 79)
+        #expect(InterestList.parse(eighty).interests == [eighty])
+    }
+
+    /// Everything `parse` returns meets the API's rule, for a mix of scripts
+    /// and emoji at every length up to well past the limit.
+    @Test func everyParsedInterestFitsTheAPI() {
+        let pieces = ["a", " ", "\u{1F1EF}\u{1F1F5}", "e\u{0301}", "\u{1F469}\u{1F3FD}\u{200D}\u{1F52C}", "漢", "\u{1F600}", "ß"]
+        for length in 1...120 {
+            let text = (0..<length).map { pieces[$0 % pieces.count] }.joined()
+            for interest in InterestList.parse(text).interests {
+                #expect(InterestList.fits(interest))
+                #expect((1...80).contains(interest.unicodeScalars.count))
+                #expect(interest.utf16.count <= 400)
+                #expect(interest == interest.trimmingCharacters(in: .whitespaces))
+            }
+        }
     }
 
     /// Repeats do not use up the twenty.
@@ -54,6 +151,19 @@ import Testing
         #expect(AIPrecondition.ready.message == nil)
         #expect(AIPrecondition.needsKey.message?.contains("API key") == true)
         #expect(AIPrecondition.needsInterests.message?.contains("interest") == true)
+    }
+
+    /// "Could not read the Keychain" is not "no key": it never asks for the
+    /// key, whatever the interests.
+    @Test func anUnreadableKeychainIsNotAMissingKey() throws {
+        #expect(AIPrecondition(key: .unknown, interests: ["x"]) == .keyUnreadable)
+        #expect(AIPrecondition(key: .unknown, interests: []) == .keyUnreadable)
+        #expect(AIPrecondition(key: .missing, interests: ["x"]) == .needsKey)
+        for text in [AIPrecondition.keyUnreadable.message, AISearchProblem.keyUnreadable.message] {
+            let message = try #require(text)
+            #expect(!message.localizedCaseInsensitiveContains("add your"))
+            #expect(!message.localizedCaseInsensitiveContains("enter"))
+        }
     }
 }
 
@@ -99,6 +209,44 @@ import Testing
         #expect(SearchDay.ianaName(newYork) == "America/New_York")
         #expect(SearchDay.ianaName(TimeZone(identifier: "UTC")!) == "UTC")
         #expect(SearchDay.ianaName(TimeZone(secondsFromGMT: -5 * 3600)!) == nil)
+        #expect(SearchDay.ianaName(TimeZone(secondsFromGMT: 0)!) == "UTC")
+    }
+
+    /// The API refuses (400) a zone it does not know, which would refuse
+    /// every search; a doubtful name is left out instead.
+    @Test(arguments: [
+        ("America/Chicago", "America/Chicago"),
+        ("Asia/Tokyo", "Asia/Tokyo"),
+        // Not in Foundation's list (it has Asia/Calcutta) but what phones
+        // in India report, and an IANA name the API knows.
+        ("Asia/Kolkata", "Asia/Kolkata"),
+        ("America/Argentina/Buenos_Aires", "America/Argentina/Buenos_Aires"),
+        ("GMT", "UTC"),
+        ("Etc/UTC", "UTC"),
+        ("UTC", "UTC"),
+    ] as [(String, String?)])
+    func knownNamesAreKept(identifier: String, expected: String?) {
+        #expect(SearchDay.ianaName(identifier: identifier) == expected)
+    }
+
+    @Test(arguments: [
+        "", "GMT-0500", "GMT+05:30", "+05:00", "EST", "CST", "PST",
+        "Mars/Olympus_Mons", "America/chicago", "America/Not_A_Zone", "Asia/", "America", "America/Chicago ", " America/Chicago",
+        "America/Chicago\u{0}", "Europe/Kyiv\u{200B}", "Amérique/Montréal",
+        String(repeating: "A", count: 65),
+    ])
+    func doubtfulNamesAreLeftOut(identifier: String) {
+        #expect(SearchDay.ianaName(identifier: identifier) == nil)
+    }
+
+    /// Whatever Foundation calls the phone's zone, what is sent is UTC or a
+    /// known name within the API's 64 characters.
+    @Test func everyKnownNameFitsTheAPI() {
+        for identifier in TimeZone.knownTimeZoneIdentifiers {
+            guard let name = SearchDay.ianaName(identifier: identifier) else { continue }
+            #expect(name.utf16.count <= 64)
+            #expect(name == "UTC" || TimeZone.knownTimeZoneIdentifiers.contains(name))
+        }
     }
 }
 
@@ -130,7 +278,7 @@ import Testing
 
     private func gate(
         mode: AIMode = .aiSearch,
-        hasKey: Bool = true,
+        key: KeyStatus = .saved,
         interests: [String] = ["tide pools"],
         cap: Int = 3,
         used: Int = 0,
@@ -139,7 +287,7 @@ import Testing
         isSearching: Bool = false
     ) -> SearchGate {
         SearchGate(
-            mode: mode, hasKey: hasKey, interests: interests, cap: cap, usedToday: used,
+            mode: mode, key: key, interests: interests, cap: cap, usedToday: used,
             lastSentAt: lastSentAt, keyRefused: keyRefused, isSearching: isSearching
         )
     }
@@ -151,8 +299,15 @@ import Testing
     }
 
     @Test func needsKeyAndInterests() {
-        #expect(gate(hasKey: false).decide(.manual, now: now) == .notReady(.needsKey))
+        #expect(gate(key: .missing).decide(.manual, now: now) == .notReady(.needsKey))
         #expect(gate(interests: []).decide(.manual, now: now) == .notReady(.needsInterests))
+    }
+
+    /// A Keychain that cannot be read never sends, by either trigger.
+    @Test func anUnknownKeyNeverSends() {
+        for trigger in [SearchGate.Trigger.automatic, .manual] {
+            #expect(gate(key: .unknown).decide(trigger, now: now) == .notReady(.keyUnreadable))
+        }
     }
 
     @Test func theCapHoldsForBothTriggers() {

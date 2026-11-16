@@ -17,12 +17,54 @@ struct SeasignAPI: Sendable {
         #endif
     }
 
+    /// Whether `discover` refuses to send the key to a server that is not
+    /// https. On in Release builds; Debug builds talk to `wrangler dev` over
+    /// plain http on this Mac.
+    static var keyNeedsHTTPSByDefault: Bool {
+        #if DEBUG
+        false
+        #else
+        true
+        #endif
+    }
+
+    /// The one URLSession every API call goes through. Ephemeral, with no
+    /// cookies, cache or credential store, and it never follows a redirect:
+    /// URLSession would send the request's headers, the user's LLM key
+    /// among them, again to whatever address a redirect names. None of the
+    /// API's routes redirects, so a 3xx answer comes back as itself and each
+    /// call reports it as a failure. Shared, because a session with a
+    /// delegate lives until it is invalidated.
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpCookieAcceptPolicy = .never
+        configuration.httpShouldSetCookies = false
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCredentialStorage = nil
+        return URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+    }()
+
+    /// The transport over `session`. Buffered, not streaming: in streaming
+    /// mode swift-openapi-urlsession puts a delegate of its own on each task,
+    /// and buffered mode leaves the session's delegate as the only one that
+    /// decides on redirects. The API's bodies are small JSON.
+    static var defaultTransport: any ClientTransport {
+        URLSessionTransport(configuration: .init(session: session, httpBodyProcessingMode: .buffered))
+    }
+
     private let client: Client
+    private let serverURL: URL
+    private let keyNeedsHTTPS: Bool
 
     init(
         serverURL: URL = SeasignAPI.defaultServerURL,
-        transport: any ClientTransport = URLSessionTransport()
+        transport: any ClientTransport = SeasignAPI.defaultTransport,
+        keyNeedsHTTPS: Bool = SeasignAPI.keyNeedsHTTPSByDefault
     ) {
+        self.serverURL = serverURL
+        self.keyNeedsHTTPS = keyNeedsHTTPS
         client = Client(serverURL: serverURL, transport: transport, middlewares: [RawKeyHeader()])
     }
 
@@ -179,14 +221,22 @@ struct SeasignAPI: Sendable {
 
     /// `POST /v1/discover`: recent publications on `interests`, found by
     /// `provider` with the user's own `key`, which goes in the `X-LLM-Key`
-    /// header and nowhere else. `timezone` must be an IANA name or nil.
-    /// Throws a `DiscoverFailure`, chosen by the status code alone.
+    /// header and nowhere else. `timezone` is sent only when it is an IANA
+    /// name the API accepts (`SearchDay.ianaName(identifier:)`); anything
+    /// else is left out, so the API uses UTC rather than refusing the search.
+    /// When `keyNeedsHTTPS` is on (Release builds) and the server is not
+    /// https, nothing is sent and the call fails as `unavailable`.
+    /// Throws a `DiscoverFailure`, chosen by the status code alone; a
+    /// redirect, which is never followed, is `unavailable`.
     func discover(
         key: APIKey,
         provider: AIProvider,
         interests: [String],
         timezone: String?
     ) async throws -> DiscoverAnswer {
+        guard !keyNeedsHTTPS || serverURL.scheme?.lowercased() == "https" else {
+            throw DiscoverFailure.unavailable
+        }
         let output: Operations.postDiscover.Output
         do {
             output = try await client.postDiscover(
@@ -194,7 +244,7 @@ struct SeasignAPI: Sendable {
                 body: .json(.init(
                     provider: Components.Schemas.DiscoverRequest.providerPayload(rawValue: provider.rawValue) ?? .anthropic,
                     interests: interests,
-                    timezone: timezone
+                    timezone: timezone.flatMap(SearchDay.ianaName(identifier:))
                 ))
             )
         } catch {
@@ -222,6 +272,20 @@ struct SeasignAPI: Sendable {
         case .undocumented:
             throw DiscoverFailure.unavailable
         }
+    }
+}
+
+/// Refuses every redirect, so the completed task carries the 3xx answer
+/// itself and no request goes to the address it names (see `SeasignAPI.session`).
+final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
     }
 }
 

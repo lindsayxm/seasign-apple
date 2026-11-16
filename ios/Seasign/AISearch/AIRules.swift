@@ -36,18 +36,33 @@ enum FeedOrigin: String, Codable, Sendable {
 }
 
 /// The interests typed in Settings, as the API takes them.
+///
+/// The API (`cleanInterest` in `api/src/routes/discover.ts`) takes at most
+/// 400 UTF-16 units as sent, then, after collapsing white space and dropping
+/// control and direction characters, 1 to 80 code points. `SiteText.clean`
+/// already drops everything that cleaning would, so what is sent is what
+/// the API measures, and it is measured the same way here: Unicode scalars
+/// (code points) and UTF-16 units, not Swift `Character`s. A flag is two
+/// scalars, a family emoji seven; an interest is never cut inside one.
 enum InterestList {
     static let maxCount = 20
+    /// Unicode scalars (the API's code points), after cleaning.
     static let maxLength = 80
+    /// UTF-16 units, as sent.
+    static let maxUTF16 = 400
 
     /// What was left out or shortened while reading the typed text.
     struct Trim: Equatable, Sendable {
         /// Interests beyond `maxCount` that were dropped.
         var dropped = 0
-        /// Interests cut to `maxLength` characters.
+        /// Interests cut to fit `maxLength`.
         var shortened = 0
+        /// Interests left out because even their first character is over
+        /// the limit (one character built from more than 80 code points),
+        /// so no cut can make them fit.
+        var tooLong = 0
 
-        var isEmpty: Bool { dropped == 0 && shortened == 0 }
+        var isEmpty: Bool { dropped == 0 && shortened == 0 && tooLong == 0 }
 
         /// Fixed text for Settings.
         var message: String? {
@@ -56,7 +71,12 @@ enum InterestList {
                 parts.append("Only the first \(InterestList.maxCount) interests are used.")
             }
             if shortened > 0 {
-                parts.append("Interests are cut to \(InterestList.maxLength) characters.")
+                parts.append("Interests are cut to \(InterestList.maxLength) characters (an emoji can count as several).")
+            }
+            if tooLong > 0 {
+                parts.append(tooLong == 1
+                    ? "One interest is too long to use and was left out."
+                    : "\(tooLong) interests are too long to use and were left out.")
             }
             return parts.isEmpty ? nil : parts.joined(separator: " ")
         }
@@ -67,10 +87,34 @@ enum InterestList {
         var trim: Trim
     }
 
+    /// Whether the API takes `interest` as it stands (already cleaned).
+    static func fits(_ interest: String) -> Bool {
+        let scalars = interest.unicodeScalars.count
+        return scalars >= 1 && scalars <= maxLength && interest.utf16.count <= maxUTF16
+    }
+
+    /// The longest run of whole characters from the start that fits, with
+    /// trailing spaces trimmed; empty when not even the first character fits.
+    static func cut(_ interest: String) -> String {
+        var scalars = 0
+        var utf16 = 0
+        var end = interest.startIndex
+        for character in interest {
+            let nextScalars = scalars + character.unicodeScalars.count
+            let nextUTF16 = utf16 + character.utf16.count
+            guard nextScalars <= maxLength, nextUTF16 <= maxUTF16 else { break }
+            scalars = nextScalars
+            utf16 = nextUTF16
+            end = interest.index(after: end)
+        }
+        return String(interest[..<end]).trimmingCharacters(in: .whitespaces)
+    }
+
     /// Splits on commas, cleans each piece like site text (white space
     /// collapsed, invisible characters dropped), drops empty ones and
     /// repeats that differ only in case (the first spelling wins), cuts each
-    /// to `maxLength` characters and keeps the first `maxCount`.
+    /// to fit the API's limits on a character boundary (or leaves it out
+    /// when no cut can), and keeps the first `maxCount`.
     static func parse(_ typed: String) -> Parsed {
         var trim = Trim()
         var seen = Set<String>()
@@ -78,8 +122,12 @@ enum InterestList {
         for piece in typed.split(separator: ",", omittingEmptySubsequences: false) {
             var interest = SiteText.clean(String(piece), limit: Int.max)
             guard !interest.isEmpty else { continue }
-            if interest.count > maxLength {
-                interest = String(interest.prefix(maxLength)).trimmingCharacters(in: .whitespaces)
+            if !fits(interest) {
+                interest = cut(interest)
+                guard !interest.isEmpty else {
+                    trim.tooLong += 1
+                    continue
+                }
                 trim.shortened += 1
             }
             guard seen.insert(interest.lowercased()).inserted else { continue }
@@ -130,12 +178,60 @@ enum SearchDay {
     /// (`America/Chicago`, `UTC`); nil for anything else, such as
     /// `GMT-0500`, which the API would refuse.
     static func ianaName(_ timeZone: TimeZone) -> String? {
-        let identifier = timeZone.identifier
+        ianaName(identifier: timeZone.identifier)
+    }
+
+    /// The API checks `timezone` with `Intl.DateTimeFormat` and a 64
+    /// character limit, and answers 400 to a name it does not know, which
+    /// would refuse every search. So only a name that is certainly one of
+    /// the IANA database's is sent: UTC under any of its names (sent as
+    /// `UTC`), or, in at most 64 characters of letters, digits, `/`, `_`,
+    /// `-` and `+`, a name Foundation lists as known or an `Area/Place` name
+    /// in one of the database's areas that Foundation's time zone data
+    /// recognises (Foundation lists `Asia/Calcutta` but phones in India
+    /// report `Asia/Kolkata`). Anything else (offset zones such as
+    /// `GMT-0500`, abbreviations such as `CST`, which Foundation accepts and
+    /// the API does not, unknown names) is nil and the field is left out;
+    /// the API then counts days in UTC.
+    static func ianaName(identifier: String) -> String? {
         // Foundation names UTC "GMT"; both are UTC to the API.
         if ["GMT", "UTC", "Etc/UTC", "Etc/GMT"].contains(identifier) { return "UTC" }
-        guard TimeZone.knownTimeZoneIdentifiers.contains(identifier) else { return nil }
+        guard (1...64).contains(identifier.utf16.count),
+              identifier.unicodeScalars.allSatisfy(isNameScalar)
+        else { return nil }
+        if TimeZone.knownTimeZoneIdentifiers.contains(identifier) { return identifier }
+        guard let area = identifier.split(separator: "/", omittingEmptySubsequences: false).first,
+              ianaAreas.contains(String(area)),
+              identifier.contains("/"),
+              TimeZone(identifier: identifier)?.identifier == identifier
+        else { return nil }
         return identifier
     }
+
+    /// The geographic areas of the IANA database's `Area/Place` names.
+    private static let ianaAreas: Set<String> = [
+        "Africa", "America", "Antarctica", "Arctic", "Asia", "Atlantic",
+        "Australia", "Europe", "Indian", "Pacific",
+    ]
+
+    private static func isNameScalar(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar {
+        case "A"..."Z", "a"..."z", "0"..."9", "/", "_", "-", "+": true
+        default: false
+        }
+    }
+}
+
+/// What is known about the key in the Keychain. The key itself is never held.
+enum KeyStatus: Equatable, Sendable {
+    /// A key is stored.
+    case saved
+    /// The Keychain answered that no key is stored.
+    case missing
+    /// The Keychain could not be read (for one, before the phone's first
+    /// unlock after a restart), so whether a key is stored is not known.
+    /// Nothing is sent and nothing is switched off until it can be read.
+    case unknown
 }
 
 /// Whether AI search can be switched on, and if not, why.
@@ -144,14 +240,21 @@ enum AIPrecondition: Equatable, Sendable {
     case needsKey
     case needsInterests
     case needsKeyAndInterests
+    /// The Keychain cannot be read right now; the key may well be there.
+    case keyUnreadable
+
+    init(key: KeyStatus, interests: [String]) {
+        switch (key, !interests.isEmpty) {
+        case (.unknown, _): self = .keyUnreadable
+        case (.saved, true): self = .ready
+        case (.missing, true): self = .needsKey
+        case (.saved, false): self = .needsInterests
+        case (.missing, false): self = .needsKeyAndInterests
+        }
+    }
 
     init(hasKey: Bool, interests: [String]) {
-        switch (hasKey, !interests.isEmpty) {
-        case (true, true): self = .ready
-        case (false, true): self = .needsKey
-        case (true, false): self = .needsInterests
-        case (false, false): self = .needsKeyAndInterests
-        }
+        self.init(key: hasKey ? .saved : .missing, interests: interests)
     }
 
     /// Shown next to the toggle while it cannot move to Let AI Search.
@@ -161,6 +264,8 @@ enum AIPrecondition: Equatable, Sendable {
         case .needsKey: "Add your API key below to let AI search."
         case .needsInterests: "Add at least one interest below to let AI search."
         case .needsKeyAndInterests: "Add your API key and at least one interest below to let AI search."
+        // Not "add your key": the key is most likely stored, just locked away.
+        case .keyUnreadable: "AI search waits until your saved key can be read."
         }
     }
 }
@@ -216,7 +321,9 @@ enum AISearchProblem: Equatable, Sendable {
         case .unavailable:
             "We couldn't reach Seasign's server. Check your connection."
         case .keyUnreadable:
-            "Your key couldn't be read from this phone. Enter it again."
+            // Most often the phone has restarted and not been unlocked yet;
+            // the key is still there, so this does not ask for it again.
+            "Your key can't be read from this phone's Keychain right now. If the phone has just restarted, unlock it and try again."
         case .countNotSaved:
             "The search couldn't be counted on this phone, so it wasn't sent. Try again."
         }
@@ -280,7 +387,8 @@ struct SearchGate: Equatable, Sendable {
     }
 
     var mode: AIMode
-    var hasKey: Bool
+    /// Only `.saved` can send; `.unknown` never does.
+    var key: KeyStatus
     var interests: [String]
     var cap: Int
     var usedToday: Int
@@ -292,7 +400,7 @@ struct SearchGate: Equatable, Sendable {
     func decide(_ trigger: Trigger, now: Date) -> Decision {
         // With Use My List selected nothing is ever sent, whatever else holds.
         guard mode == .aiSearch else { return .myListMode }
-        let precondition = AIPrecondition(hasKey: hasKey, interests: interests)
+        let precondition = AIPrecondition(key: key, interests: interests)
         guard precondition == .ready else { return .notReady(precondition) }
         guard !isSearching else { return .alreadySearching }
         guard usedToday < DailyCap.clamp(cap) else { return .capReached }

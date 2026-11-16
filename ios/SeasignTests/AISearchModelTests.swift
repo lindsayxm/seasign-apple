@@ -374,6 +374,113 @@ private final class AIClock: @unchecked Sendable {
         #expect(try s.context.fetch(FetchDescriptor<Settings>()).first?.aiModeRaw == "ai_search")
     }
 
+    /// Before the first unlock the Keychain cannot be read. That is not "no
+    /// key": the pill keeps its place, Settings does not ask for the key,
+    /// nothing is sent, and once the Keychain answers (the app becomes
+    /// active, Settings opens, or the next search attempt) all is as before.
+    @Test func aKeychainLockedAtLaunchIsNotAMissingKeyAndIsReadAgain() async throws {
+        let s = try setup()
+        let clock = clock
+        let locked = InMemoryKeyStore(APIKey(typed: fakeKey))
+        locked.setFailure(KeychainFailure(status: -25308))
+        let ai = AISearchModel(
+            api: stubbedDiscoverAPI(stub), context: s.context, keyStore: locked,
+            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+        )
+        #expect(ai.keyStatus == .unknown)
+        #expect(!ai.hasKey)
+        #expect(ai.precondition == .keyUnreadable)
+        #expect(ai.precondition != .needsKey)
+        #expect(ai.mode == .aiSearch)
+        #expect(!ai.canSearchNow)
+        // Never sent while unknown, by either trigger.
+        await ai.searchNow()
+        await ai.refreshIfDue()
+        #expect(stub.count == 0)
+        #expect(ai.usedToday == 0)
+        #expect(ai.keyStatus == .unknown)
+
+        // Unlocked: becoming active re-reads it.
+        locked.setFailure(nil)
+        ai.refreshKeyStatus()
+        #expect(ai.keyStatus == .saved)
+        #expect(ai.problem == nil)
+        #expect(ai.isActive)
+        #expect(s.feed.showsAI)
+        await ai.refreshIfDue()
+        #expect(stub.count == 1)
+    }
+
+    /// The search attempt itself asks the Keychain again, so a key locked
+    /// away at launch is used once it can be read, even with no other recheck.
+    @Test func aSearchAttemptReadsTheKeychainAgain() async throws {
+        let s = try setup()
+        let clock = clock
+        let locked = InMemoryKeyStore(APIKey(typed: fakeKey))
+        locked.setFailure(KeychainFailure(status: -25308))
+        let ai = AISearchModel(
+            api: stubbedDiscoverAPI(stub), context: s.context, keyStore: locked,
+            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+        )
+        locked.setFailure(nil)
+        await ai.refreshIfDue()
+        #expect(stub.count == 1)
+        #expect(ai.keyStatus == .saved)
+    }
+
+    /// A recheck that finds the Keychain readable and empty applies the
+    /// rule a launch would have: back to Use My List.
+    @Test func aRecheckThatFindsNoKeyMovesTheToggleBack() throws {
+        let s = try setup()
+        let clock = clock
+        let locked = InMemoryKeyStore()
+        locked.setFailure(KeychainFailure(status: -25308))
+        let ai = AISearchModel(
+            api: stubbedDiscoverAPI(stub), context: s.context, keyStore: locked,
+            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+        )
+        #expect(ai.mode == .aiSearch)
+        locked.setFailure(nil)
+        ai.refreshKeyStatus()
+        #expect(ai.keyStatus == .missing)
+        #expect(ai.precondition == .needsKey)
+        #expect(ai.mode == .myList)
+        #expect(try s.context.fetch(FetchDescriptor<Settings>()).first?.aiModeRaw == "my_list")
+    }
+
+    /// A key that becomes unreadable after launch stops searches without
+    /// counting one or switching anything off.
+    @Test func aKeyThatBecomesUnreadableIsUnknownNotMissing() async throws {
+        let s = try setup()
+        #expect(s.ai.keyStatus == .saved)
+        s.keys.setFailure(KeychainFailure(status: -25308))
+        s.ai.refreshKeyStatus()
+        #expect(s.ai.keyStatus == .unknown)
+        #expect(s.ai.mode == .aiSearch)
+        #expect(s.ai.precondition == .keyUnreadable)
+        #expect(!s.feed.showsAI)
+        s.keys.setFailure(nil)
+        s.ai.refreshKeyStatus()
+        #expect(s.ai.isActive)
+        #expect(s.feed.showsAI)
+    }
+
+    /// An unreadable-key problem kept from an earlier launch goes once the key reads.
+    @Test func aStaleUnreadableKeyProblemIsClearedWhenTheKeyReads() throws {
+        let s = try setup()
+        s.keys.setFailure(KeychainFailure(status: -25308))
+        s.ai.refreshKeyStatus()
+        #expect(try s.context.fetch(FetchDescriptor<Settings>()).first?.aiLastProblemRaw == "key_unreadable")
+        s.keys.setFailure(nil)
+        let clock = clock
+        let again = AISearchModel(
+            api: stubbedDiscoverAPI(stub), context: s.context, keyStore: s.keys,
+            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+        )
+        #expect(again.problem == nil)
+        #expect(try s.context.fetch(FetchDescriptor<Settings>()).first?.aiLastProblemRaw == nil)
+    }
+
     @Test func anUnreadableKeySendsNothingAndCountsNothing() async throws {
         let s = try setup()
         s.keys.setFailure(KeychainFailure(status: -25300))
@@ -647,6 +754,47 @@ private final class AIClock: @unchecked Sendable {
         #expect(s.ai.providerChangedSinceKey)
         try s.ai.saveKey(fakeKey)
         #expect(!s.ai.providerChangedSinceKey)
+    }
+}
+
+/// `-debugAI` never reaches the real Keychain, even when its samples cannot be built.
+@Suite @MainActor struct DebugAIFallbackTests {
+    private struct SampleFailure: Error {}
+
+    @Test func aFailedFeedSampleStillUsesTheInMemoryKeyStore() throws {
+        let context = try inMemoryContext()
+        let feed = FeedModel(context: context)
+        let saved = SavedModel(context: context)
+        let samples = SeasignApp.debugSamples(
+            feed: feed, saved: saved, showFeed: true, showSaved: false, showAI: true,
+            feedSample: { _ in throw SampleFailure() }
+        )
+        let ai = try #require(samples.ai)
+        #expect(ai.isDebugFrozenInMemory)
+        #expect(samples.feed === feed)
+    }
+
+    @Test func theWorkingSampleUsesTheInMemoryKeyStoreToo() throws {
+        let context = try inMemoryContext()
+        let samples = SeasignApp.debugSamples(
+            feed: FeedModel(context: context), saved: SavedModel(context: context),
+            showFeed: true, showSaved: false, showAI: true
+        )
+        #expect(try #require(samples.ai).isDebugFrozenInMemory)
+    }
+
+    /// The fallback sends nothing, even with a key and Search now.
+    @Test func theFallbackSendsNothing() async throws {
+        let context = try inMemoryContext()
+        let feed = FeedModel(context: context)
+        let ai = AISearchModel.debugFallback(feed: feed, context: context)
+        #expect(ai.isDebugFrozenInMemory)
+        #expect(ai.hasKey)
+        ai.setInterests("tide pools")
+        #expect(ai.setMode(.aiSearch))
+        await ai.searchNow()
+        #expect(ai.usedToday == 0)
+        #expect(ai.lastSearch == nil)
     }
 }
 

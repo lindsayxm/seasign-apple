@@ -65,6 +65,9 @@ struct TodayView: View {
                     await events.refresh()
                 }
                 Task { await feed.refresh() }
+                // The Keychain is asked again first: one that could not be
+                // read at launch (before the first unlock) may be readable now.
+                ai.refreshKeyStatus()
                 Task { await ai.refreshIfDue() }
             }
         }
