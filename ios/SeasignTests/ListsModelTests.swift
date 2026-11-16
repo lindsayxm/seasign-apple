@@ -93,7 +93,7 @@ import Testing
     }
 
     @Test func changesAreThereInAFreshContext() throws {
-        let container = try SeasignSchema.container(inMemory: true)
+        let container = try SeasignSchema.inMemoryContainer()
         let clock = SteppingClock()
         let first = model(context: ModelContext(container), clock: clock)
         first.add("Get groceries", to: .todo)

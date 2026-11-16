@@ -158,5 +158,5 @@ func snapshot(zip: String = "10001", json: String = skyJSON10001, fetchedAt: Dat
 
 @MainActor
 func inMemoryContext() throws -> ModelContext {
-    ModelContext(try SeasignSchema.container(inMemory: true))
+    ModelContext(try SeasignSchema.inMemoryContainer())
 }

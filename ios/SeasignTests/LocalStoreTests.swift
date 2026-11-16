@@ -58,6 +58,25 @@ import Testing
         #expect(try context.fetch(FetchDescriptor<CachedSky>()).map(\.zip) == ["10001"])
     }
 
+    /// A new install: not even the folder exists yet.
+    @Test func firstLaunchCreatesTheFolderAndBothStores() throws {
+        defer { cleanUp() }
+        let folder = directory.appending(path: "Library/Application Support")
+        let fresh = LocalStore.Files(
+            user: folder.appending(path: "default.store"),
+            cache: folder.appending(path: "SkyCache.store")
+        )
+        #expect(!FileManager.default.fileExists(atPath: folder.path(percentEncoded: false)))
+        let opened = try LocalStore.open(fresh)
+        #expect(opened.cache == .kept)
+        let context = ModelContext(opened.container)
+        context.insert(ListItem(kind: .todo, title: "First", createdAt: .now))
+        context.insert(CachedSky(zip: "10001", payload: Data(), fetchedAt: .now))
+        try context.save()
+        #expect(FileManager.default.fileExists(atPath: fresh.user.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: fresh.cache.path(percentEncoded: false)))
+    }
+
     /// Each model is in the file it is meant to be in: opening one file alone
     /// finds its own rows, and the cache file can go without the lists going too.
     @Test func modelsLandInTheirOwnFiles() throws {

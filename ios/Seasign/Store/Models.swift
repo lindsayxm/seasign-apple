@@ -42,8 +42,8 @@ enum SeasignSchema {
     static let models: [any PersistentModel.Type] = userModels + cacheModels
 
     /// A container that lives only in memory, for tests and previews.
-    static func container(inMemory: Bool = true) throws -> ModelContainer {
-        precondition(inMemory, "use LocalStore.open for the stores on disk")
+    /// The stores on disk are opened by `LocalStore.open`.
+    static func inMemoryContainer() throws -> ModelContainer {
         // Each in-memory store gets its own name so that containers never share one.
         let id = UUID().uuidString
         return try ModelContainer(
