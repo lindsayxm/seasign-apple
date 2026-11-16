@@ -5,7 +5,7 @@ status: todo
 owner: 
 depends_on: [10]
 created: 2026-11-16T00:17:40Z
-updated: 2026-11-16T00:17:40Z
+updated: 2026-11-16T00:18:26Z
 ---
 
 ## Goal
@@ -34,3 +34,4 @@ Low-severity findings from the task 4 review. (1) A cached sky older than a set 
 ## Log
 
 - 2026-11-16T00:17:40Z [li] created (todo)
+- 2026-11-16T00:18:26Z [li] Correction to the goal, item 7: the user has not been asked about HealthModel.swift. Deleting it is allowed without asking because it was created in this session by the task 2 scaffold (AGENTS.md: ask only before deleting files not created this session).
