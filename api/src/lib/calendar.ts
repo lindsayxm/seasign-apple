@@ -24,6 +24,8 @@
 //   arrive under another name, case, group, fold or nesting.
 // Every loop here has a length fixed by the calendar and is charged to a work
 // budget.
+// Memory cannot be charged as it is used, since ical.js builds its whole tree
+// at once; what it is handed is bounded before it parses (`readableLines`).
 //
 // Nothing here imports `cloudflare:*`, so the spec writer can load it in Node.
 import ICAL from "ical.js";
@@ -68,8 +70,11 @@ const MAX_RULES_PER_EVENT = 8;
 // is refused as too large. File order is not date order, so reading only the
 // first part of a file would quietly lose events that are coming up.
 //
-// The limits are about twice what an ordinary calendar of MAX_CALENDAR_BYTES
-// holds (see the large calendar in api/test/calendar-parse.test.ts).
+// An ordinary busy calendar scaled to MAX_CALENDAR_BYTES holds about 4,400
+// events, 31,000 lines to hand on and a few hundred listed dates (see the
+// large calendar in api/test/calendar-parse.test.ts), so these leave about
+// twice that or more. The costliest file they accept needs about 36 MB of
+// old space (api/scripts/calendar-memory.ts).
 /** Characters of calendar text read; the route fetches at most this many bytes. */
 export const MAX_CALENDAR_BYTES = 2 * 1024 * 1024;
 /** VEVENTs in one file. */
