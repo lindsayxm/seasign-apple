@@ -29,16 +29,32 @@ final class CachedSky {
     }
 }
 
+/// The last `POST /v1/calendar/events` response, so Today can show events at
+/// launch before the network answers. At most one row is kept. It holds no
+/// calendar link: events are tied to `CalendarLink.id`.
+@Model
+final class CachedEvents {
+    /// A JSON-encoded `EventsSnapshot`.
+    var payload: Data
+    var fetchedAt: Date
+
+    init(payload: Data, fetchedAt: Date) {
+        self.payload = payload
+        self.fetchedAt = fetchedAt
+    }
+}
+
 /// The SwiftData models of the app, in one place for the container and tests.
 ///
 /// They are kept in two store files (see `LocalStore`), split by what losing
 /// them would mean. A new model goes into `cacheModels` only if everything in
 /// it can be fetched again; anything the user typed belongs in `userModels`.
 enum SeasignSchema {
-    /// What the user entered: settings and the Do/Get lists. Never deleted by the app.
-    static let userModels: [any PersistentModel.Type] = [Settings.self, ListItem.self]
+    /// What the user entered: settings, the Do/Get lists and the calendar
+    /// links. Never deleted by the app.
+    static let userModels: [any PersistentModel.Type] = [Settings.self, ListItem.self, CalendarLink.self]
     /// Copies of what the API returned. Safe to throw away.
-    static let cacheModels: [any PersistentModel.Type] = [CachedSky.self]
+    static let cacheModels: [any PersistentModel.Type] = [CachedSky.self, CachedEvents.self]
     static let models: [any PersistentModel.Type] = userModels + cacheModels
 
     /// A container that lives only in memory, for tests and previews.

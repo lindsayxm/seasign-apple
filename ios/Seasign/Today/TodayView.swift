@@ -7,6 +7,7 @@ import SwiftUI
 /// with the screen width; see `SceneLayout`.
 struct TodayView: View {
     @Environment(TodayModel.self) private var model
+    @Environment(EventsModel.self) private var events
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var destination: Destination?
@@ -35,13 +36,23 @@ struct TodayView: View {
             // Refresh at launch, then whenever the sky has gone stale.
             while !Task.isCancelled {
                 await model.refresh()
+                await events.refresh()
                 try? await Task.sleep(for: .seconds(60))
             }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await model.refresh() }
+                Task {
+                    await model.refresh()
+                    await events.refresh()
+                }
             }
+        }
+        // Events are asked for in the zip's time zone; when that changes (a
+        // zip saved or removed, the first sky after a cache rebuild) they are
+        // fetched again.
+        .onChange(of: eventZoneID) {
+            Task { await events.refresh() }
         }
         .fullScreenCover(item: $destination) { destination in
             switch destination {
@@ -89,8 +100,8 @@ struct TodayView: View {
                     .frame(width: 1, height: 99 * s)
                     .placed(x: ruleX, y: 67 * s)
 
-                eventsColumn
-                    .frame(width: max(0, 345 * s - ruleX - 14 * s), alignment: .leading)
+                eventsColumn(now: inputs.now, s: s, width: max(0, 345 * s - ruleX - 14 * s))
+                    .frame(width: max(0, 345 * s - ruleX - 14 * s), height: 113 * s, alignment: .topLeading)
                     .placed(x: ruleX + 14 * s, y: 72 * s)
 
                 // Horizontal rule under the header.
@@ -172,24 +183,20 @@ struct TodayView: View {
         return date.spoken
     }
 
-    /// Task 6 puts the next three calendar events here. Until a zip is set it
-    /// holds a quiet prompt.
-    @ViewBuilder private var eventsColumn: some View {
-        if model.zip == nil {
-            Button {
-                destination = .settings
-            } label: {
-                Text(caps: "Set your zip code in Settings")
-                    .caps(9.5, tracking: 0.18)
-                    .lineSpacing(3)
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(Palette.dimText)
-                    .frame(minHeight: 44, alignment: .topLeading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("Opens Settings")
-        }
+    /// The next three calendar events, and the zip prompt until a zip is set
+    /// (see `EventsColumn` for how the two share the space).
+    private func eventsColumn(now: Date, s: CGFloat, width: CGFloat) -> some View {
+        EventsColumn(
+            labels: events.labels(now: now),
+            s: s,
+            width: width,
+            zipPrompt: model.zip == nil ? { destination = .settings } : nil
+        )
+    }
+
+    /// The time zone events are asked for, as an identifier to watch for changes.
+    private var eventZoneID: String {
+        EventZone.resolve(zip: model.zip, snapshot: model.snapshot, device: .current).identifier
     }
 
     private func iconButton(_ icon: LineIcon, label: String, opens target: Destination, s: CGFloat) -> some View {

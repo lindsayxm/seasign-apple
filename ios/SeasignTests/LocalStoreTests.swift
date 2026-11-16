@@ -59,6 +59,73 @@ import Testing
         #expect(try context.fetch(FetchDescriptor<CachedSky>()).map(\.zip) == ["10001"])
     }
 
+    /// Task 6 added `CalendarLink` to the user store and `CachedEvents` to the
+    /// cache store. Stores written by the build before that must open as they
+    /// are, with nothing lost and neither file thrown away.
+    @Test func storesFromBeforeCalendarLinksOpenAndKeepEverything() throws {
+        defer { cleanUp() }
+        do {
+            let user: [any PersistentModel.Type] = [Settings.self, ListItem.self]
+            let cache: [any PersistentModel.Type] = [CachedSky.self]
+            let old = try ModelContainer(
+                for: Schema(user + cache),
+                configurations: [
+                    ModelConfiguration("user", schema: Schema(user), url: files.user),
+                    ModelConfiguration("cache", schema: Schema(cache), url: files.cache),
+                ]
+            )
+            let context = ModelContext(old)
+            context.insert(ListItem(kind: .get, title: "Oat milk", createdAt: instant("2026-11-15T12:00:00Z")))
+            context.insert(Settings(zip: "10001"))
+            context.insert(CachedSky(zip: "10001", payload: Data("{}".utf8), fetchedAt: instant("2026-11-15T12:00:00Z")))
+            try context.save()
+        }
+
+        do {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .kept)
+            let context = ModelContext(opened.container)
+            #expect(try titles(opened.container) == ["Oat milk"])
+            #expect(try context.fetch(FetchDescriptor<Settings>()).map(\.zip) == ["10001"])
+            #expect(try context.fetch(FetchDescriptor<CachedSky>()).map(\.zip) == ["10001"])
+            #expect(try context.fetch(FetchDescriptor<CalendarLink>()).isEmpty)
+            context.insert(CalendarLink(name: "Family", url: "https://cal.example.com/a.ics", createdAt: .now))
+            context.insert(CachedEvents(payload: Data("{}".utf8), fetchedAt: .now))
+            try context.save()
+        }
+
+        // The next launch finds the link, and it is in the user store's file.
+        let again = try LocalStore.open(files)
+        #expect(again.cache == .kept)
+        #expect(try ModelContext(again.container).fetch(FetchDescriptor<CalendarLink>()).map(\.name) == ["Family"])
+        #expect(try titles(again.container) == ["Oat milk"])
+    }
+
+    /// A calendar link is something the user entered: it survives the loss of
+    /// the cache, and the cached events go with the cache.
+    @Test func calendarLinksSurviveABrokenCache() throws {
+        defer { cleanUp() }
+        do {
+            let opened = try LocalStore.open(files)
+            let context = ModelContext(opened.container)
+            context.insert(CalendarLink(name: "Family", url: "https://cal.example.com/a.ics", createdAt: .now))
+            context.insert(CachedEvents(payload: Data("{}".utf8), fetchedAt: .now))
+            try context.save()
+        }
+        let userOnly = try ModelContainer(
+            for: Schema(SeasignSchema.userModels),
+            configurations: [ModelConfiguration("user", schema: Schema(SeasignSchema.userModels), url: files.user)]
+        )
+        #expect(try ModelContext(userOnly).fetch(FetchDescriptor<CalendarLink>()).count == 1)
+
+        try overwriteWithJunk(files.cache)
+        let opened = try LocalStore.open(files)
+        #expect(opened.cache == .recreated)
+        let context = ModelContext(opened.container)
+        #expect(try context.fetch(FetchDescriptor<CalendarLink>()).map(\.name) == ["Family"])
+        #expect(try context.fetch(FetchDescriptor<CachedEvents>()).isEmpty)
+    }
+
     /// A new install: not even the folder exists yet.
     @Test func firstLaunchCreatesTheFolderAndBothStores() throws {
         defer { cleanUp() }

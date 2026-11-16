@@ -78,9 +78,9 @@ enum CapsWrapper {
         return lines
     }
 
-    /// Width of one line of Jost Book at `size` with the given tracking.
-    static func width(of line: String, size: CGFloat, tracking: CGFloat) -> CGFloat {
-        let font = UIFont(name: FontName.caps, size: size) ?? .systemFont(ofSize: size)
+    /// Width of one line of Jost Book (or Medium) at `size` with the given tracking.
+    static func width(of line: String, size: CGFloat, tracking: CGFloat, medium: Bool = false) -> CGFloat {
+        let font = UIFont(name: medium ? FontName.capsMedium : FontName.caps, size: size) ?? .systemFont(ofSize: size)
         let kern = size * tracking
         let measured = NSAttributedString(string: line, attributes: [.font: font, .kern: kern]).size().width
         // The kern after the last letter takes no visible space.

@@ -62,4 +62,90 @@ struct SeasignAPI: Sendable {
             throw SkyFailure.unavailable
         }
     }
+
+    /// Why `calendarEvents(links:timezone:)` failed as a whole. It carries
+    /// nothing from the request or the underlying error: either could hold a
+    /// calendar link, which is a credential.
+    enum CalendarFailure: Error, Equatable {
+        /// The API refused the request (400): no links, more than ten, or a
+        /// time zone it does not know.
+        case invalidRequest
+        /// The server could not be reached, failed, or sent something unreadable.
+        case unavailable
+    }
+
+    /// `POST /v1/calendar/events`: the events of up to ten calendar links that
+    /// have not ended and start within seven days, and how reading each link
+    /// went. A link that cannot be read is reported in `calendars`, not
+    /// thrown. Throws a `CalendarFailure`.
+    func calendarEvents(links: [String], timezone: String?) async throws -> CalendarAnswer {
+        let output: Operations.postCalendarEvents.Output
+        do {
+            output = try await client.postCalendarEvents(
+                body: .json(.init(links: links, timezone: timezone))
+            )
+        } catch {
+            // The error is dropped on purpose: its description includes the request.
+            throw CalendarFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let body = try? response.body.json else { throw CalendarFailure.unavailable }
+            return CalendarAnswer(body)
+        case .badRequest:
+            throw CalendarFailure.invalidRequest
+        default:
+            throw CalendarFailure.unavailable
+        }
+    }
+}
+
+/// A `POST /v1/calendar/events` response in the app's own types. Calendars are
+/// named by their index in the request; the response never holds a link.
+struct CalendarAnswer: Sendable, Equatable {
+    struct Event: Sendable, Equatable {
+        /// Index of the link in the request this event came from.
+        var calendar: Int
+        var title: String
+        var start: Date
+        var end: Date
+        var allDay: Bool
+        /// Only for all-day events: the local start date, `YYYY-MM-DD`.
+        var date: String?
+    }
+
+    struct Status: Sendable, Equatable {
+        var index: Int
+        var ok: Bool
+        var partial: Bool
+        var error: LinkProblem?
+    }
+
+    var events: [Event]
+    /// One entry per link, in request order.
+    var calendars: [Status]
+}
+
+extension CalendarAnswer {
+    /// Copies a response from the generated client.
+    init(_ body: Components.Schemas.CalendarEvents) {
+        events = body.events.map { event in
+            Event(
+                calendar: event.calendar,
+                title: event.title,
+                start: event.start,
+                end: event.end,
+                allDay: event.allDay,
+                date: event.date
+            )
+        }
+        calendars = body.calendars.map { status in
+            Status(
+                index: status.index,
+                ok: status.ok,
+                partial: status.partial,
+                error: status.error.flatMap { LinkProblem(rawValue: $0.rawValue) }
+            )
+        }
+    }
 }

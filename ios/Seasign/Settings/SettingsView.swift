@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Settings. For now it holds the zip code the Today scene follows; later tasks
-/// add calendar links, sites and AI search.
+/// Settings: the zip code the Today scene follows and the calendar links
+/// (`CalendarSettingsSection`); later tasks add sites and AI search.
 struct SettingsView: View {
     @Environment(TodayModel.self) private var model
 
@@ -13,6 +13,7 @@ struct SettingsView: View {
     var body: some View {
         SheetScaffold(title: "Settings") {
             zipSection
+            CalendarSettingsSection()
             #if DEBUG
             DebugSceneSection()
             #endif
