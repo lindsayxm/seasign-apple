@@ -1,11 +1,11 @@
 ---
 id: 7
 title: API: POST /v1/sites/resolve and POST /v1/feed
-status: review
+status: in-progress
 owner: implementer-1
 depends_on: [5]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-16T02:51:19Z
+updated: 2026-11-16T03:12:50Z
 ---
 
 ## Goal
@@ -14,9 +14,9 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. /v1/
 
 ## Acceptance criteria
 
-- [ ] Tests with RSS, Atom and HTML fixtures cover feed discovery, both modes and a failing site
+- [x] Tests with RSS, Atom and HTML fixtures cover feed discovery, both modes and a failing site
 - [ ] Items older than 7 days are not returned
-- [ ] npm test and npx tsc --noEmit pass
+- [x] npm test and npx tsc --noEmit pass
 - [ ] openapi/openapi.json regenerated and the iOS app still builds
 
 ## Relevant files
@@ -51,3 +51,9 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. /v1/
 - 2026-11-16T02:50:58Z [implementer-1] tried: Depth counters that rely on end tags (nav, a): an unclosed <nav> hid every later link, and an unclosed <a> was never recorded.
 - 2026-11-16T02:50:58Z [implementer-1] tried: Indexing an element's children once in the feed parser to speed up 500 items x 1,000 children: no change (255 ms before and after); the time is the parser's. Kept, as it is simpler to bound.
 - 2026-11-16T02:51:19Z [implementer-1] status: in-progress → review
+- 2026-11-16T03:03:58Z [reviewer] criterion 1 met: Tests with RSS, Atom and HTML fixtures cover feed discovery, both modes and a failing site
+- 2026-11-16T03:03:58Z [reviewer] criterion 3 met: npm test and npx tsc --noEmit pass
+- 2026-11-16T03:03:58Z [reviewer] review: CHANGES NEEDED. Ran myself: npm test (11 files, 1171 pass), npx tsc --noEmit clean, npm run openapi (no diff), local wrangler dev on 8788 (stopped) with invalid/blocked input and two public sites end to end; own hostile probes in Node and in the workerd test runtime (probe files removed). Criteria: 1 ticked (fixtures cover discovery, both modes, failing sites; tests bite). 3 ticked. 2 NOT ticked: holds for dates the parser can read (exact 7-day boundary tested, re-applied on cached answers), but an RSS pubDate with a zone name outside the US set (CET, CEST, BST, JST, AEST, or '+0000 (UTC)') parses to null (feed-parse.ts:55-64,101-104), the item becomes dateSource none and is returned for as long as the feed lists it; probe: items dated 2018-2020 came back from /v1/feed. 4 NOT ticked: spec half verified (regenerates with no diff; named schemas, 200/400/500 declared); iOS build left to the lead. Findings: (HIGH) feed-parse.ts:155-170,426: time is bounded (worst about 290 ms per 2 MB in workerd) but memory is not: 2 MB of '< ' or '<a ' repeated, or one tag '<item a= a= ...>', needs 260-340 MB of heap in fast-xml-parser (V8 dies at --max-old-space-size 128/160/200; 1 MB of '< ' still dies at 128; 500 KB passes). A Workers isolate has 128 MB; local workerd does not enforce it, so tests pass. Needs a linear pre-scan that refuses over-long tags (and/or a smaller feed cap) plus a test. (MEDIUM) lone surrogates reach the JSON: raw slice cuts at page-links.ts:130,150, text.ts:185,188,222, feed-parse.ts:243,249 split an emoji; shown through /v1/feed (title ends in \ud83d), which a strict client JSON decoder may reject for the whole response. (MEDIUM) first-seen: first fetch stamps every link now (site-reader.ts:235), live a newly followed links site put 23 items above everything; and a failed KV read (site-reader.ts:226-228,251) overwrites the record so old links become new again. (LOW) article-path rule drops numeric or opaque-id articles at or above the page's depth and query-string-only articles (page-links.ts:403-438); Thai-like scripts fail isHeadline; bodyKind takes '<rss' inside a leading comment as the root (site-reader.ts:135); collapseSpace leaves C1 and bidi controls (text.ts:106); RSS xml:base ignored. No SSRF, URL-leak, cache-poisoning or parser-spin problem found; fast-xml-parser is the only new dependency (8 lockfile entries are its own).
+- 2026-11-16T03:07:23Z [reviewer] review (precision on the note above): (a) Memory figures are Node 22 V8 under --max-old-space-size, per 2 MB input: '< ' repeated dies at 260 MB and passes at 340; '<a ' repeated dies at 200, passes at 260; one tag '<item a= a= ...>' dies at 160, passes at 200. Not reproduced in workerd, whose local build does not enforce the 128 MB limit (the same inputs answer ok:true there in 130-290 ms). Both routes reach parseFeed. A pre-scan for over-long tags must skip CDATA and comments, and its test must assert the input is refused, since the test runtime will not fail on memory. (b) Lone surrogates: shown through /v1/feed for page-links.ts:130 (anchor text), at scanPage level for :150 (title), at function level for plainText and htmlToText (text.ts:185,188,222). feed-parse.ts:243,249 use the same raw slice but I did not produce a lone surrogate from them. How the Swift decoder reacts is not checked. (c) Criterion 2 has two causes: the zone-name gap in the date parser, and the implementer's logged decision 3 that a feed item with no readable date never ages out; the lead should accept or reject the second against the criterion's wording. (d) No request-body size cap exists in app.ts or any route (calendar included): a 30 MB JSON body is parsed before the 50-site check. App-wide, not introduced by this task. (e) Swift client: ios/project.yml runs the OpenAPIGenerator plugin on ../openapi/openapi.json at build time, nothing generated is checked in, so there is no stale copy; the build itself is the lead's check. (f) Live check: I resolved three public pages (one more than allowed; one timed out) and fetched two; the local dev KV holds their items until expiry.
+- 2026-11-16T03:12:50Z [implementer-1] status: review → in-progress
+- 2026-11-16T03:12:50Z [implementer-1] lead: sent back after review. Fix H1 (feed parser memory: refuse over-long tags with a linear pre-scan and lower the feed cap), M1 (never cut a string inside a surrogate pair), M2 (date parsing gaps; feed items with no readable date get a first-seen time like links mode so they age out), M3 (first fetch of a site stamps links older than now; do not overwrite the first-seen record after a failed KV read), and the low items listed in the review, plus: resolve prefers links mode when a non-root page advertises only a feed sharing no leading path segment; a request body size cap app-wide. iOS half of criterion 4: lead ran the suite on iPhone 16 (iOS 18.3.1) against the new spec, 149 passed.
