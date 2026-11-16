@@ -11,6 +11,7 @@ import Foundation
 /// `UserDefaults` reads as `-key value`:
 ///
 ///     -debugTime sunrise|midday|sunset|night
+///     -debugTime sunrise-5       (a named time and an offset in minutes: "sunset+7.5", "night+90")
 ///     -debugMoon 0.35            (phase fraction; implies night unless -debugTime is given)
 ///     -debugWeather clear|cloudy|windy|rain|snow
 struct SceneDebugOverride: Equatable, Sendable {
@@ -27,6 +28,8 @@ struct SceneDebugOverride: Equatable, Sendable {
     static let weatherKey = "debugWeather"
 
     var time: Time?
+    /// Minutes added to the named time; nil when the text gave no offset.
+    var offsetMinutes: Double?
     var moonPhase: Double?
     var weather: Weather?
 
@@ -36,9 +39,22 @@ struct SceneDebugOverride: Equatable, Sendable {
 
     /// From the raw strings stored in `UserDefaults`; anything unrecognised is ignored.
     init(time: String = "", moon: String = "", weather: String = "") {
-        self.time = Time(rawValue: time)
+        (self.time, self.offsetMinutes) = Self.parseTime(time)
         self.moonPhase = Double(moon).map { min(1, max(0, $0)) }
         self.weather = Weather(rawValue: weather)
+    }
+
+    /// "sunset" is the named time alone; "sunset+7.5" and "sunrise-5" add an
+    /// offset in minutes. Anything else is no time at all.
+    static func parseTime(_ text: String) -> (Time?, Double?) {
+        if let named = Time(rawValue: text) { return (named, nil) }
+        guard
+            let sign = text.firstIndex(where: { $0 == "+" || $0 == "-" }),
+            let named = Time(rawValue: String(text[..<sign])),
+            let minutes = Double(text[sign...]),
+            minutes.isFinite
+        else { return (nil, nil) }
+        return (named, minutes)
     }
 
     /// The snapshot and clock to draw instead of the real ones.
@@ -69,16 +85,19 @@ struct SceneDebugOverride: Equatable, Sendable {
             let startOfDay = calendar.startOfDay(for: now)
             let sunrise = today?.sunrise ?? startOfDay.addingTimeInterval(6 * 3600)
             let sunset = today?.sunset ?? startOfDay.addingTimeInterval(18 * 3600)
+            let offset = offsetMinutes.map { $0 * 60 }
             switch time {
             case .sunrise:
-                clock = sunrise.addingTimeInterval(1)
+                // Without an offset: a second after sunrise, the sun just up.
+                clock = sunrise.addingTimeInterval(offset ?? 1)
             case .midday:
-                clock = sunrise.addingTimeInterval(sunset.timeIntervalSince(sunrise) / 2)
+                clock = sunrise.addingTimeInterval(sunset.timeIntervalSince(sunrise) / 2 + (offset ?? 0))
             case .sunset:
-                clock = sunset.addingTimeInterval(-1)
+                // Without an offset: a second before sunset, the sun still up.
+                clock = sunset.addingTimeInterval(offset ?? -1)
             case .night:
                 // Four hours after sunset, with the moon at the top of its arc.
-                clock = sunset.addingTimeInterval(4 * 3600)
+                clock = sunset.addingTimeInterval(4 * 3600 + (offset ?? 0))
                 let half = RiseSetTimeline.moonTimeUp / 2
                 for index in sky.days.indices {
                     sky.days[index].moonrise = nil
@@ -89,8 +108,12 @@ struct SceneDebugOverride: Equatable, Sendable {
                     sky.days[index].moonset = clock.addingTimeInterval(half)
                 }
             }
-            sky.current.isDay = time != .night
+            sky.current.isDay = clock >= sunrise && clock < sunset
+            sky.current.observedAt = clock
         }
+        // The forced scene is "now": the stale rule must not hide its
+        // temperature and weather because the clock was moved.
+        sky.fetchedAt = clock
 
         if let moonPhase {
             for index in sky.days.indices {

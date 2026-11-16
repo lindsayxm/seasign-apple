@@ -50,6 +50,17 @@ struct SkySnapshot: Codable, Sendable, Equatable {
         return days.first { $0.date == today }
     }
 
+    /// How old `current` may be and still be shown as the weather now.
+    static let currentMaxAge: TimeInterval = 3 * 3600
+
+    /// Whether `current` (temperature, weather, cloud, wind) may be shown as
+    /// the conditions at `now`: only within `currentMaxAge` of when the app
+    /// received it. A clock set back to before the response counts the same way.
+    /// The sun and moon times do not age like this; they hold for their dates.
+    func currentIsFresh(at now: Date) -> Bool {
+        abs(now.timeIntervalSince(fetchedAt)) <= Self.currentMaxAge
+    }
+
     /// `YYYY-MM-DD` for `date` in `timeZone`, always in the Gregorian calendar
     /// whatever the user's own calendar is.
     static func localDateString(for date: Date, in timeZone: TimeZone) -> String {

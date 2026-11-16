@@ -21,6 +21,45 @@ enum SkyBodyState: Equatable, Sendable {
         if case .up(let progress) = self { return progress }
         return nil
     }
+
+    /// Where to draw the body's disc, or nil when none of it shows.
+    ///
+    /// Above the horizon it is on its arc. For `crossing` seconds before it
+    /// rises and after it sets the disc is still partly above the waterline: it
+    /// stands at the end of the arc, lowered by a share of its own radius, so it
+    /// rises out of the water and sinks into it instead of appearing half-risen.
+    func placement(crossing: TimeInterval = SkyArc.horizonCrossing) -> SkyPlacement? {
+        switch self {
+        case .up(let progress):
+            return SkyPlacement(progress: progress, sunk: 0)
+        case .down(let sinceSet, let untilRise):
+            guard crossing > 0 else { return nil }
+            let rising = untilRise ?? .infinity
+            let setting = sinceSet ?? .infinity
+            if rising <= setting {
+                return rising < crossing ? SkyPlacement(progress: 0, sunk: max(0, rising) / crossing) : nil
+            }
+            return setting < crossing ? SkyPlacement(progress: 1, sunk: max(0, setting) / crossing) : nil
+        }
+    }
+}
+
+/// Where a body's disc is drawn: a point on its arc, and how far it has been
+/// lowered into the water at either end of it.
+struct SkyPlacement: Equatable, Sendable {
+    /// Position along the arc, 0 at rising and 1 at setting.
+    var progress: Double
+    /// 0 on the arc (at `progress` 0 or 1 the centre is then on the waterline,
+    /// half the disc showing); toward 1 the centre is that share of the radius
+    /// below the waterline, and at 1 nothing would show.
+    var sunk: Double
+}
+
+/// A reading of whether a body was up, and when it was taken (the API's
+/// `isDay` and `observedAt` for the sun).
+struct SkySighting: Equatable, Sendable {
+    var isUp: Bool
+    var at: Date
 }
 
 /// All the known rise and set instants of one body, in any order and from any
@@ -105,6 +144,58 @@ struct RiseSetTimeline: Sendable {
         }
     }
 
+    /// The body's state at `now` without ever assuming how long it stays up.
+    /// This is the rule for the sun, whose day can be any length: near the
+    /// poles it rises without setting, or sets without having risen that day.
+    ///
+    /// - A rise before `now` and a set after it: up, at its true place on the arc.
+    /// - A set before `now`, or a rise after it with nothing known before: down.
+    /// - Otherwise one end of the arc is missing (or both are). Then the
+    ///   `sighting` says whether the body is up, unless a known event lies
+    ///   between the sighting and `now`, in which case that event does (a sun
+    ///   seen down before a known sunrise is up after it).
+    ///
+    /// A body that is up with an end missing is drawn climbing to the top of
+    /// the arc at the usual pace and staying there, or staying there and coming
+    /// down to a known set. `typicalTimeUp` sets only that pace, never whether
+    /// the body is up.
+    func state(at now: Date, sighting: SkySighting) -> SkyBodyState {
+        let previous = events.last { $0.date <= now }
+        let next = events.first { $0.date > now }
+        let since = previous.map { now.timeIntervalSince($0.date) }
+        let until = next.map { $0.date.timeIntervalSince(now) }
+
+        if let previous, let next, previous.kind == .rise, next.kind == .set {
+            return .up(progress: Self.fraction(of: now, from: previous.date, to: next.date))
+        }
+        if let previous, previous.kind == .set, next?.kind != .set {
+            return .down(sinceSet: since, untilRise: until)
+        }
+        if previous == nil, let next, next.kind == .rise {
+            return .down(sinceSet: nil, untilRise: until)
+        }
+
+        let isUp: Bool
+        if let previous, previous.date > sighting.at {
+            isUp = previous.kind == .rise
+        } else {
+            isUp = sighting.isUp
+        }
+        guard isUp else {
+            return .down(
+                sinceSet: previous?.kind == .set ? since : nil,
+                untilRise: next?.kind == .rise ? until : nil
+            )
+        }
+        if let previous, previous.kind == .rise, let since, typicalTimeUp > 0 {
+            return .up(progress: min(0.5, since / typicalTimeUp))
+        }
+        if let next, next.kind == .set, let until, typicalTimeUp > 0 {
+            return .up(progress: max(0.5, 1 - until / typicalTimeUp))
+        }
+        return .up(progress: 0.5)
+    }
+
     private static func fraction(of now: Date, from start: Date, to end: Date) -> Double {
         let span = end.timeIntervalSince(start)
         guard span > 0 else { return 0.5 }
@@ -126,10 +217,18 @@ enum SkyArc {
     }
 
     /// How far the sun has shrunk from its horizon size (0) to its midday size
-    /// (1). The square root makes it shrink quickly as it leaves the horizon.
+    /// (1). It shrinks fastest as it leaves the horizon, but never faster than
+    /// it climbs: with the mockups' sizes (see `SceneLayout`) the top of the
+    /// disc keeps rising all morning. A square root here made the top of the
+    /// disc drop by 16 pt in the first minutes after sunrise.
     static func shrink(altitude: Double) -> Double {
-        min(1, max(0, altitude)).squareRoot()
+        let a = min(1, max(0, altitude))
+        return 1.7 * a - 0.7 * a * a
     }
+
+    /// How long a disc takes to come up through the waterline before it rises,
+    /// and to go down through it after it sets.
+    static let horizonCrossing: TimeInterval = 15 * 60
 }
 
 /// The moon's phase as a fraction of the cycle: 0 new, 0.25 first quarter,

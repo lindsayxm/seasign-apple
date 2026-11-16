@@ -67,6 +67,54 @@ let skyJSONPolar = """
 }
 """
 
+/// The first day of the polar day: the sun rises at 02:40 local (AKDT, UTC-8)
+/// on 10 May and does not set again. Observed at noon.
+let skyJSONSunriseWithoutSunset = """
+{
+  "zip": "99723",
+  "place": { "name": "Utqiagvik", "region": null, "latitude": 71.29, "longitude": -156.79 },
+  "timezone": "America/Anchorage",
+  "utcOffsetSeconds": -28800,
+  "current": {
+    "observedAt": "2026-05-10T20:00:00Z",
+    "temperatureF": 21.4,
+    "weatherCode": 0,
+    "cloudCoverPercent": 10,
+    "windSpeedMph": 8,
+    "windGustsMph": 12,
+    "isDay": true
+  },
+  "days": [
+    { "date": "2026-05-10", "sunrise": "2026-05-10T10:40:00Z", "sunset": null, "moonrise": null, "moonset": null, "moonPhase": 0.8 },
+    { "date": "2026-05-11", "sunrise": null, "sunset": null, "moonrise": null, "moonset": null, "moonPhase": 0.83 }
+  ]
+}
+"""
+
+/// The last day of the polar day: no sunrise on 2 August (the sun has been up
+/// for weeks) and the first sunset at 23:40 local. Observed at noon.
+let skyJSONSunsetWithoutSunrise = """
+{
+  "zip": "99723",
+  "place": { "name": "Utqiagvik", "region": null, "latitude": 71.29, "longitude": -156.79 },
+  "timezone": "America/Anchorage",
+  "utcOffsetSeconds": -28800,
+  "current": {
+    "observedAt": "2026-08-02T20:00:00Z",
+    "temperatureF": 41.0,
+    "weatherCode": 0,
+    "cloudCoverPercent": 10,
+    "windSpeedMph": 8,
+    "windGustsMph": 12,
+    "isDay": true
+  },
+  "days": [
+    { "date": "2026-08-02", "sunrise": null, "sunset": "2026-08-03T07:40:00Z", "moonrise": null, "moonset": null, "moonPhase": 0.63 },
+    { "date": "2026-08-03", "sunrise": "2026-08-03T10:10:00Z", "sunset": "2026-08-04T07:20:00Z", "moonrise": null, "moonset": null, "moonPhase": 0.66 }
+  ]
+}
+"""
+
 /// Answers `/v1/sky` by zip, so the tests need no server. A zip with no entry
 /// gets the API's 404.
 struct SkyStubTransport: ClientTransport {

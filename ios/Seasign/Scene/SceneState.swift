@@ -15,6 +15,11 @@ struct SceneState: Equatable, Sendable {
     var wind: WindLevel
     /// Nil when there is no current reading to show.
     var temperatureF: Double?
+    /// False when there is no reading recent enough to show as the weather
+    /// now: the neutral scene, or a cached sky older than
+    /// `SkySnapshot.currentMaxAge`. The scene is then clear and calm and the
+    /// header shows no temperature.
+    var hasCurrentWeather: Bool
     /// The zone the header's date and the sun's clock are read in.
     var timeZone: TimeZone
     /// False when the scene is the neutral stand-in, not the user's zip.
@@ -23,10 +28,20 @@ struct SceneState: Equatable, Sendable {
     /// How long dusk and dawn last, in seconds.
     static let twilight: TimeInterval = 40 * 60
 
-    /// The moon is drawn only while the sun is down. Both follow the same arc,
-    /// so a daytime moon would sit on top of the sun.
+    /// Where the sun's disc is, nil when none of it is above the waterline.
+    var sunPlacement: SkyPlacement? {
+        sun.placement()
+    }
+
+    /// Where the moon's disc is. The moon is drawn only while no part of the
+    /// sun shows: both follow the same arc, so a daytime moon would sit on top
+    /// of the sun.
+    var moonPlacement: SkyPlacement? {
+        sunPlacement == nil ? moon.placement() : nil
+    }
+
     var showsMoon: Bool {
-        moon.isUp && !sun.isUp
+        moonPlacement != nil
     }
 
     var showsStars: Bool {
@@ -46,9 +61,13 @@ struct SceneState: Equatable, Sendable {
     /// The scene for `snapshot` at `now`.
     ///
     /// Without a snapshot, or when the snapshot has no entry for today's date in
-    /// its own time zone (a stale cache), this is the neutral scene: clear sky on
-    /// a 06:00–18:00 day, no temperature. The neutral scene runs on the
+    /// its own time zone (a cache days old), this is the neutral scene: clear sky
+    /// on a 06:00–18:00 day, no temperature. The neutral scene runs on the
     /// snapshot's zone when there is one and on `deviceTimeZone` otherwise.
+    ///
+    /// A snapshot that covers today but whose reading is no longer fresh
+    /// (`SkySnapshot.currentIsFresh`) still places the sun and moon, which hold
+    /// for the date, but its temperature and weather are not shown.
     static func make(snapshot: SkySnapshot?, now: Date, deviceTimeZone: TimeZone) -> SceneState {
         if let snapshot, snapshot.day(containing: now) != nil {
             return build(from: snapshot, now: now, isLive: true)
@@ -68,27 +87,32 @@ struct SceneState: Equatable, Sendable {
             sets: snapshot.days.map(\.moonset),
             typicalTimeUp: RiseSetTimeline.moonTimeUp
         )
-        // `isDay` settles the sun only when today has no sunrise or sunset at
-        // all (polar day or polar night).
+        // The sun never assumes a day length: where a sunrise or sunset is
+        // missing (polar days and the days around them) `isDay` decides.
         let today = snapshot.day(containing: now)
-        let sun: SkyBodyState
-        if let today, today.sunrise == nil, today.sunset == nil {
-            sun = snapshot.current.isDay
-                ? .up(progress: 0.5)
-                : .down(sinceSet: nil, untilRise: nil)
-        } else {
-            sun = sunTimeline.state(at: now, upWhenUnknown: snapshot.current.isDay)
-        }
         let current = snapshot.current
+        let sun = sunTimeline.state(
+            at: now,
+            sighting: SkySighting(isUp: current.isDay, at: current.observedAt)
+        )
+        let hasCurrentWeather = isLive && snapshot.currentIsFresh(at: now)
+        // What is drawn when the reading is too old to show: clear and calm.
+        let weatherCode = hasCurrentWeather ? current.weatherCode : 0
         return SceneState(
             sun: sun,
             moon: moonTimeline.state(at: now),
             moonPhase: MoonPhase(fraction: today?.moonPhase ?? snapshot.days.first?.moonPhase ?? 0),
             nightness: nightness(for: sun),
-            precipitation: Precipitation(weatherCode: current.weatherCode),
-            clouds: CloudLevel(coverPercent: current.cloudCoverPercent, weatherCode: current.weatherCode),
-            wind: WindLevel(speedMph: current.windSpeedMph, gustsMph: current.windGustsMph),
-            temperatureF: isLive ? current.temperatureF : nil,
+            precipitation: Precipitation(weatherCode: weatherCode),
+            clouds: CloudLevel(
+                coverPercent: hasCurrentWeather ? current.cloudCoverPercent : 0,
+                weatherCode: weatherCode
+            ),
+            wind: hasCurrentWeather
+                ? WindLevel(speedMph: current.windSpeedMph, gustsMph: current.windGustsMph)
+                : .calm,
+            temperatureF: hasCurrentWeather ? current.temperatureF : nil,
+            hasCurrentWeather: hasCurrentWeather,
             timeZone: snapshot.timeZone,
             isLive: isLive
         )
@@ -114,6 +138,9 @@ struct SceneState: Equatable, Sendable {
         } else {
             parts.append("Night")
         }
+        // Without a recent reading the drawing is clear and calm by default;
+        // that is not a weather report, so it is not spoken as one.
+        guard hasCurrentWeather else { return parts.joined() + " over the water." }
         switch precipitation {
         case .none:
             switch clouds {

@@ -33,6 +33,13 @@ struct SceneLayout: Equatable, Sendable {
     }
 
     var moonRadius: CGFloat { 24 * scale }
+
+    /// Centre of a disc of `radius` at `placement`: on the arc, lowered by the
+    /// sunk share of its radius while it crosses the waterline.
+    func bodyCenter(_ placement: SkyPlacement, radius: CGFloat) -> CGPoint {
+        let onArc = bodyCenter(progress: placement.progress)
+        return CGPoint(x: onArc.x, y: onArc.y + radius * CGFloat(placement.sunk))
+    }
 }
 
 /// Draws the scene for one `SceneState` into a `Canvas`. Holds only values, so
@@ -68,13 +75,15 @@ struct SceneRenderer: Sendable {
     // MARK: Sun and moon
 
     private func drawSunOrMoon(in context: inout GraphicsContext, layout: SceneLayout) {
-        if let progress = state.sun.progress {
-            let center = layout.bodyCenter(progress: progress)
-            let radius = layout.sunRadius(progress: progress)
+        // The sky layer is clipped at the waterline, so a disc that is rising
+        // or setting shows only its part above the water.
+        if let placement = state.sunPlacement {
+            let radius = layout.sunRadius(progress: placement.progress)
+            let center = layout.bodyCenter(placement, radius: radius)
             context.fill(Path(circleAt: center, radius: radius), with: .color(Palette.sun))
-        } else if state.showsMoon, let progress = state.moon.progress {
-            let center = layout.bodyCenter(progress: progress)
+        } else if let placement = state.moonPlacement {
             let radius = layout.moonRadius
+            let center = layout.bodyCenter(placement, radius: radius)
             context.fill(Path(circleAt: center, radius: radius), with: .color(Palette.moonShadow))
             context.fill(
                 Self.litMoonPath(phase: state.moonPhase, center: center, radius: radius),
@@ -119,17 +128,20 @@ struct SceneRenderer: Sendable {
         let radius: CGFloat
         let color: Color
         let strength: Double
-        if let progress = state.sun.progress {
+        // The reflection fades as the disc goes under: (1 - sunk).
+        if let placement = state.sunPlacement {
+            let progress = placement.progress
             x = layout.bodyCenter(progress: progress).x
             radius = layout.sunRadius(progress: progress)
             color = Palette.sun
             // Nearly solid when the sun sits on the water, a soft glow at midday.
-            strength = 0.96 - 0.4 * SkyArc.shrink(altitude: SkyArc.altitude(progress: progress))
-        } else if state.showsMoon, let progress = state.moon.progress {
-            x = layout.bodyCenter(progress: progress).x
+            strength = (0.96 - 0.4 * SkyArc.shrink(altitude: SkyArc.altitude(progress: progress)))
+                * (1 - placement.sunk)
+        } else if let placement = state.moonPlacement {
+            x = layout.bodyCenter(progress: placement.progress).x
             radius = layout.moonRadius
             color = Palette.white
-            strength = 0.55 * max(0.25, state.moonPhase.illuminatedFraction)
+            strength = 0.55 * max(0.25, state.moonPhase.illuminatedFraction) * (1 - placement.sunk)
         } else {
             return
         }

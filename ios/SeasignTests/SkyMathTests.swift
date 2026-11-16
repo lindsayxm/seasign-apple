@@ -163,6 +163,118 @@ private let hour: TimeInterval = 3600
     }
 }
 
+/// Task 17, item 3: discs cross the waterline gradually.
+@Suite struct HorizonCrossingTests {
+    private let crossing = SkyArc.horizonCrossing
+
+    @Test func aBodyOnItsArcIsNotSunk() {
+        #expect(SkyBodyState.up(progress: 0.3).placement() == SkyPlacement(progress: 0.3, sunk: 0))
+    }
+
+    @Test func risesOutOfTheWaterBeforeRising() {
+        func rising(in seconds: TimeInterval) -> SkyPlacement? {
+            SkyBodyState.down(sinceSet: 9 * hour, untilRise: seconds).placement()
+        }
+        #expect(crossing == 15 * 60)
+        #expect(rising(in: crossing + 1) == nil)
+        // Exactly one crossing away the disc would be fully under: not drawn.
+        #expect(rising(in: crossing) == nil)
+        #expect(rising(in: crossing / 2) == SkyPlacement(progress: 0, sunk: 0.5))
+        // At the moment of rising it is where the arc starts: half above the water.
+        #expect(rising(in: 0) == SkyBodyState.up(progress: 0).placement())
+    }
+
+    @Test func sinksIntoTheWaterAfterSetting() {
+        func set(_ seconds: TimeInterval) -> SkyPlacement? {
+            SkyBodyState.down(sinceSet: seconds, untilRise: nil).placement()
+        }
+        #expect(set(0) == SkyBodyState.up(progress: 1).placement())
+        #expect(set(crossing / 3) == SkyPlacement(progress: 1, sunk: 1.0 / 3))
+        #expect(set(crossing) == nil)
+        #expect(SkyBodyState.down(sinceSet: nil, untilRise: nil).placement() == nil)
+    }
+
+    /// A short night: the nearer event decides which end of the arc it is at.
+    @Test func theNearerEventDecidesTheSide() {
+        #expect(SkyBodyState.down(sinceSet: 300, untilRise: 600).placement()?.progress == 1)
+        #expect(SkyBodyState.down(sinceSet: 600, untilRise: 300).placement()?.progress == 0)
+    }
+
+    /// The visible top of the sun must only go up from first light to midday,
+    /// and by no more than a few points a minute: no popping in, no dip as the
+    /// disc shrinks. A ten-hour day on an iPhone 16.
+    @Test func theTopOfTheSunOnlyRisesThroughTheMorning() {
+        let layout = SceneLayout(size: CGSize(width: 393, height: 852))
+        let rise = instant("2026-11-15T11:42:00Z")
+        let timeline = RiseSetTimeline(
+            rises: [rise],
+            sets: [rise.addingTimeInterval(10 * hour)],
+            typicalTimeUp: RiseSetTimeline.sunTimeUp
+        )
+        func top(atMinute minute: Double) -> CGFloat {
+            let now = rise.addingTimeInterval(minute * 60)
+            let sighting = SkySighting(isUp: minute >= 0, at: now)
+            guard let placement = timeline.state(at: now, sighting: sighting).placement() else { return 0 }
+            let radius = layout.sunRadius(progress: placement.progress)
+            return layout.horizonY - (layout.bodyCenter(placement, radius: radius).y - radius)
+        }
+        #expect(top(atMinute: -15) == 0)
+        #expect(abs(top(atMinute: 0) - 141) < 0.01)
+        var previous = top(atMinute: -15)
+        for step in 1...(4 * (15 + 300)) {
+            let minute = -15 + Double(step) / 4
+            let now = top(atMinute: minute)
+            #expect(now >= previous - 1e-9, "the top of the sun drops at minute \(minute)")
+            #expect(now - previous < 3, "the sun jumps at minute \(minute)")
+            previous = now
+        }
+        // Midday: 29.5 pt disc 194 pt up.
+        #expect(abs(top(atMinute: 300) - 223.5) < 0.01)
+    }
+
+    @Test func sunShrinkKeepsItsEndPoints() {
+        #expect(SkyArc.shrink(altitude: 0) == 0)
+        #expect(abs(SkyArc.shrink(altitude: 1) - 1) < 1e-12)
+        #expect(SkyArc.shrink(altitude: 0.2) > 0.2)
+    }
+}
+
+@Suite struct SunWithoutADayLengthTests {
+    private let noon = instant("2026-06-21T20:00:00Z")
+    private func timeline(rises: [Date?], sets: [Date?]) -> RiseSetTimeline {
+        RiseSetTimeline(rises: rises, sets: sets, typicalTimeUp: RiseSetTimeline.sunTimeUp)
+    }
+
+    @Test func knownArcIgnoresTheSighting() {
+        let line = timeline(rises: [noon.addingTimeInterval(-5 * hour)], sets: [noon.addingTimeInterval(5 * hour)])
+        #expect(line.state(at: noon, sighting: SkySighting(isUp: false, at: noon)) == .up(progress: 0.5))
+        let after = noon.addingTimeInterval(6 * hour)
+        #expect(
+            line.state(at: after, sighting: SkySighting(isUp: true, at: after))
+                == .down(sinceSet: hour, untilRise: nil)
+        )
+    }
+
+    @Test func noEventsFollowsTheSighting() {
+        let line = timeline(rises: [nil], sets: [nil])
+        #expect(line.state(at: noon, sighting: SkySighting(isUp: true, at: noon)) == .up(progress: 0.5))
+        #expect(
+            line.state(at: noon, sighting: SkySighting(isUp: false, at: noon))
+                == .down(sinceSet: nil, untilRise: nil)
+        )
+    }
+
+    @Test func twoSetsInARowDoNotInventASunrise() {
+        let line = timeline(rises: [nil, nil], sets: [noon.addingTimeInterval(-20 * hour), noon.addingTimeInterval(4 * hour)])
+        // Seen up: up, coming down to the known set.
+        let up = line.state(at: noon, sighting: SkySighting(isUp: true, at: noon))
+        #expect(abs((up.progress ?? 0) - (1 - 4.0 / 12)) < 1e-9)
+        // Seen down before the earlier set, nothing since says it rose.
+        let down = line.state(at: noon, sighting: SkySighting(isUp: true, at: noon.addingTimeInterval(-30 * hour)))
+        #expect(down == .down(sinceSet: 20 * hour, untilRise: nil))
+    }
+}
+
 @Suite struct MoonPhaseTests {
     @Test func illuminationFollowsTheCycle() {
         #expect(abs(MoonPhase(fraction: 0).illuminatedFraction) < 1e-12)
