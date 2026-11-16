@@ -1,11 +1,11 @@
 ---
 id: 6
 title: iOS: calendar links in Settings, next three events on Today
-status: todo
-owner: 
+status: in-progress
+owner: implementer-2
 depends_on: [4, 5]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:33:55Z
+updated: 2026-11-16T02:22:05Z
 ---
 
 ## Goal
@@ -31,3 +31,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Sett
 ## Log
 
 - 2026-11-15T22:33:55Z [li] created (todo)
+- 2026-11-16T02:22:05Z [implementer-2] status: todo → in-progress — claimed by implementer-2

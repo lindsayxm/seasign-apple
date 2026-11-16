@@ -1,11 +1,11 @@
 ---
 id: 17
 title: iOS: scene and app polish from the task 4 review
-status: in-progress
+status: done
 owner: implementer-2
 depends_on: [10]
 created: 2026-11-16T00:17:40Z
-updated: 2026-11-16T01:54:53Z
+updated: 2026-11-16T02:22:05Z
 ---
 
 ## Goal
@@ -60,3 +60,7 @@ Low-severity findings from the task 4 review. (1) A cached sky older than a set 
 - 2026-11-16T01:52:31Z [implementer-2] status: in-progress → review
 - 2026-11-16T01:54:53Z [implementer-2] status: review → in-progress
 - 2026-11-16T01:54:53Z [implementer-2] lead: sent back. Running the suite on iPhone 17 (iOS 27.2) four times, cacheRecoveryDoesNotChangeTheUserStoreSchema failed twice: 'recorded an issue at LocalStoreTests.swift:148:6: Caught error: NSCocoaErrorDomain Code=259 The file couldn't be opened because it isn't in the correct format'. iPhone 16 passed once (98 tests). Need to know whether this is the test (parallel runs, reading the SQLite file while a container still holds it, WAL not checkpointed) or a real intermittent failure in LocalStore's recovery path.
+- 2026-11-16T02:20:49Z [implementer-2] Intermittent cacheRecoveryDoesNotChangeTheUserStoreSchema: cause is the test, not LocalStore. With the helper reporting SQLite's code, all 6 failures in 12 full-suite runs on iPhone 17 (iOS 27.2) were 'SQLite prepare ...: code 5, database is locked' from the helper's own read-only connection on its first query, right after seed() let its container go (the store is still closing; a plain SQLite connection has no busy timeout and fails at once, Core Data's connections wait). iPhone 16 (iOS 18.3.1): 0 failures in 12 runs. No run ever showed an error from LocalStore.open. Fix: sqlite3_busy_timeout on the helper connection, and the helper throws its own error type with the SQLite code instead of a Cocoa 259 that looked like Core Data's. After: 0 failures in 20 full-suite runs on iOS 27.2. The schema tests still fail on the old probe code (checked by temporarily restoring LocalStore.swift from d025083: both fail on the schema comparison). Added reopeningStraightAfterClosingAlwaysWorks (30 open/write/release rounds, cache must be .kept each time) as a guard for the product path. LocalStore.swift unchanged. 99 tests pass once on each runtime at the committed state. Not run: an after-fix repeat loop on iOS 18.3.1 (stopped at the lead's request).
+- 2026-11-16T02:20:49Z [implementer-2] status: in-progress → review
+- 2026-11-16T02:22:05Z [implementer-2] review (lead): the storage fix was reviewed (probe now uses the full schema with the cache in memory; schema tests fail on the old code). Intermittent failure traced to the test's own SQLite reader lacking a busy timeout; 0 of 20 runs failed on iOS 27.2 after the fix. I ran the suite once on each runtime at 7224263: 99 tests passed on both. Further visual polish checks cut short at the user's request (design is being iterated).
+- 2026-11-16T02:22:05Z [implementer-2] status: review → done
