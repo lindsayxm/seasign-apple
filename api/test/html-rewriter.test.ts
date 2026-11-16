@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_CANDIDATES, MAX_LINKS_SCANNED, articleLinks, feedCandidates, scanPage } from "../src/lib/page-links.ts";
+import { MAX_CANDIDATES, MAX_HANDLER_CALLS, MAX_LINKS_SCANNED, articleLinks, feedCandidates, scanPage } from "../src/lib/page-links.ts";
 // Written by hand in the shape of real pages; no real site was fetched.
 import links from "./fixtures/sites/links.html?raw";
 import section from "./fixtures/sites/section.html?raw";
@@ -104,6 +104,52 @@ describe("HTMLRewriter in the test runtime", () => {
 
     expect(order).toEqual(["nav", "a", "/a", "main", "a", "/a", "/main"]);
     expect(voidError).toContain("No end tag");
+  });
+
+  it("refuses onEndTag for a self-closing element inside <svg>, and a throw in a handler ends the transform", async () => {
+    const refused: string[] = [];
+    await new HTMLRewriter()
+      .on("a, title, li", {
+        element(element) {
+          try {
+            element.onEndTag(() => {});
+          } catch {
+            refused.push(element.tagName);
+          }
+        },
+      })
+      // Outside <svg>, "<a/>" is an ordinary start tag, and its end is asked for without complaint.
+      .transform(new Response('<svg><a href="/x"/><title/></svg><a href="/y"/><li/>'))
+      .arrayBuffer();
+    expect(refused).toEqual(["a", "title"]);
+
+    // The error is the handler's own; workerd also reports it as an uncaught exception on stderr.
+    const thrown = new HTMLRewriter()
+      .on("a", {
+        element() {
+          throw new Error("from the handler");
+        },
+      })
+      .transform(new Response("<p><a>x</a></p>"))
+      .arrayBuffer();
+    await expect(thrown).rejects.toThrow("from the handler");
+  });
+
+  it("stops calling handlers when its input stops", async () => {
+    let seen = 0;
+    let sent = 0;
+    const piece = new TextEncoder().encode("<li></li>".repeat(1000));
+    const input = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        // Ten pieces are on offer; the handlers say stop during the third.
+        if (seen >= 2500 || sent >= 10) return controller.close();
+        sent += 1;
+        controller.enqueue(piece);
+      },
+    });
+    await new HTMLRewriter().on("li", { element: () => void seen++ }).transform(new Response(input)).arrayBuffer();
+    expect(sent).toBeLessThan(10);
+    expect(seen).toBe(sent * 1000);
   });
 
   it("decodes the character set named in Content-Type", async () => {
@@ -255,6 +301,20 @@ describe("scanPage", () => {
     expect(found.map((link) => link.title)).toEqual(["The first unclosed story", "The second unclosed story", "The third unclosed story"]);
   });
 
+  it("reads on past self-closing elements in inline SVG and MathML", async () => {
+    const page = new URL("https://plain.example.com/news/");
+    const html = `<head><title>Icons &amp; news</title></head>
+      <header><svg viewBox="0 0 10 10"><title/><a href="/"/><a href="/news/an-icon-link-inside-the-svg/"><path d="M0 0"/></a></svg>
+      <math><a href="/y"/><li/></math><nav/><article/><h2/></header>
+      <main><article><h2><a href="/news/a-story-after-the-icons/">A story after the icons in the header</a></h2>
+      <time datetime="2026-11-15T08:00:00Z"></time></article></main>`;
+    const scan = await scanPage(bytes(html), "text/html");
+    expect(scan.title).toBe("Icons & news");
+    expect(articleLinks(scan, page, page)).toEqual([
+      { title: "A story after the icons in the header", link: "https://plain.example.com/news/a-story-after-the-icons/", published: at("2026-11-15T08:00:00Z") },
+    ]);
+  });
+
   it("still finds the links after a <nav> that is never closed", async () => {
     const page = new URL("https://plain.example.com/news/");
     const html = `<nav><a href="/news/a-link-in-the-navigation-bar/">A link in the navigation bar</a>
@@ -284,6 +344,19 @@ describe("scanPage on hostile input", () => {
     const scan = await scanPage(bytes(html), "text/html");
     expect(scan.links).toHaveLength(MAX_LINKS_SCANNED);
     expect(articleLinks(scan, page, page)).toHaveLength(MAX_CANDIDATES);
+  });
+
+  it(`stops reading a page after ${MAX_HANDLER_CALLS} elements and pieces of text`, async () => {
+    const story = '<main><a href="/news/a-story-below-the-padding/">A story below all of the padding</a></main>';
+    const padded = async (count: number) => articleLinks(await scanPage(bytes("<li></li>".repeat(count) + story), "text/html"), page, page);
+
+    // A long page is read to its end.
+    expect(await padded(5000)).toHaveLength(1);
+    // Past the limit the rest is not looked at. The page comes in 16 KB pieces,
+    // so reading stops within one piece (about 1,800 of these elements) of the limit.
+    expect(await padded(MAX_HANDLER_CALLS - 3000)).toHaveLength(1);
+    expect(await padded(MAX_HANDLER_CALLS + 3000)).toHaveLength(0);
+    expect(await padded(200_000)).toHaveLength(0);
   });
 
   it("cuts long titles, anchor text and addresses", async () => {

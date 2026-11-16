@@ -9,7 +9,9 @@ import { decodeEntities, plainText } from "./text.ts";
 // handlers run only while the transformed body is read; text arrives in
 // pieces that can split a word or a character reference, with references not
 // decoded; attribute values are not decoded either; `onEndTag` throws for an
-// element without an end tag (`<br>`, `<link>`); an element that is never
+// element without an end tag (`<br>`, `<link>`, and a self-closing `<a/>` or
+// `<title/>` inside `<svg>`), and a throw in a handler ends the whole
+// transform, so it is only called through `atEnd`; an element that is never
 // closed gets its end-tag call when an element around it closes, or never.
 // So nothing here depends on an end tag arriving: an open `<a>` is finished by
 // the next `<a>` (as a browser does) or at the end of the page, and `<main>`
@@ -101,6 +103,19 @@ export async function scanPage(body: Uint8Array, contentType: string | null): Pr
     return stopped;
   };
 
+  /**
+   * Runs `done` at the element's end tag. A self-closing element in inline
+   * SVG or MathML (`<a href="…"/>`, `<title/>`) has none, and asking for its
+   * end throws, which would end the whole scan; it is empty, so it ends at once.
+   */
+  const atEnd = (element: Element, done: () => void) => {
+    try {
+      element.onEndTag(done);
+    } catch {
+      done();
+    }
+  };
+
   /** Closes an anchor: at its end tag, when the next anchor starts, or at the end of the page. */
   const finish = (anchor: OpenAnchor) => {
     const at = anchors.lastIndexOf(anchor);
@@ -122,9 +137,13 @@ export async function scanPage(body: Uint8Array, contentType: string | null): Pr
         if (spent()) return;
         if (titleDone) return;
         // An <svg><title> later in the page is not the page's title.
-        element.onEndTag(() => {
-          titleDone = true;
-        });
+        try {
+          element.onEndTag(() => {
+            titleDone = true;
+          });
+        } catch {
+          // <title/> inside an <svg>: it has no end and no text.
+        }
       },
       text(chunk) {
         if (spent()) return;
@@ -163,7 +182,7 @@ export async function scanPage(body: Uint8Array, contentType: string | null): Pr
       element(element) {
         if (spent()) return;
         chrome += 1;
-        element.onEndTag(() => {
+        atEnd(element, () => {
           chrome = Math.max(0, chrome - 1);
         });
       },
@@ -175,7 +194,7 @@ export async function scanPage(body: Uint8Array, contentType: string | null): Pr
         // the end of the document) and would hide every link on the page.
         chrome = 0;
         content += 1;
-        element.onEndTag(() => {
+        atEnd(element, () => {
           content = Math.max(0, content - 1);
         });
       },
@@ -187,7 +206,7 @@ export async function scanPage(body: Uint8Array, contentType: string | null): Pr
         if (isArticle) content += 1;
         const card: Card | null = cards.length < MAX_OPEN_CARDS ? { id: nextCard++, time: null, links: [] } : null;
         if (card) cards.push(card);
-        element.onEndTag(() => {
+        atEnd(element, () => {
           if (isArticle) content = Math.max(0, content - 1);
           if (!card) return;
           const at = cards.lastIndexOf(card);
@@ -216,7 +235,7 @@ export async function scanPage(body: Uint8Array, contentType: string | null): Pr
           anchor.inHeading += 1;
           if (ranked) anchor.link.preferred = true;
         }
-        element.onEndTag(() => {
+        atEnd(element, () => {
           if (ranked) headings = Math.max(0, headings - 1);
           if (anchor) anchor.inHeading = Math.max(0, anchor.inHeading - 1);
         });
@@ -274,7 +293,7 @@ export async function scanPage(body: Uint8Array, contentType: string | null): Pr
           inHeading: 0,
         };
         anchors.push(anchor);
-        element.onEndTag(() => finish(anchor));
+        atEnd(element, () => finish(anchor));
       },
       text(chunk) {
         if (spent()) return;
