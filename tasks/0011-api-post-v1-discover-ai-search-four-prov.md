@@ -1,11 +1,11 @@
 ---
 id: 11
 title: API: POST /v1/discover (AI search, four providers)
-status: review
+status: done
 owner: implementer-1
 depends_on: [7]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-16T05:04:26Z
+updated: 2026-11-16T13:14:12Z
 ---
 
 ## Goal
@@ -14,10 +14,10 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Add 
 
 ## Acceptance criteria
 
-- [ ] Each adapter has tests against mocked provider responses, including an auth failure
-- [ ] A test proves the key never appears in logs, KV or error bodies
-- [ ] Items without a source link are dropped
-- [ ] npm test and npx tsc --noEmit pass; openapi/openapi.json regenerated and the iOS app still builds
+- [x] Each adapter has tests against mocked provider responses, including an auth failure
+- [x] A test proves the key never appears in logs, KV or error bodies
+- [x] Items without a source link are dropped
+- [x] npm test and npx tsc --noEmit pass; openapi/openapi.json regenerated and the iOS app still builds
 
 ## Relevant files
 
@@ -43,3 +43,11 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Add 
 - 2026-11-16T04:59:26Z [implementer-1] tried: Route-level timeout with vi.useFakeTimers(setTimeout): fails - workerd reports the request as hung, and advancing the fake clock aborts the Worker's AbortController from the test's context (cross-context I/O error). Replaced by a providerDeadline knob in http.ts that the test shortens to 100 ms; adapter-level tests use callProvider({timeoutMs: 50}).
 - 2026-11-16T05:04:26Z [implementer-1] Second commit: in-200 search failures mapped (Anthropic too_many_requests -> rate_limited, else provider_error; Gemini is_error -> provider_error), text parts joined with no separator, optional model fields .catch(null), trailing-slash loop, timeout added to the leak test. Verified: npm test 14 files / 1483 tests pass; npx tsc --noEmit clean; npm run openapi regenerated (Discover, DiscoverItem, DiscoverRequest, DiscoverError; x-llm-key header required; 200/400/401/402/429/500/502/504). iOS build not run (lead reruns).
 - 2026-11-16T05:04:26Z [implementer-1] status: in-progress → review
+- 2026-11-16T05:15:24Z [implementer-1] criterion 1 met: Each adapter has tests against mocked provider responses, including an auth failure
+- 2026-11-16T05:15:24Z [implementer-1] criterion 2 met: A test proves the key never appears in logs, KV or error bodies
+- 2026-11-16T05:15:24Z [implementer-1] criterion 3 met: Items without a source link are dropped
+- 2026-11-16T05:15:24Z [implementer-1] review: PASS (API half). Verified myself: npm test 14 files/1483 pass, tsc clean, npm run openapi no diff, no new deps, nothing changed outside api/ openapi/ memory/architecture.md. C1 ticked: each adapter has mocked tests incl. 401 invalid_key. C2 ticked: leak test is not vacuous - temporary mutations (key in request body, key in error message, key tail in console.warn, a KV put, an adapter echoing the key tail) each made it fail; files restored, git diff clean. Gaps (low): it does not catch a key prefix (a mutation echoing key.slice(0,30) in the 200 body passed), and the success-path KEY_TAIL check is vacuous because the planted item also holds the full key; the route filter (discover.ts:183-185) checks only the full key, so an item holding just the tail or a 20-char prefix is returned. C3 ticked: linkless, uncited, unsafe and private-address items dropped (tests + my probes). C4 left unticked: API half holds (tests, tsc, spec); iOS build is for the lead. wrangler dev probes (dup header, 513 chars, non-ASCII, Bearer prefix, no key, provider __proto__) all fixed 400, no provider call, key absent from logs. Docs re-read 2026-11-15: Anthropic high confidence, OpenAI high, Perplexity medium-high (max_steps 1 + web_search is the documented fast config), Gemini medium: the guide shows real page URLs only in url_citation annotations; google_search_result carries only search_suggestions. If the JSON-only answer gets no annotations, or the model never sees the real URLs, Gemini always returns []. Needs a real-key check. Other lows: unfenced() reads only the first fence (prose fence then JSON outside = 0 items); isTimeZone accepts '+05:00' and it is forwarded as user_location.timezone (docs want IANA); quota mapping misses OpenAI *_spend_limit_exceeded/usage_limit codes unless type=insufficient_quota, the Anthropic spend-limit 400, and Gemini daily quota_exceeded maps to a 'top up' 402; Anthropic page_age (last-updated) is preferred over the model's published date.
+- 2026-11-16T05:17:34Z [implementer-1] review addendum: the Swift client is generated at build time from ../openapi/openapi.json (ios/project.yml lines 40-44), so there is no committed copy to go stale. The 500 internal_error path and the 'unexpected failure' log line (discover.ts:151-155, 196-197) are checked by reading only; no test reaches them (low coverage gap). Gemini, more precisely: the guide's example and the reference's property list show google_search_result with only search_suggestions, while the reference's example shows title/url/snippet; the guide's url_citation annotations carry real page URLs, not vertexaisearch redirects. Perplexity reasoning.effort 'low' is in the ReasoningConfig enum; Sonar end confirmed in migrate-from-sonar/overview.
+- 2026-11-16T13:14:12Z [implementer-1] criterion 4 met: npm test and npx tsc --noEmit pass; openapi/openapi.json regenerated and the iOS app still builds
+- 2026-11-16T13:14:12Z [implementer-1] lead: reviewer passed the API half (key handling, parser, provider docs). iOS half of criterion 4: 242 tests passed on iPhone 16 (iOS 18.3.1) against the new spec. Low findings L1-L5 and the Gemini doubt M1 moved to task 20. Nothing has been called with a real key.
+- 2026-11-16T13:14:12Z [implementer-1] status: review → done
