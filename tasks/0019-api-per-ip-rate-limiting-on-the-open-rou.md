@@ -1,11 +1,11 @@
 ---
 id: 19
 title: API: per-IP rate limiting on the open routes, and deployment limits
-status: review
+status: done
 owner: implementer-1
 depends_on: [7]
 created: 2026-11-16T03:45:09Z
-updated: 2026-11-16T16:10:45Z
+updated: 2026-11-16T16:16:42Z
 ---
 
 ## Goal
@@ -14,8 +14,8 @@ The plan calls for a per-client-IP rate limit on the routes that need no account
 
 ## Acceptance criteria
 
-- [ ] Each open route returns 429 with a fixed body past its limit, with tests
-- [ ] The plan requirement and chosen limits are recorded in memory/decisions/
+- [x] Each open route returns 429 with a fixed body past its limit, with tests
+- [x] The plan requirement and chosen limits are recorded in memory/decisions/
 
 ## Relevant files
 
@@ -39,3 +39,8 @@ The plan calls for a per-client-IP rate limit on the routes that need no account
 - 2026-11-16T16:10:45Z [implementer-1] Verified: npx tsc --noEmit clean; npm test 3 runs, 16 files / 1613 tests passed each time (48 new in test/rate-limit.test.ts); npm run openapi regenerated openapi/openapi.json (429 + Retry-After header on sky, calendar, sites, feed; discover 429 description broadened, Retry-After declared not required; rate_limited added to SkyError, CalendarError, SitesError, FeedError enums). Real local binding: Miniflare implements it, tests burst 2x limit+1 per group through it. npx wrangler dev --port 8788 listed the five bindings as local; 70 x GET /v1/sky?zip=abc gave 60 x 400 then 10 x 429 (Retry-After: 60, fixed body); 30 x /v1/health all 200; 7 discover posts gave 5 x 400 then 429; no address in the dev log. Server stopped. iOS (read only): sky/calendar/resolve/feed switch with default: -> .unavailable, so the new .tooManyRequests case compiles and reads as unavailable; discover already maps .tooManyRequests -> .rateLimited. Lead must rerun the iOS build after the spec change.
 - 2026-11-16T16:10:45Z [implementer-1] Follow-ups for the lead: (1) iOS: our server-side 429 on discover counts against the phone's daily cap (refundsSearch is only 400/401) and shows 'Your provider is limiting searches right now', which is wrong when it is our limiter; a 429 with Retry-After could be refunded and worded differently. (2) A daily per-IP limit for discover would need a Durable Object or KV counter (binding period max is 60 s). (3) Before deploy: check namespace IDs 19001-19005 are unused in the account; after deploy, the checks listed in memory/decisions/2026-11-16-rate-limits-and-deploy-limits.md (burst test, X-LLM-Key not in logs, measure CPU then set limits.cpu_ms).
 - 2026-11-16T16:10:45Z [implementer-1] status: in-progress → review
+- 2026-11-16T16:14:45Z [implementer-1] Correction: the missing-CF-Connecting-IP path no longer logs (commit 3 of #19): the line made discover.test.ts exact-log tests fail when run alone with -t. Also corrected: Cloudflare setting CF-Connecting-IP on requests arriving at a Worker is an assumption (the cited page covers edge-to-origin and Worker subrequests), so the limiter is unproven in production until the post-deploy burst check. 'The iOS client still builds' is from reading the switches (all default:), not a build; the spec also adds an integer Retry-After response header (required on sky/calendar/sites/feed, optional on discover), so new generated types appear. Reran: npm test x3 all 1613 pass; rate-limit.test.ts twice back to back passes; the two exact-log discover tests pass alone.
+- 2026-11-16T16:16:42Z [implementer-1] criterion 1 met: Each open route returns 429 with a fixed body past its limit, with tests
+- 2026-11-16T16:16:42Z [implementer-1] criterion 2 met: The plan requirement and chosen limits are recorded in memory/decisions/
+- 2026-11-16T16:16:42Z [implementer-1] review (lead): tsc clean; npm test 1,613 passed; the iOS suite builds against the new spec and passes on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2), 358 tests each. Limits and fail-open choices accepted as recorded in memory/decisions/2026-11-16-rate-limits-and-deploy-limits.md. Unproven until deployed: that CF-Connecting-IP arrives on requests to the Worker (the limiter serves unlimited without it); burst-test /v1/sky after the first deploy. Follow-up in task 24: the app treats our own 429 on discover as the provider's and spends a search.
+- 2026-11-16T16:16:42Z [implementer-1] status: review → done
