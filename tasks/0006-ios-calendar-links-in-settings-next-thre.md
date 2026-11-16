@@ -5,7 +5,7 @@ status: review
 owner: implementer-2
 depends_on: [4, 5]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-16T02:43:58Z
+updated: 2026-11-16T21:11:11Z
 ---
 
 ## Goal
@@ -41,3 +41,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Sett
 - 2026-11-16T02:43:58Z [implementer-2] criterion 3 met: A failing link shows a message in Settings, not an empty Today
 - 2026-11-16T02:43:58Z [implementer-2] criterion 4 met: Simulator screenshot of Today with events recorded in the task log; tests pass on both simulators
 - 2026-11-16T02:43:58Z [implementer-2] review (lead): ran the suite on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2): 149 tests passed on each. Viewed today-events.png: three events to the right of the date, times and caps titles as in the mockup. No EventKit import or logging calls in ios/Seasign. Criteria 2-4 ticked. Criterion 1 left unticked: add-link-to-events is proven by stub-transport tests only; a live check needs a real calendar link over https, which the user can paste into the Simulator with wrangler dev running. Staying in review until then.
+- 2026-11-16T21:11:11Z [lead] Session end 2026-11-16: still waiting on criterion 1, the live check with a real calendar link pasted by the user in the Simulator while npx wrangler dev runs in api/. Everything else is ticked.

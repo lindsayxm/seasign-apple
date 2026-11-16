@@ -38,3 +38,35 @@ Entry format:
   - Build notes: `xcodebuild` needs `-skipPackagePluginValidation`, and `name=iPhone 16` needs `OS=18.3.1`; build per runtime. The `npx -y npm@11 install` row in the `AGENTS.md` CLI table overstates the problem: plain `npm install` worked for three package changes; correct that row with the next docs change.
   - The Mac's disk was nearly full during the session (about 30 GB free at last check). Session screenshots are under `/private/tmp` and will not survive a reboot.
   - Implementation decisions from this session: `memory/decisions/2026-11-15-build-decisions.md`.
+
+## 2026-11-16 — every v1 screen and route built and reviewed; two live checks need the user; sign-in and sync wait on the Apple account
+
+- Done:
+  - #7 `POST /v1/sites/resolve` and `POST /v1/feed` closed after its final review round (bounded parser memory, text-run cap, 64 KB body cap).
+  - #8 followed sites with categories in Settings, real headlines on Today, reading view. #9 7-day History (`>>`) and Saved (asterisk) with search, category filter and notes.
+  - #11 `POST /v1/discover`: AI search through the user's own key, four provider adapters (Anthropic, OpenAI, Gemini, Perplexity). #12 AI settings, key in the Keychain, daily cap, blended and labelled feed. #21 hardening from the #12 review.
+  - #18 and #22 calendar memory bounds (ical.js is handed only lines we have already counted; RDATE periods counted).
+  - #19 per-client-IP rate limits on the open `/v1` routes with the Workers Rate Limiting binding (`ratelimits` in `api/wrangler.jsonc`). #24 the app handles the API's own 429 on discover, sky, calendar, sites and feed.
+  - #23 event times follow the phone's 24-hour setting; AI headlines alternate with the user's own on Today ("every other").
+  - #25 a fresh install starts with zip 60611 (Chicago); `SkyStore.defaultZip`, written only when the settings row is first created.
+  - #20 criterion 1: discover review fixes L1–L6.
+  - Config: lead session on Fable 5.2, `implementer` and `reviewer` on Opus 5.5 (`c628e56`).
+  - Last verified state: API `npm test` 1,613 passed and `npx tsc --noEmit` clean; iOS 380 tests passed on iPhone 16 / iOS 18.3.1 and iPhone 17 / iOS 27.2 at `f922c70`. Working tree clean.
+- In flight:
+  - #6 (in `review`, 3 of 4 criteria): needs a live check with a real calendar link pasted by the user in the Simulator while `npx wrangler dev` runs in `api/`.
+  - #20 (released to `todo`, 1 of 2 criteria): real-key smoke tests of the four providers. The user enters their own key in the Simulator; it is never given to the agent, logged or committed. Test Gemini first: its Interactions API may return no result URLs for a JSON-only answer (M1 in the task), in which case items must be matched to `url_citation` annotations.
+- Next:
+  1. With the user present: the #6 live calendar check, then the #20 smoke tests. Close both.
+  2. Ask the user the two open questions under Notes, and create tasks from the answers.
+  3. The user's design iteration on the Today scene and screens, when they bring changes.
+  4. #13 and #14 (auth, D1 tables, sync, account deletion, Cron refresh) once the Apple Developer account is approved; then put the real bundle ID and team in `app-identity.xcconfig`.
+- Notes:
+  - Not verified anywhere: nothing is deployed and no cloud resource exists (D1 and KV IDs in `api/wrangler.jsonc` are placeholders). No AI search has run against a real provider. The rate limiter keys on `CF-Connecting-IP`, so it is unproven until deployed. The 24-hour switch was tested in unit tests, not on a device. The Chicago default was not seen on screen, because both simulators already hold a saved zip; delete the app from a simulator to see it.
+  - Before any deploy (ask the user first): Workers Paid plan (needed by `/v1/feed`), pricing of the rate-limit binding, a burst test after deploy, and a check that logs never record `X-LLM-Key` or calendar links. See `memory/decisions/2026-11-16-rate-limits-and-deploy-limits.md`.
+  - Open questions for the user: move calendar links from SwiftData to the Keychain (lead recommends yes, a link is a credential); whether titles of private events should be hidden. The `/statusline` setup from the first session was never chosen.
+  - The user is still iterating on the design: keep visual polish and screenshot matching light on UI tasks; keep full review for logic, data safety and API security.
+  - #25 was implemented and closed by the lead without a separate reviewer (one line of behaviour plus three tests).
+  - Still to correct: the `npx -y npm@11 install` row in the `AGENTS.md` CLI table overstates the problem; plain `npm install` has worked.
+  - Test output: filter `xcodebuild` output with `^✘ Test |^\*\* TEST|^✔ Test run`; the `LocalStore` tests print CoreData "error" lines that are not failures.
+  - The Mac's disk is nearly full; builds use the default DerivedData.
+  - User decisions from this session: `memory/decisions/2026-11-16-user-decisions.md`.
