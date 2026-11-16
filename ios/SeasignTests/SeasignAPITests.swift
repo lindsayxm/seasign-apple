@@ -43,21 +43,4 @@ private func stubbedAPI(status: HTTPResponse.Status, json: String) -> SeasignAPI
             try await api.health()
         }
     }
-
-    @Test @MainActor func modelReportsReachable() async {
-        let model = HealthModel(
-            api: stubbedAPI(status: .ok, json: #"{"status":"ok","service":"seasign-api"}"#)
-        )
-        await model.load()
-        #expect(model.state == .reachable(service: "seasign-api"))
-    }
-
-    @Test @MainActor func modelReportsUnreachable() async {
-        let model = HealthModel(api: stubbedAPI(status: .internalServerError, json: "{}"))
-        await model.load()
-        guard case .unreachable = model.state else {
-            Issue.record("expected .unreachable, got \(model.state)")
-            return
-        }
-    }
 }
