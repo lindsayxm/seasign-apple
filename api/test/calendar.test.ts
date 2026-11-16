@@ -1,5 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MAX_CALENDAR_BYTES, MAX_EVENTS_PER_FILE } from "../src/lib/calendar.ts";
 import { calendarCacheKey } from "../src/routes/calendar.ts";
 // Written by hand in the shape each provider exports; no real calendar was fetched.
 import google from "./fixtures/calendar/google.ics?raw";
@@ -197,7 +198,15 @@ describe("POST /v1/calendar/events", () => {
       ["is unreachable", () => Promise.reject(new TypeError("network down")), "fetch_failed"],
       ["returns a sign-in page", () => new Response("<!doctype html><html>Sign in</html>", { headers: { "content-type": "text/html" } }), "not_calendar"],
       ["returns a broken calendar", () => new Response("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:x"), "not_calendar"],
-      ["returns more than 2 MB", () => new Response("BEGIN:VCALENDAR\r\n" + "X-PAD:".padEnd(1024, "x").concat("\r\n").repeat(2100)), "too_large"],
+      ["returns more than 2 MB", () => new Response("BEGIN:VCALENDAR\r\n" + "X-PAD:".padEnd(1024, "x").concat("\r\n").repeat(MAX_CALENDAR_BYTES / 1024 + 1)), "too_large"],
+      [
+        "holds more events than a calendar is read with",
+        () =>
+          new Response(
+            ["BEGIN:VCALENDAR", ...Array.from({ length: MAX_EVENTS_PER_FILE + 1 }, (_, i) => `BEGIN:VEVENT\r\nUID:${i}\r\nDTSTART:20261117T090000Z\r\nEND:VEVENT`), "END:VCALENDAR"].join("\r\n"),
+          ),
+        "too_large",
+      ],
       ["redirects to a private address", () => new Response(null, { status: 302, headers: { location: "https://10.0.0.5/internal.ics" } }), "blocked_host"],
       ["redirects to plain http", () => new Response(null, { status: 301, headers: { location: "http://broken.example.com/c.ics" } }), "invalid_link"],
       ["redirects for ever", () => new Response(null, { status: 302, headers: { location: BROKEN } }), "fetch_failed"],

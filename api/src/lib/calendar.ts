@@ -56,8 +56,30 @@ const MAX_WORK_PER_FILE = 200_000;
 /** Occurrences kept per calendar; a nine-day window with more than this is not a personal calendar. */
 const MAX_KEPT = 500;
 const MAX_TITLE_LENGTH = 200;
-/** EXDATE and RDATE values one event may list. */
+/** EXDATE and RDATE values one event may list; more and the event is skipped. */
 const MAX_LISTED_DATES = 2000;
+/** RRULE and EXRULE lines one event may have; more and the event is skipped. Apps write one. */
+const MAX_RULES_PER_EVENT = 8;
+
+// What ical.js is given is bounded before it sees the file (`readableLines`),
+// because memory, unlike CPU, cannot be charged as the work is done: ical.js
+// builds about 0.5 KB of objects for every line it is handed, all at once
+// (figures in memory/architecture.md). Over any of these limits the whole file
+// is refused as too large. File order is not date order, so reading only the
+// first part of a file would quietly lose events that are coming up.
+//
+// The limits are about twice what an ordinary calendar of MAX_CALENDAR_BYTES
+// holds (see the large calendar in api/test/calendar-parse.test.ts).
+/** Characters of calendar text read; the route fetches at most this many bytes. */
+export const MAX_CALENDAR_BYTES = 2 * 1024 * 1024;
+/** VEVENTs in one file. */
+export const MAX_EVENTS_PER_FILE = 12_000;
+/** Lines handed to ical.js, BEGIN and END included. */
+export const MAX_LINES_PER_FILE = 60_000;
+/** EXDATE and RDATE values handed to ical.js. */
+export const MAX_LISTED_PER_FILE = 20_000;
+/** VTIMEZONEs handed to ical.js; later ones are not read. `readZone` uses 50. */
+const MAX_ZONE_COMPONENTS = 100;
 /** Limits on one VTIMEZONE, and on the zones and calendars of one file. */
 const MAX_ZONE_OBSERVANCES = 60;
 const MAX_ZONE_RULES = 12;
@@ -78,10 +100,6 @@ const ZONE_WORK = 10;
  */
 const RULE = "x-seasign-rrule";
 const EXCLUSION_RULE = "x-seasign-exrule";
-/** The component the events are moved into; see `parseCalendar`. */
-const EVENTS = "x-seasign-events";
-/** What a line becomes that carries a rule under a name no parser would read as one. */
-const ODD_RULE = "x-seasign-odd-rrule";
 /** Zone maths is only done for times this close to the kept window, measured on the wall clock. */
 const NEAR = 3 * DAY;
 
@@ -118,6 +136,9 @@ export type UpcomingEvent = {
 
 /** The text is not an iCalendar file. */
 export class CalendarParseError extends Error {}
+
+/** The text is longer, or holds more events, lines or listed dates, than a calendar is read with. */
+export class CalendarTooLargeError extends CalendarParseError {}
 
 // ───────────────────────── time zones ─────────────────────────
 
@@ -872,13 +893,18 @@ function expand(
   }
 
   const exclusionProperties = component.getAllProperties("exdate");
+  // Counted without decoding: ical.js keeps every value it decodes.
   let listed = 0;
-  for (const property of [...exclusionProperties, ...listedProperties]) listed += property.getValues().length;
+  for (const property of [...exclusionProperties, ...listedProperties]) listed += Math.max(0, property.jCal.length - 3);
   if (listed > MAX_LISTED_DATES) {
     budget.partial = true;
     return;
   }
   budget.work -= listed;
+  // Decoded before anything is placed, so that a value ical.js cannot read
+  // skips the whole event rather than part of it. (ical.js keeps these on the
+  // event's wrapper, which is let go once the event is read.)
+  for (const property of [...exclusionProperties, ...listedProperties]) property.getValues();
 
   /** Excluded instances by instant, and whole excluded local days (EXDATE;VALUE=DATE). */
   const excluded = new Set<string>();
@@ -962,21 +988,12 @@ const EVENT_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
   rdate: ["date-time", "date"],
 };
 
-/** The lines kept for ical.js to parse: what `EVENT_PROPERTIES` and `readZone` read. */
-const KEPT_LINES = new Set([
-  "UID",
-  "SUMMARY",
-  "STATUS",
-  "DTSTART",
-  "DTEND",
-  "DURATION",
-  "RECURRENCE-ID",
-  "EXDATE",
-  "RDATE",
-  "TZID",
-  "TZOFFSETFROM",
-  "TZOFFSETTO",
-]);
+/** The properties of a VEVENT read once: ical.js is given the first of each, which is the one read. */
+const EVENT_SINGLE = new Set(["UID", "SUMMARY", "STATUS", "DTSTART", "DTEND", "DURATION", "RECURRENCE-ID"]);
+/** The properties of a STANDARD or DAYLIGHT block read once: `readZone` takes the last of each, so that is the one given. */
+const BLOCK_SINGLE = new Set(["DTSTART", "TZOFFSETFROM", "TZOFFSETTO"]);
+/** Every property name a reader here uses, wherever it stands. */
+const READ_ANYWHERE = new Set([...EVENT_SINGLE, ...BLOCK_SINGLE, "EXDATE", "RDATE", "TZID", "RRULE", "EXRULE"]);
 
 /**
  * Where a line's value begins, and its TZID, RANGE and plain VALUE parameters.
@@ -1005,20 +1022,108 @@ function scanParameters(line: string, at: number): { parameters: string[]; value
   return null;
 }
 
+/** The values in a list such as EXDATE's: one more than its commas, as many as ical.js could make of it. */
+function valueCount(value: string): number {
+  let count = 1;
+  for (let at = value.indexOf(","); at >= 0; at = value.indexOf(",", at + 1)) count++;
+  return count;
+}
+
+/** A VEVENT or VTIMEZONE being read. Its lines are held until its END decides whether ical.js is given them. */
+type Pending = {
+  kind: "event" | "zone";
+  lines: string[];
+  /** Names of the properties read once that it has given already. */
+  seen: Set<string>;
+  rules: number;
+  listed: number;
+  observances: number;
+  /** The STANDARD or DAYLIGHT block being read, in a zone: its name, its last DTSTART, TZOFFSETFROM and TZOFFSETTO, and its rules and dates. */
+  block: { name: string; last: Map<string, string>; lines: string[] } | null;
+  /** Over a limit: none of it is given to ical.js. */
+  dropped: boolean;
+};
+
+const pending = (kind: Pending["kind"]): Pending => ({
+  kind,
+  lines: [kind === "event" ? "BEGIN:VEVENT" : "BEGIN:VTIMEZONE"],
+  seen: new Set(),
+  rules: 0,
+  listed: 0,
+  observances: 0,
+  block: null,
+  dropped: false,
+});
+
 /**
- * Reduces an unfolded file to the lines this reader uses: BEGIN and END, the
- * properties in `KEPT_LINES` with the three parameters that matter, and
- * repeat rules, renamed so that ical.js keeps their text as it is.
+ * Reduces an unfolded file to what this reader uses, in one pass and before
+ * ical.js sees any of it: the VCALENDARs, each VEVENT and VTIMEZONE directly
+ * inside one with the properties `cleanEvent` and `readZone` read (with only
+ * the TZID, RANGE and date-typed VALUE parameters), and repeat rules, renamed
+ * so that ical.js keeps their text as it is.
  *
- * This is for robustness and speed, not safety (that is `cleanEvent` and
- * `readZone`). ical.js rejects a whole file for one value it cannot decode
- * and takes seconds over a line with 200,000 parameters; the lines that could
- * do either are not given to it. Sets `partial` for a line that is not a
- * property at all, or that looks like a rule under a name that is not one.
+ * What ical.js is given is bounded here, since it builds its whole tree at
+ * once and memory cannot be charged to a budget as it goes:
+ * - a file of more than MAX_EVENTS_PER_FILE events, or that would give ical.js
+ *   more than MAX_LINES_PER_FILE lines or MAX_LISTED_PER_FILE listed dates,
+ *   is refused (`CalendarTooLargeError`);
+ * - an event with more than MAX_RULES_PER_EVENT rules or MAX_LISTED_DATES
+ *   listed dates is left out, and sets `partial`;
+ * - a property read once is given once: the first in an event, the last in a
+ *   zone's block, as they are read;
+ * - nothing inside an event (alarms), inside an unknown component, or at the
+ *   calendar's own level is given; it is only counted, to find where it ends.
+ *   A VEVENT or VTIMEZONE in there is not read and sets `partial`;
+ * - a VTIMEZONE that `readZone` would not use for its size (more than
+ *   MAX_ZONE_OBSERVANCES blocks, MAX_ZONE_RULES rules or MAX_ZONE_DATES listed
+ *   dates, or a rule under another name) is not given, nor are zones after
+ *   MAX_ZONE_COMPONENTS;
+ * - calendars after MAX_CALENDARS_PER_FILE are not read, and set `partial`.
+ *
+ * Components are matched as ical.js matches them: by count, END closing
+ * whatever is open; one left open, or an END with nothing open, refuses the
+ * file. Sets `partial` for a line that is not a property at all, or a line in
+ * an event that looks like a rule under a name that is not one.
+ *
+ * The limits are for memory. The other reductions are for robustness and
+ * speed, not safety (that is `cleanEvent` and `readZone`): ical.js rejects a
+ * whole file for one value it cannot decode and takes seconds over a line
+ * with 200,000 parameters, and the lines that could do either are not given
+ * to it.
  */
 function readableLines(unfolded: string, budget: Budget): string {
   const out: string[] = [];
-  for (const line of unfolded.split("\n")) {
+  let given = 0;
+  let events = 0;
+  let listed = 0;
+  let zones = 0;
+  let calendars = 0;
+  /** 0 outside any calendar, 1 in a VCALENDAR, 2 in a VEVENT or VTIMEZONE, 3 in a zone's block. */
+  let depth = 0;
+  /** How deep inside a component that is not read; 0 when not in one. */
+  let skipping = 0;
+  let item: Pending | null = null;
+
+  const give = (lines: string[]) => {
+    given += lines.length;
+    if (given > MAX_LINES_PER_FILE) throw new CalendarTooLargeError("too many lines");
+    for (const line of lines) out.push(line);
+  };
+  const drop = (pending: Pending) => {
+    pending.dropped = true;
+    pending.lines = [];
+    pending.block = null;
+  };
+
+  // Lines end at CRLF, CR or LF. The text is walked, not split: a file of
+  // short lines would otherwise be a list of hundreds of thousands of strings.
+  const lineEnd = /\r\n?|\n/g;
+  for (let from = 0; from < unfolded.length; ) {
+    lineEnd.lastIndex = from;
+    const found = lineEnd.exec(unfolded);
+    const line = unfolded.slice(from, found ? found.index : unfolded.length);
+    from = found ? found.index + found[0].length : unfolded.length;
+
     if (line.trim() === "") continue;
     const at = line.search(/[;:]/);
     const scanned = at < 0 ? null : scanParameters(line, at);
@@ -1032,11 +1137,121 @@ function readableLines(unfolded: string, budget: Budget): string {
     if (dot >= 0 && /^[A-Z0-9-]+$/.test(name.slice(0, dot))) name = name.slice(dot + 1);
     const value = line.slice(scanned.value);
 
-    if (name === "BEGIN" || name === "END") out.push(`${name}:${value}`);
-    else if (name === "RRULE" || name === "EXRULE") out.push(`X-SEASIGN-${name}:${value}`);
-    else if (KEPT_LINES.has(name)) out.push(`${name}${scanned.parameters.map((parameter) => `;${parameter}`).join("")}:${value}`);
-    else if (looksLikeRule(name.toLowerCase())) out.push(`${ODD_RULE.toUpperCase()}:`);
+    if (name === "BEGIN") {
+      // ical.js names a component by the value in lower case, untrimmed.
+      const component = value.toLowerCase();
+      const read = component === "vevent" || component === "vtimezone";
+      if (skipping > 0) {
+        skipping++;
+        if (read) budget.partial = true;
+      } else if (depth === 0) {
+        if (component !== "vcalendar") throw new CalendarParseError("not a calendar");
+        if (++calendars > MAX_CALENDARS_PER_FILE) {
+          budget.partial = true;
+          skipping = 1;
+        } else {
+          give(["BEGIN:VCALENDAR"]);
+          depth = 1;
+        }
+      } else if (depth === 1 && component === "vevent") {
+        if (++events > MAX_EVENTS_PER_FILE) throw new CalendarTooLargeError("too many events");
+        item = pending("event");
+        depth = 2;
+      } else if (depth === 1 && component === "vtimezone" && zones < MAX_ZONE_COMPONENTS) {
+        item = pending("zone");
+        depth = 2;
+      } else if (depth === 2 && item?.kind === "zone" && (component === "standard" || component === "daylight")) {
+        if (!item.dropped && ++item.observances > MAX_ZONE_OBSERVANCES) drop(item);
+        if (!item.dropped) item.block = { name: component.toUpperCase(), last: new Map(), lines: [] };
+        depth = 3;
+      } else {
+        // An alarm, a to-do, anything unknown, a zone past the limit, or an
+        // event or zone inside an event or a zone: counted, not read.
+        skipping = 1;
+        if (read && depth > 1) budget.partial = true;
+      }
+      continue;
+    }
+
+    if (name === "END") {
+      if (skipping > 0) skipping--;
+      else if (depth === 0) {
+        // An END with nothing open: ical.js lets one at the end of a file pass.
+      } else if (depth === 1) {
+        give(["END:VCALENDAR"]);
+        depth = 0;
+      } else if (depth === 2) {
+        const done = item as Pending;
+        if (done.dropped) {
+          if (done.kind === "event") budget.partial = true;
+        } else {
+          listed += done.listed;
+          if (listed > MAX_LISTED_PER_FILE) throw new CalendarTooLargeError("too many listed dates");
+          if (done.kind === "zone") zones++;
+          done.lines.push(done.kind === "event" ? "END:VEVENT" : "END:VTIMEZONE");
+          give(done.lines);
+        }
+        item = null;
+        depth = 1;
+      } else {
+        const zone = item as Pending;
+        if (zone.block) zone.lines.push(`BEGIN:${zone.block.name}`, ...zone.block.last.values(), ...zone.block.lines, `END:${zone.block.name}`);
+        zone.block = null;
+        depth = 2;
+      }
+      continue;
+    }
+
+    if (skipping > 0 || depth === 1) continue;
+    const kept = () => `${name}${scanned.parameters.map((parameter) => `;${parameter}`).join("")}:${value}`;
+    if (depth === 0) {
+      // ical.js fails on a property outside any component.
+      if (READ_ANYWHERE.has(name) || looksLikeRule(name.toLowerCase())) throw new CalendarParseError("not a calendar");
+      continue;
+    }
+    const current = item as Pending;
+    if (current.dropped) continue;
+
+    if (current.kind === "event") {
+      if (name === "RRULE" || name === "EXRULE") {
+        if (++current.rules > MAX_RULES_PER_EVENT) drop(current);
+        else current.lines.push(`X-SEASIGN-${name}:${value}`);
+      } else if (name === "EXDATE" || name === "RDATE") {
+        current.listed += valueCount(value);
+        if (current.listed > MAX_LISTED_DATES) drop(current);
+        else current.lines.push(kept());
+      } else if (EVENT_SINGLE.has(name)) {
+        if (!current.seen.has(name)) {
+          current.seen.add(name);
+          current.lines.push(kept());
+        }
+      } else if (looksLikeRule(name.toLowerCase())) {
+        // Something meant as a rule under a name no parser would take for one.
+        budget.partial = true;
+      }
+    } else if (depth === 2) {
+      // A zone reads only its first TZID at its own level.
+      if (name === "TZID" && !current.seen.has(name)) {
+        current.seen.add(name);
+        current.lines.push(kept());
+      }
+    } else {
+      const block = current.block as NonNullable<Pending["block"]>;
+      if (BLOCK_SINGLE.has(name)) block.last.set(name, kept());
+      else if (name === "RRULE") {
+        if (++current.rules > MAX_ZONE_RULES) drop(current);
+        else block.lines.push(`X-SEASIGN-RRULE:${value}`);
+      } else if (name === "RDATE") {
+        current.listed += valueCount(value);
+        if (current.listed > MAX_ZONE_DATES) drop(current);
+        else block.lines.push(kept());
+      } else if (looksLikeRule(name.toLowerCase())) {
+        // EXRULE, or a rule under another name: `readZone` would not use the zone.
+        drop(current);
+      }
+    }
   }
+  if (depth > 0 || skipping > 0) throw new CalendarParseError("not a calendar");
   return out.join("\n");
 }
 
@@ -1073,48 +1288,47 @@ function cleanEvent(vevent: JCal, budget: Budget): JCal {
   return ["vevent", properties, []];
 }
 
-/** True when the component holds a VEVENT or VTIMEZONE somewhere inside it. */
-function holdsNested(component: JCal, depth = 0): boolean {
-  return component[2].some(
-    (child) => child[0] === "vevent" || child[0] === "vtimezone" || (depth < 8 && holdsNested(child, depth + 1)),
-  );
-}
-
 /**
  * Parses the text of an .ics file and returns the occurrences near `now`.
- * Throws `CalendarParseError` when the text is not a calendar.
+ * Throws `CalendarParseError` when the text is not a calendar, and its
+ * subclass `CalendarTooLargeError` when it is longer than MAX_CALENDAR_BYTES
+ * characters or holds more than `readableLines` gives ical.js.
  *
  * Each of these leaves the calendar usable and sets `partial`:
  * - an event that cannot be read, or whose RRULE is malformed or is not a
  *   shape `readRule` supports, is skipped;
- * - an event listing more than 2,000 EXDATE and RDATE values is skipped;
+ * - an event listing more than 2,000 EXDATE and RDATE values, or with more
+ *   than 8 repeat rules, is skipped;
  * - reading stops once the file has used its work budget (`MAX_WORK_PER_FILE`);
  * - at most 500 occurrences are kept;
  * - past 50 distinct TZIDs without a VTIMEZONE, times are read as floating;
  * - a VEVENT or VTIMEZONE inside another component is not read;
+ * - calendars after the first 20 in one file are not read;
  * - a line that is not a property (no colon) is left out.
  * A VTIMEZONE that `readZone` cannot use is ignored (and so are those past 50
  * in one file); times that name it fall back to the IANA zone of the same
- * name, or to floating. A file may hold several VCALENDARs; all are read.
+ * name, or to floating. A file may hold several VCALENDARs.
  * `RANGE=THISANDFUTURE` on a RECURRENCE-ID is not applied: such an override
  * changes only its own instance.
  */
 export function parseCalendar(text: string, now: Date): ParsedCalendar {
+  if (text.length > MAX_CALENDAR_BYTES) throw new CalendarTooLargeError("too large");
   // Folded lines are joined first, so that everything after this sees whole
-  // lines, and line ends are made uniform. ical.js is given this text and has
+  // lines. ical.js is given what `readableLines` makes of this text and has
   // no folds left to undo in a way of its own.
   const body = text
-    .replace(/^﻿/, "")
+    .replace(/^\uFEFF/, "")
     .trimStart()
-    .replace(/(?:\r\n|\r|\n)[ \t]/g, "")
-    .replace(/\r\n?/g, "\n");
+    .replace(/(?:\r\n|\r|\n)[ \t]/g, "");
   if (!/^BEGIN:VCALENDAR/i.test(body)) throw new CalendarParseError("not a calendar");
 
   const budget: Budget = { work: MAX_WORK_PER_FILE, partial: false, zones: new Map(), fileZones: new Map() };
 
+  // Outside the `try`: a file over a limit is refused as too large.
+  const readable = readableLines(body, budget);
   let calendars: JCal[];
   try {
-    const result = ICAL.parse(readableLines(body, budget)) as JCal | JCal[];
+    const result = ICAL.parse(readable) as JCal | JCal[];
     // A file holding several calendars comes back as a list.
     calendars = (Array.isArray(result[0]) ? result : [result]) as JCal[];
   } catch {
@@ -1134,16 +1348,14 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
 
   // One pass over the parsed data. Time zone definitions are read into our
   // own form; events are rebuilt from the properties we read. ical.js gets
-  // the rebuilt events and nothing else.
-  const eventComponents: JCal[] = [];
+  // the rebuilt events and nothing else. (`readableLines` gave it nothing
+  // nested, so a calendar's children are its events and zones.)
+  const eventData: JCal[] = [];
   for (const calendar of calendars) {
     for (const component of calendar[2]) {
       if (component[0] === "vevent") {
-        eventComponents.push(cleanEvent(component, budget));
-        // An event's own children are alarms; an event or zone in there is not read.
-        if (holdsNested(component)) budget.partial = true;
+        eventData.push(cleanEvent(component, budget));
       } else if (component[0] === "vtimezone") {
-        if (holdsNested(component)) budget.partial = true;
         if (budget.fileZones.size >= MAX_ZONES_PER_FILE) continue;
         let read: ReturnType<typeof readZone> = null;
         try {
@@ -1153,34 +1365,36 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
         }
         // The first definition of a name stands.
         if (read && !budget.fileZones.has(read.tzid)) budget.fileZones.set(read.tzid, read.zone);
-      } else if (holdsNested(component)) {
-        budget.partial = true;
       }
     }
   }
-  // The events sit in a component of their own, one level down. For every
-  // time with a TZID, ical.js searches all the children of the calendar for a
-  // VTIMEZONE: with 30,000 events as children that search alone took 8
-  // seconds. Here the calendar has one child and no VTIMEZONE to find.
-  const calendar = new ICAL.Component(["vcalendar", [], [[EVENTS, [], eventComponents]]]);
-  const vevents = calendar.getFirstSubcomponent(EVENTS)?.getAllSubcomponents("vevent") ?? [];
+  calendars.length = 0;
+
+  // Each event is wrapped in an ical.js component of its own when it is read,
+  // with no parent, and the wrapper is let go afterwards: ical.js keeps every
+  // property and value it decodes on the wrapper, which would otherwise hold
+  // them all until the end. Without a parent there is also no calendar to
+  // search for a VTIMEZONE: ical.js does that for every time with a TZID, and
+  // with 30,000 events beside each other that search alone took 8 seconds.
+  const wrap = (data: JCal) => new ICAL.Component(data);
 
   const nowSeconds = Math.floor(now.getTime() / 1000);
   const window: Window = { keepFrom: nowSeconds - KEEP_BEFORE, keepUntil: nowSeconds + KEEP_AFTER };
 
   // A repeating event and the VEVENTs that override single instances of it
   // share a UID; the overrides carry a RECURRENCE-ID.
-  const masters: Component[] = [];
-  const overrides: Component[] = [];
+  const masters: JCal[] = [];
+  const overrides: JCal[] = [];
   const overridden = new Map<string, Set<string>>();
-  for (const vevent of vevents) {
+  for (const data of eventData) {
     try {
+      const vevent = wrap(data);
       const idProperty = vevent.getFirstProperty("recurrence-id");
       if (!idProperty) {
-        masters.push(vevent);
+        masters.push(data);
         continue;
       }
-      overrides.push(vevent);
+      overrides.push(data);
       const uid = vevent.getFirstPropertyValue("uid");
       const id = idProperty.getFirstValue();
       if (typeof uid === "string" && id instanceof ICAL.Time) {
@@ -1197,7 +1411,7 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
   }
 
   const events: StoredEvent[] = [];
-  const each = (component: Component, single: boolean) => {
+  const each = (data: JCal, single: boolean) => {
     // Far more occurrences in nine days than will be kept: stop reading.
     if (budget.work <= 0 || events.length >= 4 * MAX_KEPT) {
       budget.partial = true;
@@ -1205,6 +1419,7 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
     }
     budget.work--;
     try {
+      const component = wrap(data);
       if (isCancelled(component)) return;
       const uid = single ? undefined : component.getFirstPropertyValue("uid");
       // A cancelled override is still in `overridden`, so its instance is

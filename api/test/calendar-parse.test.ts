@@ -2,6 +2,11 @@ import ICAL from "ical.js";
 import { describe, expect, it } from "vitest";
 import {
   CalendarParseError,
+  CalendarTooLargeError,
+  MAX_CALENDAR_BYTES,
+  MAX_EVENTS_PER_FILE,
+  MAX_LINES_PER_FILE,
+  MAX_LISTED_PER_FILE,
   isTimeZone,
   parseCalendar,
   readRule,
@@ -1303,11 +1308,12 @@ describe("hostile and broken files", () => {
   describe("work that grows faster than the file", () => {
     it("reads thousands of events and overrides that share one UID in linear time", () => {
       // Each event used to copy the UID's whole set of overridden instances.
+      // (Kept under MAX_EVENTS_PER_FILE and MAX_LINES_PER_FILE: 9,001 events, about 49,000 lines.)
       const uid = "UID:shared@example.com";
       const minutes = (i: number) => `202611${String(17 + (i % 6)).padStart(2, "0")}T${String(Math.floor(i / 60) % 24).padStart(2, "0")}${String(i % 60).padStart(2, "0")}00Z`;
       const text = calendarOf(
-        ...Array.from({ length: 12_000 }, (_, i) => vevent(uid, `SUMMARY:m${i}`, "DTSTART:20200101T000000Z")),
-        ...Array.from({ length: 8_000 }, (_, i) => vevent(uid, `SUMMARY:o${i}`, `RECURRENCE-ID:${minutes(i)}`, "DTSTART:20200101T000000Z")),
+        ...Array.from({ length: 5_000 }, (_, i) => vevent(uid, `SUMMARY:m${i}`, "DTSTART:20200101T000000Z")),
+        ...Array.from({ length: 4_000 }, (_, i) => vevent(uid, `SUMMARY:o${i}`, `RECURRENCE-ID:${minutes(i)}`, "DTSTART:20200101T000000Z")),
         vevent(uid, "SUMMARY:series", "DTSTART:20261101T000000Z", "RRULE:FREQ=DAILY"),
       );
 
@@ -1321,11 +1327,13 @@ describe("hostile and broken files", () => {
       expect(days).not.toContain("2026-11-17");
     });
 
-    it("reads 30,000 events whose time zone the file does not define in linear time", () => {
+    it("reads 11,000 events whose time zone the file does not define in linear time", () => {
       // For each such time ical.js searched every child of the calendar for a
-      // VTIMEZONE: 8 seconds here, before the events were moved one level down.
+      // VTIMEZONE: 8 seconds for 30,000 events, before the events were moved
+      // out of the calendar. 11,000 is about as many such events as a file may
+      // hand ical.js (MAX_LINES_PER_FILE).
       const text = calendarOf(
-        ...Array.from({ length: 30_000 }, (_, i) => vevent(`SUMMARY:e${i}`, "DTSTART;TZID=America/New_York:20100114T090000")),
+        ...Array.from({ length: 11_000 }, (_, i) => vevent(`SUMMARY:e${i}`, "DTSTART;TZID=America/New_York:20100114T090000")),
         vevent("SUMMARY:now", "DTSTART;TZID=America/New_York:20261117T090000"),
       );
 
@@ -1363,8 +1371,9 @@ describe("hostile and broken files", () => {
       const exclusions = Array.from({ length: 1990 }, (_, i) =>
         new Date(Date.UTC(2026, 10, 15, 16) + i * 300_000).toISOString().replace(/[-:]/g, "").slice(0, 15),
       ).join(",");
+      // Ten series list 19,900 dates, just under MAX_LISTED_PER_FILE.
       const text = calendarOf(
-        ...Array.from({ length: 60 }, (_, i) =>
+        ...Array.from({ length: 10 }, (_, i) =>
           vevent(`SUMMARY:s${i}`, "DTSTART;TZID=America/New_York:20261101T090000", "RRULE:FREQ=DAILY", `EXDATE;TZID=America/New_York:${exclusions}`),
         ),
       );
@@ -1373,7 +1382,7 @@ describe("hostile and broken files", () => {
       const parsed = parseCalendar(text, NOW);
 
       expect(performance.now() - started).toBeLessThan(5000);
-      // 60 x 1,990 lookups is more than the budget allows. The first series is
+      // 10 x 1,990 lookups is more than the budget allows. The first series is
       // read in full: the exclusions, every five minutes for a week, take out
       // the 16th to the 22nd, which leaves the 23rd and the 24th.
       expect(parsed.partial).toBe(true);
@@ -1381,12 +1390,13 @@ describe("hostile and broken files", () => {
         "2026-11-23T14:00:00.000Z",
         "2026-11-24T14:00:00.000Z",
       ]);
-      expect(parsed.events.some((event) => event.title === "s59")).toBe(false);
+      expect(parsed.events.some((event) => event.title === "s9")).toBe(false);
     });
 
-    it("reads a file of 60,000 empty time zone definitions in linear time", () => {
-      // They used to be removed from the calendar one at a time.
-      const junk = Array.from({ length: 60_000 }, (_, i) => ["BEGIN:VTIMEZONE", `TZID:Z${i}`, "END:VTIMEZONE"]);
+    it("reads a file of 40,000 empty time zone definitions in linear time", () => {
+      // They used to be removed from the calendar one at a time. (40,000 fill
+      // MAX_CALENDAR_BYTES; only the first MAX_ZONE_COMPONENTS reach ical.js.)
+      const junk = Array.from({ length: 40_000 }, (_, i) => ["BEGIN:VTIMEZONE", `TZID:Z${i}`, "END:VTIMEZONE"]);
       const text = calendarOf(...junk, NEW_YORK, vevent("SUMMARY:x", "DTSTART;TZID=America/New_York:20261117T090000"));
 
       const started = performance.now();
@@ -1422,5 +1432,265 @@ describe("hostile and broken files", () => {
     }
     expect(JSON.stringify(parsed)).not.toContain("Example Ave");
     expect(JSON.stringify(parsed)).not.toContain("insurance");
+  });
+});
+
+// A Worker has 128 MB, and ical.js builds its whole tree at once, about half
+// a kilobyte for every line it is handed. The local runtime does not enforce
+// the memory limit, so these tests check the counts: what ical.js is handed
+// is bounded before it sees the file, and a file over a limit is refused
+// rather than read in part. (Heap figures: memory/architecture.md, measured
+// with api/scripts/calendar-memory.ts.)
+describe("what ical.js is handed is bounded", () => {
+  /** An event of four lines, long over; or, when `soon`, one in the window. */
+  const plain = (i: number, soon = false) =>
+    soon
+      ? ["BEGIN:VEVENT", `UID:e${i}`, `SUMMARY:soon ${i}`, "DTSTART:20261117T090000Z", "END:VEVENT"]
+      : ["BEGIN:VEVENT", `UID:e${i}`, "DTSTART:20100114T090000Z", "END:VEVENT"];
+  const tooLarge = (text: string) => {
+    let thrown: unknown;
+    try {
+      parseCalendar(text, NOW);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(CalendarTooLargeError);
+    // A kind of CalendarParseError, so a caller that knows only that still refuses the file.
+    expect(thrown).toBeInstanceOf(CalendarParseError);
+  };
+
+  it("refuses text longer than MAX_CALENDAR_BYTES, and reads text of that length", () => {
+    const head = calendarOf(vevent("SUMMARY:x", "DTSTART:20261117T100000Z", "DESCRIPTION:"));
+    const fill = "x".repeat(MAX_CALENDAR_BYTES - head.length);
+    const atLimit = head.replace("DESCRIPTION:", `DESCRIPTION:${fill}`);
+    expect(atLimit.length).toBe(MAX_CALENDAR_BYTES);
+
+    expect(parseCalendar(atLimit, NOW)).toMatchObject({ partial: false, events: [{ title: "x" }] });
+    tooLarge(atLimit.replace("DESCRIPTION:", "DESCRIPTION:x"));
+  });
+
+  it("reads MAX_EVENTS_PER_FILE events and refuses one more", () => {
+    // The event that is coming up is last: a file read only in part would lose it.
+    const events = (count: number) => calendarOf(...Array.from({ length: count - 1 }, (_, i) => plain(i)), plain(count, true));
+
+    const parsed = parseCalendar(events(MAX_EVENTS_PER_FILE), NOW);
+    expect(parsed).toEqual({ events: [{ kind: "instant", title: `soon ${MAX_EVENTS_PER_FILE}`, start: 1794906000, end: 1794906000 }], partial: false });
+    tooLarge(events(MAX_EVENTS_PER_FILE + 1));
+  });
+
+  it("refuses a file that would hand ical.js more than MAX_LINES_PER_FILE lines", () => {
+    // Nine lines an event: BEGIN, the seven properties read once, END.
+    const full = (i: number, soon: boolean) => [
+      "BEGIN:VEVENT",
+      `UID:f${i}`,
+      `SUMMARY:${soon ? "soon" : "f"}${i}`,
+      "STATUS:CONFIRMED",
+      soon ? "DTSTART:20261117T090000Z" : "DTSTART:20100114T090000Z",
+      soon ? "DTEND:20261117T100000Z" : "DTEND:20100114T100000Z",
+      "DURATION:PT1H",
+      `RECURRENCE-ID:20100114T090000Z`,
+      "END:VEVENT",
+    ];
+    const most = Math.floor((MAX_LINES_PER_FILE - 2) / 9);
+    expect(most).toBeLessThan(MAX_EVENTS_PER_FILE);
+    const file = (count: number) => calendarOf(...Array.from({ length: count - 1 }, (_, i) => full(i, false)), full(count, true));
+
+    expect(parseCalendar(file(most), NOW)).toMatchObject({ partial: false, events: [{ title: `soon${most}` }] });
+    tooLarge(file(most + 1));
+  });
+
+  it("does not count what it does not hand on: repeats of a property read once, alarms, nesting, the calendar's own lines", () => {
+    const many = MAX_LINES_PER_FILE + 10_000;
+    const text = calendarOf(
+      Array.from({ length: many }, (_, i) => `X:${i % 10}`),
+      [
+        "BEGIN:VEVENT",
+        "UID:one",
+        "SUMMARY:first",
+        "DTSTART:20261117T100000Z",
+        ...Array.from({ length: many }, () => "SUMMARY:a"),
+        ...Array.from({ length: 20_000 }, () => "BEGIN:VALARM"),
+        "TRIGGER:-PT5M",
+        ...Array.from({ length: 20_000 }, () => "END:VALARM"),
+        "END:VEVENT",
+      ],
+    );
+    expect(text.length).toBeLessThan(MAX_CALENDAR_BYTES);
+
+    // Only the first SUMMARY is read, so only the first is handed on.
+    expect(parseCalendar(text, NOW)).toEqual({ events: [{ kind: "instant", title: "first", start: 1794909600, end: 1794909600 }], partial: false });
+  });
+
+  it("reads MAX_LISTED_PER_FILE listed dates and refuses more", () => {
+    // Ten series of 2,000 exclusions each, long ago; the limit for one event is 2,000.
+    const hours = Array.from({ length: 2000 }, (_, i) =>
+      new Date(Date.UTC(2020, 0, 1) + i * 3600e3).toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z",
+    ).join(",");
+    const series = (i: number) => vevent(`SUMMARY:s${i}`, "DTSTART:20261116T090000Z", "RRULE:FREQ=DAILY;COUNT=3", `EXDATE:${hours}`);
+    const file = (count: number) => calendarOf(...Array.from({ length: count }, (_, i) => series(i)));
+    const most = MAX_LISTED_PER_FILE / 2000;
+
+    const parsed = parseCalendar(file(most), NOW);
+    expect(parsed.partial).toBe(false);
+    expect(parsed.events).toHaveLength(most * 3);
+    tooLarge(file(most + 1));
+  });
+
+  it("leaves out an event with more than eight repeat rules, and says so", () => {
+    const rules = (count: number) => Array.from({ length: count }, (_, i) => `RRULE:FREQ=DAILY;COUNT=${2 + i}`);
+    const text = calendarOf(
+      vevent("SUMMARY:eight", "DTSTART:20261116T090000Z", ...rules(8)),
+      vevent("SUMMARY:nine", "DTSTART:20261116T090000Z", ...rules(9)),
+    );
+
+    const parsed = parseCalendar(text, NOW);
+
+    expect(parsed.partial).toBe(true);
+    expect(new Set(parsed.events.map((event) => event.title))).toEqual(new Set(["eight"]));
+    // The longest of the eight rules runs nine days.
+    expect(parsed.events).toHaveLength(9);
+  });
+
+  it("hands on the first of a property an event reads once, and the last in a zone's block, as they are read", () => {
+    const text = calendarOf(
+      [
+        "BEGIN:VTIMEZONE",
+        "TZID:Twice/Zone",
+        "BEGIN:STANDARD",
+        "DTSTART:19700101T000000",
+        "TZOFFSETFROM:+0000",
+        "TZOFFSETTO:+0100",
+        "TZOFFSETTO:+0200",
+        "END:STANDARD",
+        "END:VTIMEZONE",
+      ],
+      vevent("SUMMARY:first", "SUMMARY:second", "DTSTART;TZID=Twice/Zone:20261117T090000", "DTSTART:20261118T090000Z"),
+    );
+
+    // 09:00 at UTC+2 is 07:00 UTC.
+    expect(brief(upcoming(text))).toEqual(["first @ 2026-11-17T07:00:00Z"]);
+  });
+
+  it("counts nesting without keeping it, and still says when an event is nested", () => {
+    const deep = (inner: string[]) => [
+      ...Array.from({ length: 50_000 }, () => "BEGIN:X"),
+      ...inner,
+      ...Array.from({ length: 50_000 }, () => "END:X"),
+    ];
+    const plainNesting = calendarOf(vevent("SUMMARY:x", "DTSTART:20261117T100000Z", ...deep(["X-A:1"])));
+    const eventInside = calendarOf(vevent("SUMMARY:x", "DTSTART:20261117T100000Z", ...deep(vevent("SUMMARY:inner", "DTSTART:20261117T110000Z"))));
+    const unclosed = calendarOf(vevent("SUMMARY:x", "DTSTART:20261117T100000Z", ...deep([]).slice(0, 50_001)));
+
+    expect(parseCalendar(plainNesting, NOW)).toMatchObject({ partial: false, events: [{ title: "x" }] });
+    expect(parseCalendar(eventInside, NOW)).toMatchObject({ partial: true, events: [{ title: "x" }] });
+    expect(() => parseCalendar(unclosed, NOW)).toThrow(CalendarParseError);
+    expect(() => parseCalendar(unclosed, NOW)).not.toThrow(CalendarTooLargeError);
+  });
+
+  it("does not hand on a zone too large to be used: more than 60 blocks, or more than 400 listed dates", () => {
+    const zone = (tzid: string, blocks: number, dates: number) => [
+      "BEGIN:VTIMEZONE",
+      `TZID:${tzid}`,
+      ...Array.from({ length: blocks }, (_, i) => [
+        "BEGIN:STANDARD",
+        "DTSTART:19700101T000000",
+        "TZOFFSETFROM:+0200",
+        "TZOFFSETTO:+0200",
+        ...(i === 0 ? Array.from({ length: dates }, (_, n) => `RDATE:${1600 + n}0101T000000`) : []),
+        "END:STANDARD",
+      ]).flat(),
+      "END:VTIMEZONE",
+    ];
+    const at = (tzid: string) => vevent(`SUMMARY:${tzid}`, `DTSTART;TZID=${tzid}:20261117T090000`);
+    const text = calendarOf(zone("Sixty", 60, 0), zone("Many", 61, 0), zone("Dated", 1, 400), zone("Overdated", 1, 401), at("Sixty"), at("Many"), at("Dated"), at("Overdated"));
+
+    // A zone that is used puts 09:00 at 07:00 UTC; one that is not leaves the time floating, read here in UTC.
+    expect(brief(upcoming(text))).toEqual([
+      "Dated @ 2026-11-17T07:00:00Z",
+      "Sixty @ 2026-11-17T07:00:00Z",
+      "Many @ 2026-11-17T09:00:00Z",
+      "Overdated @ 2026-11-17T09:00:00Z",
+    ]);
+  });
+});
+
+/**
+ * A busy calendar as Google writes one: one VTIMEZONE, `count` events over
+ * five years, every twelfth a weekly series with one exclusion and one moved
+ * instance. `keep` picks which events are written.
+ */
+function busyCalendar(count: number, keep: (i: number) => boolean = () => true): string {
+  const stamp = (seconds: number) => new Date(seconds * 1000).toISOString().replace(/[-:]/g, "").slice(0, 15);
+  const out = ["BEGIN:VCALENDAR", "PRODID:-//Google Inc//Google Calendar 70.9054//EN", "VERSION:2.0", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "X-WR-CALNAME:Work", "X-WR-TIMEZONE:America/New_York", ...NEW_YORK];
+  const first = Date.UTC(2022, 0, 3, 14) / 1000;
+  const step = Math.floor((5 * 365 * DAY_SECONDS) / count);
+  for (let i = 0; i < count; i++) {
+    if (!keep(i)) continue;
+    // Wall-clock times in New York, written as Google writes them.
+    const local = first + i * step - 5 * 3600;
+    const uid = `${i.toString(16).padStart(8, "0")}c0ffee5eedf00d@google.com`;
+    const series = i % 12 === 0;
+    out.push(
+      "BEGIN:VEVENT",
+      `DTSTART;TZID=America/New_York:${stamp(local)}`,
+      `DTEND;TZID=America/New_York:${stamp(local + 3600)}`,
+      ...(series ? [`RRULE:FREQ=WEEKLY;WKST=SU;UNTIL=${stamp(local + 180 * DAY_SECONDS)}Z;BYDAY=MO,WE`, `EXDATE;TZID=America/New_York:${stamp(local + 14 * DAY_SECONDS)}`] : []),
+      "DTSTAMP:20261101T120000Z",
+      `UID:${uid}`,
+      "CREATED:20211201T120000Z",
+      `DESCRIPTION:Agenda ${i}: open items\, next steps`,
+      "LAST-MODIFIED:20261101T120000Z",
+      `LOCATION:Room ${i % 40}\, Building 2`,
+      "SEQUENCE:0",
+      "STATUS:CONFIRMED",
+      `SUMMARY:Meeting ${i}`,
+      "TRANSP:OPAQUE",
+      "BEGIN:VALARM",
+      "ACTION:DISPLAY",
+      "DESCRIPTION:This is an event reminder",
+      "TRIGGER:-P0DT0H10M0S",
+      "END:VALARM",
+      "END:VEVENT",
+    );
+    if (series) {
+      // The instance a week after the start, moved an hour later.
+      out.push(
+        "BEGIN:VEVENT",
+        `DTSTART;TZID=America/New_York:${stamp(local + 7 * DAY_SECONDS + 3600)}`,
+        `DTEND;TZID=America/New_York:${stamp(local + 7 * DAY_SECONDS + 7200)}`,
+        "DTSTAMP:20261101T120000Z",
+        `UID:${uid}`,
+        `RECURRENCE-ID;TZID=America/New_York:${stamp(local + 7 * DAY_SECONDS)}`,
+        `SUMMARY:Meeting ${i} (moved)`,
+        "END:VEVENT",
+      );
+    }
+  }
+  out.push("END:VCALENDAR");
+  return out.join("\r\n");
+}
+const DAY_SECONDS = 86400;
+
+describe("a large ordinary calendar", () => {
+  it("is read in full: 3,000 events over five years, under every limit", () => {
+    const text = busyCalendar(3000);
+    // About the size of a real busy calendar, and within what the route fetches.
+    expect(text.length).toBeGreaterThan(1_000_000);
+    expect(text.length).toBeLessThanOrEqual(MAX_CALENDAR_BYTES);
+
+    const started = performance.now();
+    const parsed = parseCalendar(text, NOW);
+    expect(performance.now() - started).toBeLessThan(5000);
+
+    expect(parsed.partial).toBe(false);
+    // The same as reading only the events of the last year: nothing near now was lost.
+    const recent = parseCalendar(busyCalendar(3000, (i) => i >= 2300), NOW);
+    expect(recent.partial).toBe(false);
+    expect(parsed.events).toEqual(recent.events);
+    // Singles, series, an exclusion and a moved instance all fall in this window.
+    const titles = parsed.events.map((event) => event.title);
+    expect(titles.length).toBeGreaterThan(20);
+    expect(titles.filter((title) => title.endsWith("(moved)")).length).toBeGreaterThan(0);
+    expect(new Set(titles).size).toBeLessThan(titles.length);
   });
 });

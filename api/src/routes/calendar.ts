@@ -2,6 +2,8 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import {
   CalendarParseError,
+  CalendarTooLargeError,
+  MAX_CALENDAR_BYTES,
   isTimeZone,
   parseCalendar,
   upcomingEvents,
@@ -161,6 +163,8 @@ class CalendarFailure extends Error {
 
 function failureCode(error: unknown): CalendarErrorCode {
   if (error instanceof CalendarFailure) return error.code;
+  // Before its parent class: a calendar with more in it than is read is too large, not "not a calendar".
+  if (error instanceof CalendarTooLargeError) return "too_large";
   if (error instanceof CalendarParseError) return "not_calendar";
   if (error instanceof SafeFetchError) {
     switch (error.code) {
@@ -184,7 +188,10 @@ async function loadCalendar(link: string, key: string, cache: KVNamespace, now: 
   const cached = await cache.get<CachedCalendar>(key, "json");
   if (cached?.version === 1 && Array.isArray(cached.events)) return cached;
 
-  const response = await safeFetch(link, { accept: "text/calendar, text/plain;q=0.9, */*;q=0.5" });
+  const response = await safeFetch(link, { accept: "text/calendar, text/plain;q=0.9, */*;q=0.5", maxBytes: MAX_CALENDAR_BYTES });
+  // Decoding and parsing are one synchronous step, so however many links a
+  // request fetches at once, one parse at a time is in memory; what adds up
+  // is the fetched bodies, each at most MAX_CALENDAR_BYTES (memory/architecture.md).
   const parsed = parseCalendar(new TextDecoder().decode(response.body), now);
   const value: CachedCalendar = { version: 1, events: parsed.events, partial: parsed.partial };
   try {
