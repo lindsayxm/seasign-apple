@@ -98,14 +98,19 @@ import Testing
         try seed()
         try overwriteWithJunk(files.user)
         let before = try Data(contentsOf: files.user)
-        let cacheBefore = try Data(contentsOf: files.cache)
 
         #expect(throws: LocalStore.UserStoreUnreadable.self) {
             _ = try LocalStore.open(files)
         }
-        // Not deleted, not rewritten; the cache is not touched either.
+        // Not deleted, not rewritten.
         #expect(try Data(contentsOf: files.user) == before)
-        #expect(try Data(contentsOf: files.cache) == cacheBefore)
+        // The cache is not thrown away either. (Its bytes are not compared:
+        // merely opening a healthy SQLite file may fold its write-ahead log in.)
+        let cacheOnly = try ModelContainer(
+            for: Schema(SeasignSchema.cacheModels),
+            configurations: [ModelConfiguration("cache", schema: Schema(SeasignSchema.cacheModels), url: files.cache)]
+        )
+        #expect(try ModelContext(cacheOnly).fetch(FetchDescriptor<CachedSky>()).map(\.zip) == ["10001"])
     }
 
     /// Builds made before the split kept all three models in `default.store`.

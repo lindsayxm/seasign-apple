@@ -20,7 +20,7 @@ iPhone app (ios/)  ──HTTPS, JSON──▶  API on Cloudflare Workers (api/) 
 
 ## Status
 
-Scaffolded by task 2. The API routes are `GET /v1/health`, `GET /v1/sky` (task 3: zip to place, weather, sun and moon) and `POST /v1/calendar/events` (task 5: upcoming events from pasted calendar links); the app still shows a placeholder screen that calls `/v1/health`. The v1 plan is `plans/2026-11-15-v1-build.md`; the decisions behind it are in `memory/decisions/2026-11-15-v1-product-decisions.md`.
+Scaffolded by task 2. The API routes are `GET /v1/health`, `GET /v1/sky` (task 3: zip to place, weather, sun and moon) and `POST /v1/calendar/events` (task 5: upcoming events from pasted calendar links). The app has the Today screen with the drawn sky and water driven by `/v1/sky` (task 4), the zip in Settings, and the Do/Get lists (task 10); headlines, calendar events, Saved and the 7-day history are still placeholders. The v1 plan is `plans/2026-11-15-v1-build.md`; the decisions behind it are in `memory/decisions/2026-11-15-v1-product-decisions.md`.
 
 ## Layout
 
@@ -47,17 +47,30 @@ openapi/
   openapi.json                   generated, OpenAPI 3.0.3
   openapi-generator-config.yaml  swift-openapi-generator: types + client, internal access
 ios/
-  project.yml                    XcodeGen; loads ../app-identity.xcconfig; generator runs as a build plugin
-  Seasign/SeasignApp.swift       @main, SwiftData container (empty schema)
+  project.yml                    XcodeGen; loads ../app-identity.xcconfig; generator runs as a build plugin; iPhone only
+  Seasign/SeasignApp.swift       @main; opens the stores (LocalStore) and shows Today, or StoreErrorView if the user store will not open
+  Seasign/Info.plist             written by XcodeGen from `info:` in project.yml; do not edit
   Seasign/API/SeasignAPI.swift   wrapper over the generated Client; base URL
-  Seasign/Today/                 placeholder screen and its model
-  SeasignTests/                  Swift Testing; a stub transport, so no server is needed
+  Seasign/Design/                Palette, Typography (fonts, Text(caps:), CapsStyle), WrappedCaps (tight-pitch headlines), Icons (line icons as paths)
+  Seasign/Scene/                 the sky and water: SkySnapshot (app copy of a /v1/sky response), SkyMath (pure rules), SceneState (everything to draw at one instant), SceneRenderer + SceneView (Canvas), SceneDebug (DEBUG override)
+  Seasign/Store/                 SwiftData: Models (Settings, CachedSky, SeasignSchema), LocalStore (the two store files and recovery), SkyStore (zip and cached sky), StoreErrorView
+  Seasign/Today/                 TodayView, TodayModel (zip + sky, cache first then refresh), SheetScaffold (in PlaceholderScreen.swift), placeholder headlines
+  Seasign/Settings/              SettingsView: zip, and the DEBUG scene pickers
+  Seasign/Lists/                 Do/Get: ListItem (SwiftData), ListsModel, DoGetView
+  Seasign/Resources/Fonts/       Jost Book and Medium, PT Sans Narrow Bold, with their OFL licence files
+  SeasignTests/                  Swift Testing; stub transports and JSON fixtures (SkyFixtures), so no server is needed
 ```
 
 ## How the pieces are wired
 
 - **Spec to Swift.** `ios/project.yml` adds `openapi/openapi.json` and the generator config to the app target and runs the `OpenAPIGenerator` build plugin, so the Swift client is rebuilt from the spec on every build and never committed. After changing a route: `npm run openapi` in `api/`, then build the app. Both files sit in the Compile Sources phase so they are not shipped in the app; Xcode prints one harmless "no rule to process file" warning for each.
 - **Command-line builds** need `-skipPackagePluginValidation` (XcodeBuildMCP: `extraArgs`), or the build plugin is refused. Use simulator IDs or exact names: iPhone 16 exists on iOS 18.3, iPhone 17 on iOS 27.2.
+- **Simulators.** Build separately for each runtime: a Debug build made for the iOS 27.2 simulator does not launch on the 18.3 simulator, so build (or test) with the iPhone 16 selected before running there, and again with the iPhone 17. The UI automation tools can leave a simulator on the hardware keyboard, after which no on-screen keyboard appears; Simulator › I/O › Keyboard › Toggle Software Keyboard brings it back. XcodeBuildMCP keeps a test-products bundle of about 450 MB per test run under `~/Library/Developer/XcodeBuildMCP/workspaces/.../test-products`; clear old ones when disk is short.
+- **Info.plist and fonts.** The app target has `info:` in `ios/project.yml`; XcodeGen writes `ios/Seasign/Info.plist` from it and Xcode merges the `INFOPLIST_KEY_*` build settings in at build time. The bundled fonts are listed there under `UIAppFonts` by file name; code refers to them by PostScript name (`FontName` in `Design/Typography.swift`), and `DesignTests` fails if a name does not load. `TARGETED_DEVICE_FAMILY: "1"` has to be on each target, because XcodeGen's iOS target preset sets `1,2` and beats a project-level value.
+- **Caps.** Text is shown in capitals by `Text(caps:)`, which capitalises the string and keeps the original as the accessibility label; `.caps()` / `.capsRelative()` set only font and letter spacing. Do not use `textCase(.uppercase)`: it also capitalises accessibility labels, explicit ones included.
+- **Local stores.** One `ModelContainer`, two SQLite files in Application Support (`LocalStore`): `default.store` holds what the user entered (`Settings`, `ListItem`; `SeasignSchema.userModels`) and `SkyCache.store` holds copies of API responses (`CachedSky`; `cacheModels`). If the container will not open and the user store opens alone, only the cache file (with its `-wal` and `-shm`) is deleted and recreated, falling back to an in-memory cache. If the user store will not open, nothing is deleted and `StoreErrorView` offers Try again. Put a new model in `cacheModels` only if all of it can be fetched again. No migration plan is used; SwiftData's automatic lightweight migration covers added optional fields.
+- **Scene rules** (all in `Scene/SkyMath.swift` and `SceneState.swift`, unit-tested). The sun and moon are placed from the rise and set instants on either side of now, not by pairing a date's rise with its set. The moon estimates a missing end with a 12.4 h arc; the sun never assumes a day length: with a sunrise or sunset missing, `isDay` decides unless a known sun event has happened since the reading. Discs take 15 minutes to rise out of and sink into the water (`SkyBodyState.placement`); the moon is drawn only when no part of the sun shows. A cached sky that covers today's date keeps placing sun and moon, but its temperature and weather are shown only within 3 hours of the fetch (`SkySnapshot.currentIsFresh`); a cache without today falls back to the neutral 06:00–18:00 scene. Redraw rate follows `SceneMotion`: 30 fps for rain, snow or wind, 10 fps for clouds, one redraw every 3 s on a clear night, one still frame otherwise or with Reduce Motion.
+- **Debug launch arguments** (Debug builds only; read from `UserDefaults`, so they are passed as `-key value`, and the first three can also be set in Settings › Debug scene): `-debugTime sunrise|midday|sunset|night|moonrise|moonset`, optionally with an offset in minutes (`sunrise-5`, `sunset+7.5`, `moonset+8`); `-debugMoon 0…1` (phase; implies night); `-debugWeather clear|cloudy|windy|rain|snow`; `-debugStoreFailure YES` shows `StoreErrorView` without touching a store. Example: `xcrun simctl launch --terminate-running-process <udid> com.example.seasign -debugTime sunset+5 -debugWeather clear`.
 - **Base URL.** Debug builds call `http://localhost:8787` (`npx wrangler dev` in `api/`). No App Transport Security exception is set; localhost loads on both the iOS 18.3 and iOS 27.2 Simulators without one. The Release URL is a placeholder until the Worker is deployed.
 - **Spec writer.** `npm run openapi` runs `scripts/openapi.ts` with Node's type stripping, so imports inside `api/src` carry the `.ts` extension and `src/app.ts` must not import `cloudflare:*` modules.
 - **Test runtime.** `@cloudflare/vitest-plugin` (the 1.x successor of `@cloudflare/vitest-pool-workers`; task 16) runs the tests in workerd. It pins exact `wrangler` and `miniflare` versions, so the tests and `wrangler dev` run the same workerd version (1.20261113.1 with plugin 1.8.2 and wrangler 4.162.0). `compatibility_date` in `api/wrangler.jsonc` must not be later than that workerd supports; it is 2026-11-13. Upgrade the plugin and wrangler together, then raise the date and rerun `npm run cf-typegen`.
