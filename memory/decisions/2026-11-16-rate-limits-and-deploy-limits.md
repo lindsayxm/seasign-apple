@@ -27,8 +27,10 @@ All limits count requests per client per 60 seconds per location. They are in `R
 ## Key, failure handling and privacy
 
 - **Key.** The key is the `CF-Connecting-IP` header only; `X-Forwarded-For` is never used. An IPv4 address is used whole. An IPv6 address is cut to its /64, so one host cannot step through its own addresses to escape the limit. An IPv4-mapped IPv6 address counts as the IPv4 address.
-- **No `CF-Connecting-IP`.** The request is served without a limit, and the Worker logs one line per isolate.
-  - Cloudflare sets the header on every request from the internet (https://developers.cloudflare.com/fundamentals/reference/http-headers/), and `wrangler dev` sets it to the local address.
+- **No `CF-Connecting-IP`.** The request is served without a limit, and nothing is logged.
+  - A log line here would show up in the existing tests that assert a route's exact log lines, and would make them depend on test order.
+  - We assume Cloudflare sets the header on every request from the internet. The docs page (https://developers.cloudflare.com/fundamentals/reference/http-headers/) describes the header on edge-to-origin traffic and Worker subrequests, not on requests arriving at a Worker, so this is not confirmed. Post-deploy check 1 confirms it; until then the limiter is unproven in production.
+  - `wrangler dev` sets the header to the local address.
   - The vitest `exports.default.fetch` path sends no such header, so the existing suites, which send hundreds of requests, are not throttled.
   - A cross-zone subrequest from another Worker arrives as `2a06:98c0:3600::103`, so all such callers share one bucket.
   - The header could still be missing if a zone rule removed it: the "Remove visitor IP headers" Managed Transform, or a request header rule. Do not enable either on the zone that serves the Worker.

@@ -134,10 +134,10 @@ export function resetRateLimitLogs(): void {
  * body is read and before any outbound fetch or KV access, so `app.ts`
  * registers it ahead of everything else on the route.
  *
- * - No `CF-Connecting-IP` (local tests calling the Worker directly; Cloudflare
- *   sets it on every request from the internet, and `wrangler dev` sets it to
- *   the local address): there is no client to count, so the request is served
- *   unlimited and one line is logged.
+ * - No `CF-Connecting-IP` (local tests calling the Worker directly; `wrangler
+ *   dev` sets it to the local address, and Cloudflare is expected to set it on
+ *   every request from the internet, which is checked after the first deploy):
+ *   there is no client to count, so the request is served unlimited.
  * - The binding is missing from the environment (misconfiguration): served,
  *   one line logged.
  * - The binding throws or answers something unreadable: served, a fixed line
@@ -147,10 +147,10 @@ export function rateLimit(group: RateLimitGroup): MiddlewareHandler<{ Bindings: 
   const { binding, period } = RATE_LIMITS[group];
   return async (c, next) => {
     const address = c.req.header("cf-connecting-ip");
-    if (!address) {
-      logOnce("rate-limit: request without CF-Connecting-IP; not limited");
-      return next();
-    }
+    // Not logged: every test file reaches this, and a line here would land in
+    // the tests that check a route's exact log lines. Whether production
+    // requests carry the header is checked after the first deploy instead.
+    if (!address) return next();
     const limiter = (c.env as Partial<CloudflareBindings> | undefined)?.[binding];
     if (!limiter || typeof limiter.limit !== "function") {
       logOnce(`rate-limit: binding ${binding} is missing; ${group} is not limited`);
