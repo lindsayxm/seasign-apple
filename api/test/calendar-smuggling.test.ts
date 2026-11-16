@@ -10,7 +10,7 @@
 // entered, and a rule that is merely written unusually still works.
 import ICAL from "ical.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CalendarParseError, parseCalendar, upcomingEvents } from "../src/lib/calendar.ts";
+import { parseCalendar, upcomingEvents } from "../src/lib/calendar.ts";
 import google from "./fixtures/calendar/google.ics?raw";
 import icloud from "./fixtures/calendar/icloud.ics?raw";
 import outlook from "./fixtures/calendar/outlook.ics?raw";
@@ -79,6 +79,9 @@ function dressings(rule: string, name = "RRULE"): [string, string[]][] {
     ["a parameter", [`${name};X-A=1:${rule}`]],
     ["a quoted parameter", [`${name};X-A="q;:,":${rule}`]],
     ["a parameter and a fold", [`${name}\r\n ;X-A=1\r\n :${rule}`]],
+    ["VALUE=RECUR", [`${name};VALUE=RECUR:${rule}`]],
+    ["value=recur and a lower-case value", [`${name.toLowerCase()};value=recur:${rule.toLowerCase()}`]],
+    ["VALUE=RECUR and a fold", [`${name};VAL\r\n UE=RE\r\n CUR:${rule}`]],
     ["a duplicate", [`${name}:${rule}`, `${name}:${rule}`]],
     ["a duplicate in another dress", [`${name}:${rule}`, `${name.toLowerCase()}\r\n ;X=1:${rule}`]],
   ];
@@ -151,16 +154,13 @@ afterEach(() => {
 const starts = (text: string, now = NOW) =>
   parseCalendar(text, now).events.map((event) => new Date(event.start * 1000).toISOString().slice(0, 16));
 
-/** Parses, within a time that is nowhere near a spin. */
+/**
+ * Parses, within a time that is nowhere near a spin. None of the files in
+ * these tests is refused: an odd line costs at most its own event or zone.
+ */
 function quickly(text: string, now = NOW) {
   const started = performance.now();
-  let result: ReturnType<typeof parseCalendar> | "not a calendar";
-  try {
-    result = parseCalendar(text, now);
-  } catch (error) {
-    if (!(error instanceof CalendarParseError)) throw error;
-    result = "not a calendar";
-  }
+  const result = parseCalendar(text, now);
   expect(performance.now() - started).toBeLessThan(5000);
   return result;
 }
@@ -189,7 +189,7 @@ describe("a rule in a VEVENT, however it is written", () => {
     "%s with %s returns at once",
     (_rule, _name, ruleLines) => {
       for (const now of [NOW, new Date("2026-02-09T00:00:00Z"), new Date("2030-02-08T00:00:00Z")]) {
-        expect(quickly(eventWith(ruleLines), now)).not.toBe("not a calendar");
+        quickly(eventWith(ruleLines), now);
       }
     },
   );
@@ -218,8 +218,8 @@ describe("a rule in a VEVENT, however it is written", () => {
     (_name, _rule, ruleLines) => {
       const parsed = quickly(eventWith(ruleLines, "DTSTART:20261117T100000Z"));
 
-      // Read as a single event, or the file is refused; never expanded, never slow.
-      if (parsed !== "not a calendar") expect(parsed.events.length).toBeLessThanOrEqual(1);
+      // Read as a single event or not at all; never expanded, never slow.
+      expect(parsed.events.length).toBeLessThanOrEqual(1);
     },
   );
 
@@ -231,7 +231,7 @@ describe("a rule in a VEVENT, however it is written", () => {
   ])("says the calendar is partial for %s", (_name, ruleLines) => {
     const parsed = quickly(eventWith(ruleLines, "DTSTART:20261117T100000Z"));
 
-    if (parsed !== "not a calendar") expect(parsed.partial).toBe(true);
+    expect(parsed.partial).toBe(true);
   });
 
   it("ignores component names' case", () => {
@@ -265,9 +265,8 @@ describe("a rule in a VTIMEZONE, however it is written", () => {
     (_rule, _name, ruleLines) => {
       const parsed = quickly(zoneWith(ruleLines));
 
-      expect(parsed).not.toBe("not a calendar");
       // Floating: 09:00 as written.
-      if (parsed !== "not a calendar") expect(parsed.events.map((event) => [event.kind, event.start])).toEqual([["floating", Date.UTC(2026, 10, 17, 9) / 1000]]);
+      expect(parsed.events.map((event) => [event.kind, event.start])).toEqual([["floating", Date.UTC(2026, 10, 17, 9) / 1000]]);
     },
   );
 
@@ -280,6 +279,18 @@ describe("a rule in a VTIMEZONE, however it is written", () => {
 
   it.each(dressings("FREQ=FOO"))("a malformed rule with %s drops the zone, not the calendar", (_name, ruleLines) => {
     expect(starts(zoneWith(ruleLines))).toEqual(["2026-11-17T09:00"]);
+  });
+
+  it("ignores component names' case", () => {
+    const text = zoneWith([`rrule:${yearly.toLowerCase()}`], zoneStart)
+      .replace("BEGIN:VTIMEZONE", "begin:vtimezone")
+      .replace("END:VTIMEZONE", "end:VTimeZone")
+      .replace("BEGIN:STANDARD", "Begin:Standard")
+      .replace("END:STANDARD", "end:standard");
+
+    expect(starts(text)).toEqual(["2026-11-17T07:00"]);
+    // And a spinning rule in the same dress drops the zone.
+    expect(starts(text.replace(yearly.toLowerCase(), SPINNERS[0]!.toLowerCase()))).toEqual(["2026-11-17T09:00"]);
   });
 
   it("reads the zone when the rule is fine", () => {
@@ -358,12 +369,10 @@ describe("random dressing", () => {
       const now = pick([NOW, new Date("2026-02-09T00:00:00Z"), new Date("2030-02-08T00:00:00Z")]);
 
       const started = performance.now();
-      try {
-        const parsed = parseCalendar(text, now);
-        upcomingEvents(parsed.events, now, "America/New_York");
-      } catch (error) {
-        if (!(error instanceof CalendarParseError)) throw error;
-      }
+      // No file here is refused, whatever the dress: that would be one odd
+      // line costing the whole calendar.
+      const parsed = parseCalendar(text, now);
+      upcomingEvents(parsed.events, now, "America/New_York");
       const took = performance.now() - started;
       slowest = Math.max(slowest, took);
       expect(took, JSON.stringify(ruleLines)).toBeLessThan(5000);

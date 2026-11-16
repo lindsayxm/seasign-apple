@@ -71,14 +71,17 @@ const ZONE_WORK = 10;
 /**
  * The names repeat rules have in the events given to ical.js: plain text
  * under a name it has no meaning for. RRULE and EXRULE lines are also renamed
- * to these before `ICAL.parse`, which otherwise decodes a rule as it reads it
- * and rejects the whole file when one is malformed. That renaming is a
- * convenience, not the safeguard: `cleanEvent` does not depend on it.
+ * to these before `ICAL.parse` (see `readableLines`), which otherwise decodes
+ * a rule as it reads it and rejects the whole file when one is malformed.
+ * That renaming is a convenience, not the safeguard: `cleanEvent` does not
+ * depend on it.
  */
 const RULE = "x-seasign-rrule";
 const EXCLUSION_RULE = "x-seasign-exrule";
 /** The component the events are moved into; see `parseCalendar`. */
 const EVENTS = "x-seasign-events";
+/** What a line becomes that carries a rule under a name no parser would read as one. */
+const ODD_RULE = "x-seasign-odd-rrule";
 /** Zone maths is only done for times this close to the kept window, measured on the wall clock. */
 const NEAR = 3 * DAY;
 
@@ -953,6 +956,84 @@ const EVENT_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
   rdate: ["date-time", "date"],
 };
 
+/** The lines kept for ical.js to parse: what `EVENT_PROPERTIES` and `readZone` read. */
+const KEPT_LINES = new Set([
+  "UID",
+  "SUMMARY",
+  "STATUS",
+  "DTSTART",
+  "DTEND",
+  "DURATION",
+  "RECURRENCE-ID",
+  "EXDATE",
+  "RDATE",
+  "TZID",
+  "TZOFFSETFROM",
+  "TZOFFSETTO",
+]);
+
+/**
+ * Where a line's value begins, and its TZID, RANGE and plain VALUE parameters.
+ * `at` is the index of the `;` or `:` that ends the name. Returns null when
+ * the line has no value. One pass, whatever the number of parameters.
+ */
+function scanParameters(line: string, at: number): { parameters: string[]; value: number } | null {
+  const parameters: string[] = [];
+  if (line[at] === ":") return { parameters, value: at + 1 };
+  let from = at + 1;
+  let quoted = false;
+  for (let i = from; i < line.length; i++) {
+    const character = line[i];
+    if (character === '"') quoted = !quoted;
+    else if (!quoted && (character === ";" || character === ":")) {
+      const parameter = line.slice(from, i);
+      // VALUE is kept only when it names a date or a date-time. Told that a
+      // value is a rule or a period, ical.js decodes it while parsing and
+      // rejects the whole file if it is malformed.
+      const wanted = /^(TZID|RANGE)=/i.test(parameter) || /^VALUE="?(DATE|DATE-TIME)"?$/i.test(parameter);
+      if (wanted && parameters.length < 4 && parameter.length <= 300) parameters.push(parameter);
+      if (character === ":") return { parameters, value: i + 1 };
+      from = i + 1;
+    }
+  }
+  return null;
+}
+
+/**
+ * Reduces an unfolded file to the lines this reader uses: BEGIN and END, the
+ * properties in `KEPT_LINES` with the three parameters that matter, and
+ * repeat rules, renamed so that ical.js keeps their text as it is.
+ *
+ * This is for robustness and speed, not safety (that is `cleanEvent` and
+ * `readZone`). ical.js rejects a whole file for one value it cannot decode
+ * and takes seconds over a line with 200,000 parameters; the lines that could
+ * do either are not given to it. Sets `partial` for a line that is not a
+ * property at all, or that looks like a rule under a name that is not one.
+ */
+function readableLines(unfolded: string, budget: Budget): string {
+  const out: string[] = [];
+  for (const line of unfolded.split("\n")) {
+    if (line.trim() === "") continue;
+    const at = line.search(/[;:]/);
+    const scanned = at < 0 ? null : scanParameters(line, at);
+    if (!scanned) {
+      budget.partial = true;
+      continue;
+    }
+    let name = line.slice(0, at).trim().toUpperCase();
+    // A group ("a.DTSTART") is dropped.
+    const dot = name.indexOf(".");
+    if (dot >= 0 && /^[A-Z0-9-]+$/.test(name.slice(0, dot))) name = name.slice(dot + 1);
+    const value = line.slice(scanned.value);
+
+    if (name === "BEGIN" || name === "END") out.push(`${name}:${value}`);
+    else if (name === "RRULE" || name === "EXRULE") out.push(`X-SEASIGN-${name}:${value}`);
+    else if (KEPT_LINES.has(name)) out.push(`${name}${scanned.parameters.map((parameter) => `;${parameter}`).join("")}:${value}`);
+    else if (looksLikeRule(name.toLowerCase())) out.push(`${ODD_RULE.toUpperCase()}:`);
+  }
+  return out.join("\n");
+}
+
 /**
  * Builds the VEVENT that ical.js is given: the listed properties, when they
  * have a listed value type, and the event's rules as plain text under names
@@ -1004,7 +1085,8 @@ function holdsNested(component: JCal, depth = 0): boolean {
  * - reading stops once the file has used its work budget (`MAX_WORK_PER_FILE`);
  * - at most 500 occurrences are kept;
  * - past 50 distinct TZIDs without a VTIMEZONE, times are read as floating;
- * - a VEVENT or VTIMEZONE inside another component is not read.
+ * - a VEVENT or VTIMEZONE inside another component is not read;
+ * - a line that is not a property (no colon) is left out.
  * A VTIMEZONE that `readZone` cannot use is ignored (and so are those past 50
  * in one file); times that name it fall back to the IANA zone of the same
  * name, or to floating. A file may hold several VCALENDARs; all are read.
@@ -1022,14 +1104,11 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
     .replace(/\r\n?/g, "\n");
   if (!/^BEGIN:VCALENDAR/i.test(body)) throw new CalendarParseError("not a calendar");
 
+  const budget: Budget = { work: MAX_WORK_PER_FILE, partial: false, zones: new Map(), fileZones: new Map() };
+
   let calendars: JCal[];
   try {
-    const readable = body
-      // A group ("a.DTSTART") is dropped; ical.js would not decode the value otherwise.
-      .replace(/^[A-Za-z0-9-]+\.(?=[A-Za-z0-9-]+[;:])/gm, "")
-      // See RULE. A convenience: a rule this misses is still dealt with below.
-      .replace(/^(RRULE|EXRULE)(?=[;:])/gim, "X-SEASIGN-$1");
-    const result = ICAL.parse(readable) as JCal | JCal[];
+    const result = ICAL.parse(readableLines(body, budget)) as JCal | JCal[];
     // A file holding several calendars comes back as a list.
     calendars = (Array.isArray(result[0]) ? result : [result]) as JCal[];
   } catch {
@@ -1042,7 +1121,6 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
     throw new CalendarParseError("not a calendar");
   }
 
-  const budget: Budget = { work: MAX_WORK_PER_FILE, partial: false, zones: new Map(), fileZones: new Map() };
   if (calendars.length > MAX_CALENDARS_PER_FILE) {
     calendars.length = MAX_CALENDARS_PER_FILE;
     budget.partial = true;

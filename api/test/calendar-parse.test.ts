@@ -787,7 +787,7 @@ describe("hostile and broken files", () => {
     ["JSON", '{"error":"not found"}'],
     ["a vCard", "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Someone\r\nEND:VCARD"],
     ["a calendar cut off mid-way", "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nSUMMARY:x"],
-    ["a calendar with a broken line", "BEGIN:VCALENDAR\r\nthis line has no colon\r\nEND:VCALENDAR"],
+    ["a calendar whose components do not close", "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nEND:VCALENDAR"],
   ])("refuses %s", (_name, text) => {
     expect(() => parseCalendar(text, NOW)).toThrow(CalendarParseError);
   });
@@ -799,6 +799,55 @@ describe("hostile and broken files", () => {
     } catch (error) {
       expect(String((error as Error).message)).not.toContain("secret-line-content");
     }
+  });
+
+  it("leaves out a line that is not a property, and says so", () => {
+    const text = calendarOf(vevent("SUMMARY:x", "this line has no colon", "DTSTART:20261117T100000Z"));
+
+    const parsed = parseCalendar(text, NOW);
+
+    expect(parsed.events.map((event) => event.title)).toEqual(["x"]);
+    expect(parsed.partial).toBe(true);
+  });
+
+  it("is not put off by values it does not read, however malformed", () => {
+    const text = calendarOf(
+      vevent(
+        "SUMMARY:x",
+        "DTSTART:20261117T100000Z",
+        "X-ANY;VALUE=RECUR:FREQ=FOO",
+        "X-P;VALUE=PERIOD:garbage",
+        "FREEBUSY:garbage",
+        "REQUEST-STATUS:zz",
+        "ATTACH;VALUE=BINARY:@@@",
+        "GEO:nowhere",
+        "TRIGGER;VALUE=RECUR:FREQ=FOO",
+        "SEQUENCE:abc",
+        "SUMMARY-ISH;VALUE=RECUR:freq=secondly",
+      ),
+    );
+
+    expect(parseCalendar(text, NOW)).toMatchObject({ partial: false, events: [{ title: "x" }] });
+  });
+
+  it("reads a line with 200,000 parameters, or 2 MB long, at once", () => {
+    // ical.js takes two to three seconds over the first of these.
+    const event = (line: string) => calendarOf(vevent("SUMMARY:x", "DTSTART:20261117T100000Z", line));
+    const texts = [
+      event(`X-P${";A=1".repeat(200_000)}:v`),
+      event(`DTEND${';A="b;:"'.repeat(150_000)};TZID=America/New_York:20261117T060000`),
+      event(`DESCRIPTION:${"x".repeat(2_000_000)}`),
+      event(`CATEGORIES:${"a,".repeat(500_000)}`),
+    ];
+
+    for (const text of texts) {
+      const started = performance.now();
+      const parsed = parseCalendar(text, NOW);
+      expect(performance.now() - started).toBeLessThan(5000);
+      expect(parsed.events.map((item) => item.title)).toEqual(["x"]);
+    }
+    // The TZID after 150,000 other parameters is still read: 06:00 in New York.
+    expect(parseCalendar(texts[1] as string, NOW).events[0]).toMatchObject({ start: 1794909600, end: 1794913200 });
   });
 
   it("accepts a byte-order mark and leading blank lines", () => {
