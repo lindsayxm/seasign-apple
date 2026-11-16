@@ -70,6 +70,7 @@ final class AISearchModel {
     @ObservationIgnored private let feed: FeedModel
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let zone: () -> TimeZone
+    @ObservationIgnored private let commit: (ModelContext) throws -> Void
     /// Changes whenever the key or provider does, so a 401 for an old key
     /// does not stop searches with the new one.
     @ObservationIgnored private var keyGeneration = 0
@@ -82,7 +83,8 @@ final class AISearchModel {
         keyStore: any APIKeyStore = KeychainKeyStore(),
         feed: FeedModel,
         now: @escaping @Sendable () -> Date = { Date() },
-        zone: @escaping () -> TimeZone = { .autoupdatingCurrent }
+        zone: @escaping () -> TimeZone = { .autoupdatingCurrent },
+        commit: @escaping (ModelContext) throws -> Void = { try $0.save() }
     ) {
         self.api = api
         self.context = context
@@ -90,6 +92,7 @@ final class AISearchModel {
         self.feed = feed
         self.now = now
         self.zone = zone
+        self.commit = commit
         let settings = settingsRow()
         mode = settings.aiModeRaw.flatMap(AIMode.init(rawValue:)) ?? .myList
         provider = settings.aiProviderRaw.flatMap(AIProvider.init(rawValue:)) ?? .default
@@ -97,11 +100,21 @@ final class AISearchModel {
         dailyCap = DailyCap.clamp(settings.aiDailyCap)
         keyRefused = settings.aiKeyRefused ?? false
         problem = settings.aiLastProblemRaw.flatMap(AISearchProblem.init(rawValue:))
+        var keyIsKnownMissing = false
         do {
             hasKey = try keyStore.read() != nil
+            keyIsKnownMissing = !hasKey
         } catch {
             hasKey = false
             problem = .keyUnreadable
+        }
+        // The pill never shows a state that is not true: a store restored to
+        // another phone arrives without the key (it never leaves the device),
+        // and interests may have been emptied. A Keychain that cannot be read
+        // right now leaves the choice alone.
+        if mode == .aiSearch, keyIsKnownMissing || interests.isEmpty {
+            mode = .myList
+            write { $0.aiModeRaw = AIMode.myList.rawValue }
         }
         reloadCounts()
         updateVisibility()
@@ -332,7 +345,7 @@ final class AISearchModel {
     private func write(_ change: (Settings) -> Void) {
         change(settingsRow())
         do {
-            try context.save()
+            try commit(context)
         } catch {
             context.rollback()
         }
@@ -360,7 +373,7 @@ final class AISearchModel {
             context.delete(row)
         }
         do {
-            try context.save()
+            try commit(context)
         } catch {
             context.rollback()
             reloadCounts()
@@ -376,7 +389,7 @@ final class AISearchModel {
         guard let row = countRows(day: day).first(where: { $0.count > 0 }) else { return }
         row.count -= 1
         do {
-            try context.save()
+            try commit(context)
         } catch {
             context.rollback()
         }

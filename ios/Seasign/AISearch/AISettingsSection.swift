@@ -36,6 +36,8 @@ struct AISettingsSection: View {
                 right: "Let AI Search",
                 isRight: model.mode == .aiSearch
             ) { right in
+                // Interests typed with the keyboard still up count.
+                commitInterests()
                 model.setMode(right ? .aiSearch : .myList)
             }
 
@@ -70,6 +72,13 @@ struct AISettingsSection: View {
         }
         .onChange(of: focus) { previous, _ in
             if previous == .interests { commitInterests() }
+        }
+        .onChange(of: interestsDraft) { _, draft in
+            // Kept as typed while there is at least one interest, so the pill
+            // and Search now see it at once. An empty field (cleared to
+            // retype) is committed only when editing ends, so AI search is
+            // not switched off halfway through.
+            if !InterestList.parse(draft).interests.isEmpty { commitInterests() }
         }
         .confirmationDialog(
             Text(verbatim: "Remove your API key?"),
@@ -265,6 +274,7 @@ struct AISettingsSection: View {
 
     private var searchNowRow: some View {
         Button {
+            commitInterests()
             Task { await model.searchNow() }
         } label: {
             Text(caps: model.isSearching ? "Searching" : "Search now")

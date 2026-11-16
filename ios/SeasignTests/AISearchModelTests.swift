@@ -5,6 +5,18 @@ import Testing
 
 @testable import Seasign
 
+/// Writes that can be made to fail, standing in for a full disk.
+@MainActor
+private final class FailingWrites {
+    struct Failure: Error {}
+    var fail = false
+
+    func commit(_ context: ModelContext) throws {
+        if fail { throw Failure() }
+        try context.save()
+    }
+}
+
 /// A clock and time zone the tests can move.
 private final class AIClock: @unchecked Sendable {
     private let lock = NSLock()
@@ -307,6 +319,59 @@ private final class AIClock: @unchecked Sendable {
         #expect(bodies[0]["timezone"] == nil)
         #expect(bodies[1]["timezone"] as? String == "America/Chicago")
         #expect(bodies[1]["interests"] as? [String] == ["tide pools", "new telescopes"])
+    }
+
+    /// If the count cannot be written, nothing is sent: the cap could not be kept.
+    @Test func aCountThatCannotBeWrittenSendsNothing() async throws {
+        let context = try inMemoryContext()
+        let clock = clock
+        let feed = FeedModel(api: stubbedFeedAPI(feedStub), context: context, now: { clock.now })
+        let failing = FailingWrites()
+        let ai = AISearchModel(
+            api: stubbedDiscoverAPI(stub), context: context, keyStore: InMemoryKeyStore(APIKey(typed: fakeKey)),
+            feed: feed, now: { clock.now }, zone: { clock.zone }, commit: failing.commit
+        )
+        ai.setInterests("tide pools")
+        #expect(ai.setMode(.aiSearch))
+        failing.fail = true
+        await ai.searchNow()
+        #expect(stub.count == 0)
+        #expect(ai.problem == .countNotSaved)
+        #expect(ai.usedToday == 0)
+        #expect(try context.fetch(FetchDescriptor<SearchCount>()).isEmpty)
+    }
+
+    /// The key never leaves the phone it was saved on, so a store restored
+    /// elsewhere arrives with AI search on and no key: the pill goes back to
+    /// Use My List. So does a store whose interests are empty.
+    @Test func aRelaunchWithoutTheKeyShowsUseMyList() throws {
+        let s = try setup()
+        #expect(s.ai.mode == .aiSearch)
+        let clock = clock
+        let restored = AISearchModel(
+            api: stubbedDiscoverAPI(stub), context: s.context, keyStore: InMemoryKeyStore(),
+            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+        )
+        #expect(restored.mode == .myList)
+        #expect(!restored.isActive)
+        #expect(!s.feed.showsAI)
+        #expect(try s.context.fetch(FetchDescriptor<Settings>()).first?.aiModeRaw == "my_list")
+    }
+
+    /// A Keychain that cannot be read right now (say, before the first
+    /// unlock) does not change the user's choice.
+    @Test func anUnreadableKeychainAtLaunchLeavesTheChoiceAlone() throws {
+        let s = try setup()
+        let clock = clock
+        let locked = InMemoryKeyStore(APIKey(typed: fakeKey))
+        locked.setFailure(KeychainFailure(status: -25308))
+        let again = AISearchModel(
+            api: stubbedDiscoverAPI(stub), context: s.context, keyStore: locked,
+            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+        )
+        #expect(again.mode == .aiSearch)
+        #expect(again.problem == .keyUnreadable)
+        #expect(try s.context.fetch(FetchDescriptor<Settings>()).first?.aiModeRaw == "ai_search")
     }
 
     @Test func anUnreadableKeySendsNothingAndCountsNothing() async throws {
@@ -630,6 +695,9 @@ private final class AIClock: @unchecked Sendable {
 
             var dumped = ""
             dump(ai, to: &dumped, maxDepth: 6, maxItems: 5_000)
+            // Positive control: the dump reaches what the model does hold.
+            #expect(dumped.contains("tide pools"))
+            #expect(dumped.contains("InMemoryKeyStore"))
             #expect(!dumped.contains(fakeKey))
             #expect(!String(describing: ai).contains(fakeKey))
             #expect(!String(reflecting: keys).contains(fakeKey))
