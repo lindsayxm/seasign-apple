@@ -431,7 +431,8 @@ describe("scanPage on hostile input", () => {
     expect(await padded(MAX_HANDLER_CALLS - 3000)).toHaveLength(1);
     expect(await padded(MAX_HANDLER_CALLS + 3000)).toHaveLength(0);
     expect(await padded(200_000)).toHaveLength(0);
-  });
+    // Four scans: 1.5 to 1.8 s on a loaded machine, close to Vitest's 5 s default (task 22).
+  }, 30_000);
 
   it("never returns half an emoji or half a character reference, wherever the cut falls", async () => {
     const grin = "\u{1F600}";

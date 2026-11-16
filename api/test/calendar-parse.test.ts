@@ -484,7 +484,8 @@ describe("time zone definitions in the file, read by our own code", () => {
     }
     // Four events a day, nine days in ten kept.
     expect(compared).toBeGreaterThan((toYear - fromYear) * 365 * 3);
-  });
+    // Thousands of parses: 0.5 to 3 s on a loaded machine, close to Vitest's 5 s default (task 22).
+  }, 30_000);
 
   it("uses the offset before the first change for earlier times", () => {
     const definition = zone(block("STANDARD", "20300101T000000", "+0300", "+0500"));
