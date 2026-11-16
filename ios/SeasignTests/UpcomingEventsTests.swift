@@ -48,6 +48,30 @@ private func event(
         ])
     }
 
+    /// A body the API's own tests expect, through the client and on to Today's wording.
+    @Test func readsWhatTheAPISendsAndWordsItForToday() async throws {
+        let stub = CalendarStub(status: .ok, json: calendarJSONFromAPITest)
+        let answer = try await stubbedCalendarAPI(stub).calendarEvents(links: ["a", "b", "c"], timezone: "America/New_York")
+        #expect(answer.events.count == 7)
+        #expect(answer.calendars.allSatisfy { $0.ok && !$0.partial && $0.error == nil })
+
+        let ids = [UUID(), UUID(), UUID()]
+        let zone = TimeZone(identifier: "America/New_York")!
+        func labels(at now: Date) -> [String] {
+            let snapshot = EventsSnapshot.make(from: answer, links: ids, timezone: zone.identifier, previous: nil, now: now)
+            return EventPicker.next(snapshot.events, now: now).map {
+                let label = EventLabel(event: $0, now: now, timeZone: zone)
+                return "\(label.time) \(label.title)"
+            }
+        }
+        // 19:00 on Sunday 15 November in New York.
+        #expect(labels(at: instant("2026-11-16T00:00:00Z")) == ["ALL DAY Road trip", "6:00PM Camping at the lake", "TUE 7:30AM Morning run"])
+        // 18:59 on Tuesday: the call at 19:00 has no length and is still ahead.
+        #expect(labels(at: instant("2026-11-17T23:59:00Z")) == ["ALL DAY Road trip", "7:00PM Call the landlord", "WED ALL DAY Mom's birthday"])
+        // 19:01: it is over.
+        #expect(labels(at: instant("2026-11-18T00:01:00Z")) == ["ALL DAY Road trip", "WED ALL DAY Mom's birthday"])
+    }
+
     @Test func sendsTheLinksAndTheTimeZone() async throws {
         let stub = CalendarStub([TestLinks.google: .events([])])
         _ = try await stubbedCalendarAPI(stub).calendarEvents(

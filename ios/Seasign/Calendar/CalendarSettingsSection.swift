@@ -28,7 +28,7 @@ struct CalendarSettingsSection: View {
         ),
         (
             "Apple Calendar",
-            "On your iPhone, open Calendar, tap Calendars, tap the info button next to an iCloud calendar, turn on Public Calendar and tap Share Link."
+            "On your iPhone, open Calendar, open the list of calendars, tap the info button next to an iCloud calendar, turn on Public Calendar and tap Share Link."
         ),
         (
             "Outlook",

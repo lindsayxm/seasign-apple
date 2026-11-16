@@ -46,7 +46,8 @@ struct EventsColumn: View {
             .map { CapsWrapper.width(of: $0.time, size: size, tracking: Self.timeTracking, medium: true) }
             .max() ?? 0
         return VStack(alignment: .leading, spacing: 9 * s) {
-            ForEach(shown) { label in
+            // By position: two identical events would share an id.
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, label in
                 HStack(alignment: .firstTextBaseline, spacing: 6 * s) {
                     Text(label.time)
                         .caps(size, medium: true, tracking: Self.timeTracking)

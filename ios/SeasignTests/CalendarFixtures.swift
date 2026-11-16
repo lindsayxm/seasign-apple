@@ -25,6 +25,30 @@ let calendarJSONThreeLinks = """
 }
 """
 
+/// The start of the response the API's own route test expects for its Google,
+/// iCloud and Outlook fixtures (`api/test/calendar.test.ts`, "merges three
+/// calendars, soonest first"), copied as written there, so the app is tested
+/// against what the Worker really sends: whole-second UTC instants, `date` on
+/// all-day events only, an event without a length.
+let calendarJSONFromAPITest = """
+{
+  "events": [
+    { "calendar": 0, "title": "Road trip", "start": "2026-11-14T05:00:00Z", "end": "2026-11-18T05:00:00Z", "allDay": true, "date": "2026-11-14" },
+    { "calendar": 1, "title": "Camping at the lake", "start": "2026-11-15T23:00:00Z", "end": "2026-11-17T17:00:00Z", "allDay": false },
+    { "calendar": 1, "title": "Morning run", "start": "2026-11-17T12:30:00Z", "end": "2026-11-17T13:00:00Z", "allDay": false },
+    { "calendar": 2, "title": "Budget review", "start": "2026-11-17T15:00:00Z", "end": "2026-11-17T16:00:00Z", "allDay": false },
+    { "calendar": 0, "title": "Dentist", "start": "2026-11-17T19:00:00Z", "end": "2026-11-17T20:00:00Z", "allDay": false },
+    { "calendar": 1, "title": "Call the landlord", "start": "2026-11-18T00:00:00Z", "end": "2026-11-18T00:00:00Z", "allDay": false },
+    { "calendar": 0, "title": "Mom's birthday", "start": "2026-11-18T05:00:00Z", "end": "2026-11-19T05:00:00Z", "allDay": true, "date": "2026-11-18" }
+  ],
+  "calendars": [
+    { "index": 0, "ok": true, "partial": false },
+    { "index": 1, "ok": true, "partial": false },
+    { "index": 2, "ok": true, "partial": false }
+  ]
+}
+"""
+
 /// Made-up links for tests. The "secret" parts are words the tests look for
 /// to prove that nothing of a link is shown.
 enum TestLinks {

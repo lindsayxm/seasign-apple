@@ -183,7 +183,7 @@ enum EventZone {
 }
 
 /// One event as Today words it.
-struct EventLabel: Equatable, Sendable, Identifiable {
+struct EventLabel: Equatable, Sendable {
     /// "10:15AM", "ALL DAY", or with the day when it is not today: "TUE 9:00AM",
     /// "TUE ALL DAY".
     var time: String
@@ -191,7 +191,6 @@ struct EventLabel: Equatable, Sendable, Identifiable {
     var title: String
     /// For VoiceOver: "Hanna's show, 10:15 AM", "Tuesday, all day".
     var spoken: String
-    var id: String
 
     static let untitled = "No title"
 
@@ -243,7 +242,6 @@ struct EventLabel: Equatable, Sendable, Identifiable {
         let trimmed = event.title.trimmingCharacters(in: .whitespacesAndNewlines)
         title = trimmed.isEmpty ? Self.untitled : trimmed
         spoken = "\(title), \(spoken)"
-        id = "\(event.link.uuidString)|\(event.start.timeIntervalSinceReferenceDate)|\(event.title)"
     }
 
     /// 0 for Sunday … 6 for Saturday, for a `YYYY-MM-DD` date; nil if it is not one.
