@@ -326,7 +326,7 @@ extension FeedModel {
             let site = siteFor[index]
             let published = now.addingTimeInterval(-Double(index + 1) * 2.5 * 3600)
             context.insert(FeedItem(FeedEntry(
-                link: "https://\(LinkMask.host(of: site.url) ?? "example.com")/sample/\(index)",
+                link: "https://\(URL(string: site.url)?.host() ?? "example.com")/sample/\(index)",
                 title: title,
                 source: site.title.components(separatedBy: " | ").last ?? site.title,
                 published: published,
