@@ -1,11 +1,11 @@
 ---
 id: 17
 title: iOS: scene and app polish from the task 4 review
-status: review
+status: in-progress
 owner: implementer-2
 depends_on: [10]
 created: 2026-11-16T00:17:40Z
-updated: 2026-11-16T01:38:56Z
+updated: 2026-11-16T01:49:51Z
 ---
 
 ## Goal
@@ -14,10 +14,10 @@ Low-severity findings from the task 4 review. (1) A cached sky older than a set 
 
 ## Acceptance criteria
 
-- [ ] Tests cover the stale cache rule and both one-sided polar cases, and pass on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2)
-- [ ] Screenshots at sunrise minus a few minutes, at sunrise, and plus a few minutes show the sun crossing the horizon gradually; paths recorded in the task log
-- [ ] Built Info.plist lists UIDeviceFamily 1 only
-- [ ] No fatalError on container failure; HealthModel and its tests are gone; memory/architecture.md describes the current ios/ layout
+- [x] Tests cover the stale cache rule and both one-sided polar cases, and pass on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2)
+- [x] Screenshots at sunrise minus a few minutes, at sunrise, and plus a few minutes show the sun crossing the horizon gradually; paths recorded in the task log
+- [x] Built Info.plist lists UIDeviceFamily 1 only
+- [x] No fatalError on container failure; HealthModel and its tests are gone; memory/architecture.md describes the current ios/ layout
 
 ## Relevant files
 
@@ -47,3 +47,10 @@ Low-severity findings from the task 4 review. (1) A cached sky older than a set 
 - 2026-11-16T01:38:56Z [implementer-2] tried: XcodeBuildMCP screenshot right after a swipe returned the frame from before the scroll (snapshot_ui already showed the scrolled content). Scrolled states were captured with xcrun simctl io <udid> screenshot instead.
 - 2026-11-16T01:38:56Z [implementer-2] After advisor review (commit with 'first-launch test'): added LocalStoreTests.firstLaunchCreatesTheFolderAndBothStores (store folder does not exist yet), and SeasignSchema.container(inMemory:) became inMemoryContainer() so no precondition is left in the store code. 95 tests pass on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2). Item 10 also checked on iOS 27.2: /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/task17/10-settings-scrolled-after-ios27.jpg. Simulator text size restored to large on both. Not verified: Try again on the error screen succeeding (the debug flag always fails). Known limits: stars step every 3 s; the Today clock ticks every 20 s, so a crossing sun moves about 3 pt per tick; the moon still appears at once when the sun has finished setting; SkyArc.shrink changed between the two mockup sizes (horizon and midday unchanged).
 - 2026-11-16T01:38:56Z [implementer-2] status: in-progress → review
+- 2026-11-16T01:49:06Z [implementer-2] criterion 1 met: Tests cover the stale cache rule and both one-sided polar cases, and pass on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2)
+- 2026-11-16T01:49:06Z [implementer-2] criterion 2 met: Screenshots at sunrise minus a few minutes, at sunrise, and plus a few minutes show the sun crossing the horizon gradually; paths recorded in the task log
+- 2026-11-16T01:49:06Z [implementer-2] criterion 3 met: Built Info.plist lists UIDeviceFamily 1 only
+- 2026-11-16T01:49:07Z [implementer-2] criterion 4 met: No fatalError on container failure; HealthModel and its tests are gone; memory/architecture.md describes the current ios/ layout
+- 2026-11-16T01:49:07Z [implementer-2] review: changes needed (small; all four acceptance criteria verified and ticked). Ran xcodegen (tree clean), 95 tests pass on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2), built Debug and Release Info.plist UIDeviceFamily = [1], Release binary has no debugStoreFailure/SceneDebug strings or symbols (controls hit), no fatalError, HealthModel gone, architecture.md matches ios/. Upgrade checked on both simulators: default.store kept 14 and 3 items and the zip after the current build ran; the normal open does not change the user store's tables (each file carries all three tables, the configuration only routes), so no migration plan is needed. Finding to fix (medium, ios/Seasign/Store/LocalStore.swift:70-73): the user-store-alone probe opens default.store with a two-model schema, which makes Core Data migrate the user file (drops ZCACHEDSKY, truncates persistent history), and the next full open migrates it back; rows survived in every run, but this contradicts 'never rewrites' in LocalStore.swift:10 and architecture.md. Suggest probing with the full schema and the cache in memory. Low: last throw in open (LocalStore.swift:84-86) reports UserStoreUnreadable although the user store just opened; the pre-split CachedSky row stays orphaned in default.store; Try again only verified by reading.
+- 2026-11-16T01:49:51Z [implementer-2] status: review → in-progress
+- 2026-11-16T01:49:51Z [implementer-2] lead: sent back after review for one fix in item 5: the 'open user store alone' probe (ios/Seasign/Store/LocalStore.swift:70-73) opens default.store with a schema lacking CachedSky, which makes Core Data run a lightweight migration on the user file (drops ZCACHEDSKY, truncates persistent history). Probe with the full schema and the cache in memory instead; add a test that default.store keeps its tables after the cache-recovery path. Also fix low finding 2 (LocalStore.swift:82-86: wrong error after a successful probe).
