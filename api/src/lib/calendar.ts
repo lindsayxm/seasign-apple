@@ -7,19 +7,29 @@
 // floating and all-day times in the caller's time zone and keeps the next
 // seven days.
 //
-// The file comes from an arbitrary URL, so everything here is bounded. ical.js
-// reads the file and decodes values, but it never expands an event's repeat
-// rule: one call to its recurrence iterator cannot be interrupted, and rules
-// exist that make it search for a date that never comes. Occurrences are
-// worked out here instead, period by period, in loops whose length is fixed
-// by the calendar (see `expandRule`) and charged to a work budget.
+// The file comes from an arbitrary URL, so everything here is bounded, and
+// ical.js is used for two things only: turning the text into data
+// (`ICAL.parse`) and decoding single values (a time, a duration, the parts of
+// a rule). It never expands anything. One call to its recurrence iterator
+// cannot be interrupted, and rules exist that make it search for a date that
+// never comes; it runs that iterator for an event's RRULE and, the first time
+// a zone is used, for a VTIMEZONE's rules. Three times a filter placed in
+// front of it was got around. So nothing that repeats is left for it to find:
+// - occurrences of events are worked out here (`expandRule`);
+// - time zone definitions are read from the parsed data and their offsets
+//   worked out here too (`readZone`, `zoneOffset`); no VTIMEZONE is ever given
+//   to an ical.js object;
+// - the events handed to ical.js are rebuilt from a short list of properties
+//   with the value types expected of them (`cleanEvent`), so a rule cannot
+//   arrive under another name, case, group, fold or nesting.
+// Every loop here has a length fixed by the calendar and is charged to a work
+// budget.
 //
 // Nothing here imports `cloudflare:*`, so the spec writer can load it in Node.
 import ICAL from "ical.js";
 import { WINDOWS_ZONES } from "./windows-zones.ts";
 
 type Time = InstanceType<typeof ICAL.Time>;
-type Timezone = InstanceType<typeof ICAL.Timezone>;
 type Component = InstanceType<typeof ICAL.Component>;
 type Property = InstanceType<typeof ICAL.Property>;
 type Recur = InstanceType<typeof ICAL.Recur>;
@@ -48,20 +58,22 @@ const MAX_KEPT = 500;
 const MAX_TITLE_LENGTH = 200;
 /** EXDATE and RDATE values one event may list. */
 const MAX_LISTED_DATES = 2000;
-/** Limits on one VTIMEZONE, and on all of a file's zones together. */
+/** Limits on one VTIMEZONE, and on the zones and calendars of one file. */
 const MAX_ZONE_OBSERVANCES = 60;
 const MAX_ZONE_RULES = 12;
 const MAX_ZONE_DATES = 400;
-const MAX_ZONE_RULES_PER_FILE = 40;
 const MAX_ZONES_PER_FILE = 50;
+const MAX_CALENDARS_PER_FILE = 20;
 /** Distinct TZID names one file may use without defining them. */
 const MAX_TZIDS_PER_FILE = 50;
 /** What one time zone lookup costs in units of work. */
 const ZONE_WORK = 10;
 /**
- * RRULE and EXRULE lines are renamed before ical.js reads the file, so that
- * it keeps their text as it is. Otherwise it decodes them while parsing, and
- * one malformed rule (`FREQ=FOO`) makes it reject the whole calendar.
+ * The names repeat rules have in the events given to ical.js: plain text
+ * under a name it has no meaning for. RRULE and EXRULE lines are also renamed
+ * to these before `ICAL.parse`, which otherwise decodes a rule as it reads it
+ * and rejects the whole file when one is malformed. That renaming is a
+ * convenience, not the safeguard: `cleanEvent` does not depend on it.
  */
 const RULE = "x-seasign-rrule";
 const EXCLUSION_RULE = "x-seasign-exrule";
@@ -165,7 +177,7 @@ type Zone =
   | { type: "date" }
   | { type: "utc" }
   /** A VTIMEZONE in the file. */
-  | { type: "file"; zone: Timezone }
+  | { type: "file"; zone: FileZone }
   /** No VTIMEZONE, but the TZID is an IANA name the runtime knows, or a Windows name for one. */
   | { type: "iana"; timeZone: string }
   /** No zone at all, or a TZID nobody can interpret: the request's time zone decides. */
@@ -175,15 +187,16 @@ type Zone =
  * What is left of a file's allowance while it is read: `work` of
  * `MAX_WORK_PER_FILE`, and the TZIDs looked up so far.
  */
-type Budget = { work: number; partial: boolean; zones: Map<string, Zone> };
+type Budget = { work: number; partial: boolean; zones: Map<string, Zone>; fileZones: Map<string, FileZone> };
 
 function zoneOf(property: Property, time: Time, budget: Budget): Zone {
   if (time.isDate) return { type: "date" };
   const zone = time.zone;
-  if (zone === ICAL.Timezone.utcTimezone) return { type: "utc" };
-  if (zone && zone !== ICAL.Timezone.localTimezone && zone.component) return { type: "file", zone };
+  if (time.zone === ICAL.Timezone.utcTimezone) return { type: "utc" };
   const tzid = property.getParameter("tzid");
   if (typeof tzid !== "string") return { type: "floating" };
+  const defined = budget.fileZones.get(tzid);
+  if (defined) return { type: "file", zone: defined };
 
   let named = budget.zones.get(tzid);
   if (!named) {
@@ -216,18 +229,8 @@ function resolveWall(wall: number, zone: Zone, budget: Budget): Resolved {
       return { kind: "allDay", value: wall };
     case "utc":
       return { kind: "instant", value: wall };
-    case "file": {
-      const date = new Date(wall * 1000);
-      const time = ICAL.Time.fromData({
-        year: date.getUTCFullYear(),
-        month: date.getUTCMonth() + 1,
-        day: date.getUTCDate(),
-        hour: date.getUTCHours(),
-        minute: date.getUTCMinutes(),
-        second: date.getUTCSeconds(),
-      });
-      return { kind: "instant", value: wall - zone.zone.utcOffset(time) };
-    }
+    case "file":
+      return { kind: "instant", value: wall - zoneOffset(zone.zone, wall, budget) };
     case "iana":
       return { kind: "instant", value: wallToEpoch(wall, zone.timeZone) };
     case "floating":
@@ -287,9 +290,13 @@ function integers(value: unknown, min: number, max: number): number[] | null {
  * including ones that never match a date.
  */
 export function readRule(text: string): Rule | null {
+  // Names and keywords in a rule may be written in any case.
+  const rule = text.trim().toUpperCase();
+  // Only what a rule is made of. ical.js would read past a backslash or a quote.
+  if (rule.length > 1000 || !/^[A-Z0-9=;,+-]+$/.test(rule)) return null;
   let recur: Recur;
   try {
-    recur = ICAL.Recur.fromString(text);
+    recur = ICAL.Recur.fromString(rule);
   } catch {
     return null;
   }
@@ -501,70 +508,214 @@ function expandRule(
 
 // ───────────────────────── time zone definitions ─────────────────────────
 
+/** The file as ical.js parses it (jCal): [name, properties, subcomponents]. */
+type JProperty = [string, Record<string, unknown>, string, ...unknown[]];
+type JCal = [string, JProperty[], JCal[]];
+
+/** A moment the zone's clocks change: from local time `at` on, they are `offset` seconds ahead of UTC. */
+type Transition = { at: number; offset: number };
+
+/** One STANDARD or DAYLIGHT block: an offset and when it comes into use. */
+type Observance = {
+  /** DTSTART on the clock in use before the change, as wall seconds. */
+  start: number;
+  anchor: { year: number; month: number; day: number; dayNumber: number };
+  secondsIntoDay: number;
+  from: number;
+  to: number;
+  rules: Rule[];
+};
+
+/** A VTIMEZONE, read into our own terms. */
+type FileZone = {
+  observances: Observance[];
+  /** Changes that happen once: each DTSTART, each RDATE, and the last ones of rules that have an UNTIL. Sorted by `at`. */
+  fixed: Transition[];
+  /** The offset before the first change. */
+  before: number;
+  /** The yearly rules' changes, by year, worked out when first needed. */
+  years: Map<number, Transition[]>;
+};
+
+/** "2026-11-01T02:00:00" or "2026-11-01", as wall seconds; null for anything else. */
+function wallOf(value: unknown): number | null {
+  const match = typeof value === "string" ? /^(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d):(\d\d)Z?)?$/.exec(value) : null;
+  if (!match) return null;
+  const [year, month, day, hour, minute, second] = match.slice(1).map((part) => Number(part ?? 0)) as [number, number, number, number, number, number];
+  if (year < 1000 || month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) return null;
+  return Date.UTC(year, month - 1, day, hour, minute, second) / 1000;
+}
+
+/** "-05:00" or "+05:53:28", in seconds; null for anything else. */
+function offsetOf(value: unknown): number | null {
+  const match = typeof value === "string" ? /^([+-])(\d\d):(\d\d)(?::(\d\d))?$/.exec(value) : null;
+  if (!match) return null;
+  const seconds = Number(match[2]) * 3600 + Number(match[3]) * 60 + Number(match[4] ?? 0);
+  return seconds <= 26 * 3600 ? (match[1] === "-" ? -seconds : seconds) : null;
+}
+
+/** The property's name as ical.js gives it, in lower case. A group, if one is left, stays part of it ("a.rrule"). */
+const plainName = (property: JProperty) => String(property[0]).toLowerCase();
+
+/** True for any name that could be meant as a repeat rule, however it is dressed. */
+const looksLikeRule = (name: string) => /rrule|exrule/.test(name.replace(/[^a-z]/g, ""));
+
 /**
- * Whether a VTIMEZONE observance's rule names exactly one day in every year:
- * yearly, in one month, on one day picked by weekday ("the second Sunday",
- * "the last Sunday", "the Sunday on or after the 8th") or by date. ical.js
- * expands these itself, and such a rule gives its iterator one date to find
- * each year and nothing to search for.
+ * The text of a rule property. It is text already when the line was renamed
+ * before parsing; when it was not, ical.js has decoded it into parts, and
+ * they are written out again. Either way it is then read by `readRule`.
  */
-function isOneDayAYear(rule: Rule, start: Time): boolean {
-  if (rule.freq !== "YEARLY" || rule.interval !== 1 || rule.bySetPos.length > 0) return false;
-  if (rule.byMonth.length === 0) {
-    return rule.byDay.length === 0 && rule.byMonthDay.length === 0 && !(start.month === 2 && start.day === 29);
+function ruleText(property: JProperty): string | null {
+  if (property.length !== 4) return null;
+  const value = property[3];
+  if (typeof value === "string") return value;
+  if (value === null || typeof value !== "object") return null;
+  try {
+    const text: unknown = ICAL.design.icalendar.value.recur.toICAL(value);
+    return typeof text === "string" ? text : null;
+  } catch {
+    return null;
   }
-  if (rule.byMonth.length !== 1) return false;
-  const [weekday] = rule.byDay;
-  if (rule.byMonthDay.length === 0) {
-    // The first to fourth, or last to fourth-from-last: every month has them.
-    return rule.byDay.length === 1 && weekday !== undefined && weekday.ordinal !== 0 && Math.abs(weekday.ordinal) <= 4;
+}
+
+/** The changes a rule makes in one year, on the observance's own terms. */
+function ruleTransitions(observance: Observance, rule: Rule, year: number, out: Transition[]): void {
+  const index = year - observance.anchor.year;
+  if (index < 0) return;
+  for (const day of periodAt(rule, observance.anchor, index).days) {
+    if (day <= observance.anchor.dayNumber) continue;
+    const on = day * DAY + observance.secondsIntoDay;
+    if (rule.until) {
+      // UNTIL here is normally in UTC; the change happens at `on` on the old clock.
+      const limit = wallSeconds(rule.until);
+      const utc = rule.until.zone === ICAL.Timezone.utcTimezone && !rule.until.isDate;
+      if ((rule.until.isDate ? day * DAY : utc ? on - observance.from : on) > limit) continue;
+    }
+    out.push({ at: on + observance.to - observance.from, offset: observance.to });
   }
-  if (rule.byDay.length === 0) return rule.byMonthDay.length === 1 && Math.abs(rule.byMonthDay[0] as number) <= 28;
-  // One weekday within seven days in a row that every month has, counted from
-  // the start of the month. (Counted from the end, ical.js takes half a second
-  // per rule and gets the date wrong.)
-  const days = [...rule.byMonthDay].sort((a, b) => a - b);
-  const inARow = days.length === 7 && days.every((day, i) => day === (days[0] as number) + i);
-  return rule.byDay.length === 1 && weekday?.ordinal === 0 && inARow && (days[0] as number) >= 1 && (days[6] as number) <= 28;
 }
 
 /**
- * Checks a VTIMEZONE and gives its rules back to ical.js. Returns what the
- * zone costs to expand, as its number of repeating observances, or -1 when it
- * is not to be used.
+ * Reads a VTIMEZONE from the parsed data, or returns null when it cannot be
+ * used. Nothing of it is handed to ical.js.
  *
- * ical.js expands every observance's rule from its DTSTART (1601 in Outlook's
- * files) to five years past the latest date it is asked about, the first time
- * the zone is used: about 2.5 ms per repeating observance. Real zones change
- * clocks twice a year, sometimes with a few earlier rules and a list of
- * historical dates.
+ * Supported: STANDARD and DAYLIGHT blocks with DTSTART, TZOFFSETFROM,
+ * TZOFFSETTO, RDATE, and yearly RRULEs without COUNT of any shape `readRule`
+ * supports. That covers what Google, Apple and Outlook write.
  */
-function prepareTimezone(vtimezone: Component): number {
-  const tzid = vtimezone.getFirstPropertyValue("tzid");
-  if (typeof tzid !== "string" || tzid === "") return -1;
-  const observances = [...vtimezone.getAllSubcomponents("standard"), ...vtimezone.getAllSubcomponents("daylight")];
-  if (observances.length === 0 || observances.length > MAX_ZONE_OBSERVANCES) return -1;
+function readZone(vtimezone: JCal): { tzid: string; zone: FileZone } | null {
+  const tzidProperty = vtimezone[1].find((property) => plainName(property) === "tzid");
+  const tzid = tzidProperty?.[3];
+  if (typeof tzid !== "string" || tzid === "") return null;
 
+  const observances: Observance[] = [];
+  const fixed: Transition[] = [];
   let repeating = 0;
-  let listedDates = 0;
-  for (const observance of observances) {
-    const start = observance.getFirstPropertyValue("dtstart");
-    if (!(start instanceof ICAL.Time) || start.year < 1600 || start.year > 2100) return -1;
-    if (observance.hasProperty(EXCLUSION_RULE)) return -1;
-    for (const property of observance.getAllProperties(RULE)) {
-      const text = property.getFirstValue();
-      const rule = typeof text === "string" ? readRule(text) : null;
-      if (!rule || !isOneDayAYear(rule, start)) return -1;
-      observance.addPropertyWithValue("rrule", ICAL.Recur.fromString(text as string));
-      repeating++;
+  let listed = 0;
+  for (const block of vtimezone[2]) {
+    if (block[0] !== "standard" && block[0] !== "daylight") continue;
+    if (observances.length >= MAX_ZONE_OBSERVANCES) return null;
+    let start: number | null = null;
+    let from: number | null = null;
+    let to: number | null = null;
+    const rules: Rule[] = [];
+    const dates: number[] = [];
+    for (const property of block[1]) {
+      const name = plainName(property);
+      if (name === "dtstart") start = property[2] === "date-time" ? wallOf(property[3]) : null;
+      else if (name === "tzoffsetfrom") from = offsetOf(property[3]);
+      else if (name === "tzoffsetto") to = offsetOf(property[3]);
+      else if (name === "rdate") {
+        for (const value of property.slice(3)) {
+          const wall = wallOf(value);
+          if (wall !== null) dates.push(wall);
+        }
+      } else if (name === RULE || name === "rrule") {
+        const text = ruleText(property);
+        const rule = text === null ? null : readRule(text);
+        // Zones change yearly. Anything else, or a rule that cannot be read, spoils the zone.
+        if (!rule || rule.freq !== "YEARLY" || rule.interval !== 1 || rule.count !== null) return null;
+        rules.push(rule);
+      } else if (looksLikeRule(name)) {
+        return null;
+      }
     }
-    observance.removeAllProperties(RULE);
-    for (const property of observance.getAllProperties("rdate")) {
-      listedDates += property.getValues().length;
+    if (start === null || from === null || to === null) return null;
+    repeating += rules.length;
+    listed += dates.length;
+    if (repeating > MAX_ZONE_RULES || listed > MAX_ZONE_DATES) return null;
+
+    const date = new Date(start * 1000);
+    const dayOfStart = Math.floor(start / DAY);
+    const observance: Observance = {
+      start,
+      anchor: { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate(), dayNumber: dayOfStart },
+      secondsIntoDay: start - dayOfStart * DAY,
+      from,
+      to,
+      rules,
+    };
+    observances.push(observance);
+    for (const on of [start, ...dates]) fixed.push({ at: on + to - from, offset: to });
+    // A rule that has ended still decides the offset until something later
+    // does, however long ago its last change was.
+    for (const rule of rules) {
+      if (!rule.until) continue;
+      const lastYear = Math.min(9999, Math.max(1000, rule.until.year));
+      ruleTransitions(observance, rule, lastYear - 1, fixed);
+      ruleTransitions(observance, rule, lastYear, fixed);
     }
   }
-  if (repeating > MAX_ZONE_RULES || listedDates > MAX_ZONE_DATES) return -1;
-  return repeating;
+  if (observances.length === 0) return null;
+  fixed.sort((a, b) => a.at - b.at);
+  const first = observances.reduce((earliest, observance) => (observance.start < earliest.start ? observance : earliest));
+  return { tzid, zone: { observances, fixed, before: first.from, years: new Map() } };
+}
+
+/**
+ * The zone's offset from UTC, in seconds, when its clocks show `wall`.
+ *
+ * The latest change at or before that time decides. Candidates are the
+ * one-off changes and the yearly rules' changes of that year and the year
+ * before; a year's changes are worked out once (one `periodAt` per rule,
+ * which is a fixed amount of arithmetic) and charged to the budget. In the
+ * hour that a change skips or repeats, the later instant is the answer.
+ */
+function zoneOffset(zone: FileZone, wall: number, budget: Budget): number {
+  let latest: Transition | null = null;
+  const consider = (transitions: Transition[]) => {
+    for (const transition of transitions) {
+      if (transition.at <= wall && (!latest || transition.at >= latest.at)) latest = transition;
+    }
+  };
+
+  // The one-off changes are sorted: find the last at or before `wall`.
+  let low = 0;
+  let high = zone.fixed.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((zone.fixed[middle] as Transition).at <= wall) low = middle + 1;
+    else high = middle;
+  }
+  if (low > 0) latest = zone.fixed[low - 1] as Transition;
+
+  const year = new Date(wall * 1000).getUTCFullYear();
+  for (const each of [year - 1, year]) {
+    let transitions = zone.years.get(each);
+    if (!transitions) {
+      transitions = [];
+      for (const observance of zone.observances) {
+        for (const rule of observance.rules) {
+          budget.work -= Math.max(1, rule.byMonth.length);
+          ruleTransitions(observance, rule, each, transitions);
+        }
+      }
+      if (zone.years.size >= 16) zone.years.clear();
+      zone.years.set(each, transitions);
+    }
+    consider(transitions);
+  }
+  return (latest as Transition | null)?.offset ?? zone.before;
 }
 
 // ───────────────────────── parsing ─────────────────────────
@@ -704,7 +855,9 @@ function expand(
   if (
     rules.length > 0 &&
     listedProperties.length === 0 &&
-    rules.every((rule) => rule.until && wallSeconds(rule.until) + duration + NEAR < keepFrom)
+    rules.every((rule) => rule.until && wallSeconds(rule.until) + duration + NEAR < keepFrom) &&
+    // DTSTART is an occurrence even when UNTIL is earlier than it.
+    shape.startWall + duration + NEAR < keepFrom
   ) {
     return;
   }
@@ -787,8 +940,58 @@ function expand(
   }
 }
 
-/** The file as ical.js reads it (jCal): [name, properties, subcomponents]. */
-type JCal = [string, unknown[], JCal[]];
+/** The properties of a VEVENT this file reads, and the value types each may have. */
+const EVENT_PROPERTIES: Readonly<Record<string, readonly string[]>> = {
+  uid: ["text"],
+  summary: ["text"],
+  status: ["text"],
+  dtstart: ["date-time", "date"],
+  dtend: ["date-time", "date"],
+  duration: ["duration"],
+  "recurrence-id": ["date-time", "date"],
+  exdate: ["date-time", "date"],
+  rdate: ["date-time", "date"],
+};
+
+/**
+ * Builds the VEVENT that ical.js is given: the listed properties, when they
+ * have a listed value type, and the event's rules as plain text under names
+ * ical.js has no meaning for. Everything else is left behind, alarms and any
+ * other nested component included.
+ *
+ * This is what keeps a rule from reaching ical.js as a rule. It does not
+ * matter how the line was written (case, folding, a group, parameters, a
+ * `VALUE=RECUR` on another property): whatever ical.js made of it, only these
+ * names with these types are copied, and none of the types is a rule.
+ */
+function cleanEvent(vevent: JCal, budget: Budget): JCal {
+  const properties: JProperty[] = [];
+  for (const property of vevent[1]) {
+    const name = plainName(property);
+    const types = Object.hasOwn(EVENT_PROPERTIES, name) ? EVENT_PROPERTIES[name] : undefined;
+    if (types) {
+      if (types.includes(property[2])) properties.push(property);
+      // A property we read, in a form we do not: the event may be shown wrongly.
+      else budget.partial = true;
+    } else if (name === RULE || name === "rrule") {
+      // An unreadable rule becomes an empty one, and the event is skipped for it.
+      properties.push([RULE, {}, "unknown", ruleText(property) ?? ""]);
+    } else if (name === EXCLUSION_RULE || name === "exrule") {
+      properties.push([EXCLUSION_RULE, {}, "unknown", ""]);
+    } else if (looksLikeRule(name)) {
+      // Something meant as a rule under a name no parser would take for one.
+      budget.partial = true;
+    }
+  }
+  return ["vevent", properties, []];
+}
+
+/** True when the component holds a VEVENT or VTIMEZONE somewhere inside it. */
+function holdsNested(component: JCal, depth = 0): boolean {
+  return component[2].some(
+    (child) => child[0] === "vevent" || child[0] === "vtimezone" || (depth < 8 && holdsNested(child, depth + 1)),
+  );
+}
 
 /**
  * Parses the text of an .ics file and returns the occurrences near `now`.
@@ -799,64 +1002,83 @@ type JCal = [string, unknown[], JCal[]];
  *   shape `readRule` supports, is skipped;
  * - an event listing more than 2,000 EXDATE and RDATE values is skipped;
  * - reading stops once the file has used its work budget (`MAX_WORK_PER_FILE`);
- * - at most 500 occurrences are kept.
- * - past 50 distinct TZIDs without a VTIMEZONE, times are read as floating.
- * A VTIMEZONE that is not a few plain yearly rules is ignored (and so are
- * those past 40 repeating observances or 50 zones in one file); times that
- * name it fall back to the IANA zone of the same name, or to floating.
+ * - at most 500 occurrences are kept;
+ * - past 50 distinct TZIDs without a VTIMEZONE, times are read as floating;
+ * - a VEVENT or VTIMEZONE inside another component is not read.
+ * A VTIMEZONE that `readZone` cannot use is ignored (and so are those past 50
+ * in one file); times that name it fall back to the IANA zone of the same
+ * name, or to floating. A file may hold several VCALENDARs; all are read.
  * `RANGE=THISANDFUTURE` on a RECURRENCE-ID is not applied: such an override
  * changes only its own instance.
  */
 export function parseCalendar(text: string, now: Date): ParsedCalendar {
-  const body = text.replace(/^﻿/, "").trimStart();
+  // Folded lines are joined first, so that everything after this sees whole
+  // lines, and line ends are made uniform. ical.js is given this text and has
+  // no folds left to undo in a way of its own.
+  const body = text
+    .replace(/^﻿/, "")
+    .trimStart()
+    .replace(/(?:\r\n|\r|\n)[ \t]/g, "")
+    .replace(/\r\n?/g, "\n");
   if (!/^BEGIN:VCALENDAR/i.test(body)) throw new CalendarParseError("not a calendar");
 
-  let parsed: JCal;
+  let calendars: JCal[];
   try {
-    // See RULE: repeat rules are kept as text for `readRule`.
-    const readable = body.replace(/^(RRULE|EXRULE)(?=[;:])/gim, "X-SEASIGN-$1");
+    const readable = body
+      // A group ("a.DTSTART") is dropped; ical.js would not decode the value otherwise.
+      .replace(/^[A-Za-z0-9-]+\.(?=[A-Za-z0-9-]+[;:])/gm, "")
+      // See RULE. A convenience: a rule this misses is still dealt with below.
+      .replace(/^(RRULE|EXRULE)(?=[;:])/gim, "X-SEASIGN-$1");
     const result = ICAL.parse(readable) as JCal | JCal[];
-    // A file holding several calendars comes back as a list; the first is read.
-    parsed = (Array.isArray(result[0]) ? result[0] : result) as JCal;
+    // A file holding several calendars comes back as a list.
+    calendars = (Array.isArray(result[0]) ? result : [result]) as JCal[];
   } catch {
     // The parser's message can quote a line of the file; it is not passed on.
     throw new CalendarParseError("not a calendar");
   }
-  if (!Array.isArray(parsed) || parsed[0] !== "vcalendar" || !Array.isArray(parsed[2])) {
+  const well = (component: unknown): component is JCal =>
+    Array.isArray(component) && typeof component[0] === "string" && Array.isArray(component[1]) && Array.isArray(component[2]);
+  if (calendars.length === 0 || !calendars.every((calendar) => well(calendar) && calendar[0] === "vcalendar")) {
     throw new CalendarParseError("not a calendar");
   }
 
-  const budget: Budget = { work: MAX_WORK_PER_FILE, partial: false, zones: new Map() };
+  const budget: Budget = { work: MAX_WORK_PER_FILE, partial: false, zones: new Map(), fileZones: new Map() };
+  if (calendars.length > MAX_CALENDARS_PER_FILE) {
+    calendars.length = MAX_CALENDARS_PER_FILE;
+    budget.partial = true;
+  }
 
-  // Choose the time zone definitions to keep before ical.js sees any of them:
-  // it looks a TZID up in the file's VTIMEZONEs the first time a value is
-  // decoded. Done on the parsed data, in one pass, so that a file of tens of
-  // thousands of junk VTIMEZONEs costs no more than its size.
-  const zoneComponents: JCal[] = [];
+  // One pass over the parsed data. Time zone definitions are read into our
+  // own form; events are rebuilt from the properties we read. ical.js gets
+  // the rebuilt events and nothing else.
   const eventComponents: JCal[] = [];
-  let zones = 0;
-  let zoneRules = 0;
-  for (const component of parsed[2]) {
-    if (component[0] === "vevent") {
-      eventComponents.push(component);
-    } else if (component[0] === "vtimezone" && zones < MAX_ZONES_PER_FILE) {
-      let cost = -1;
-      try {
-        cost = prepareTimezone(new ICAL.Component(component));
-      } catch {
-        cost = -1;
+  for (const calendar of calendars) {
+    for (const component of calendar[2]) {
+      if (component[0] === "vevent") {
+        eventComponents.push(cleanEvent(component, budget));
+        // An event's own children are alarms; an event or zone in there is not read.
+        if (holdsNested(component)) budget.partial = true;
+      } else if (component[0] === "vtimezone") {
+        if (holdsNested(component)) budget.partial = true;
+        if (budget.fileZones.size >= MAX_ZONES_PER_FILE) continue;
+        let read: ReturnType<typeof readZone> = null;
+        try {
+          read = readZone(component);
+        } catch {
+          read = null;
+        }
+        // The first definition of a name stands.
+        if (read && !budget.fileZones.has(read.tzid)) budget.fileZones.set(read.tzid, read.zone);
+      } else if (holdsNested(component)) {
+        budget.partial = true;
       }
-      if (cost < 0 || zoneRules + cost > MAX_ZONE_RULES_PER_FILE) continue;
-      zones++;
-      zoneRules += cost;
-      zoneComponents.push(component);
     }
   }
-  // The events go one level down, in a component of their own. For every time
-  // with a TZID it has not seen defined, ical.js searches all the children of
-  // the calendar for a VTIMEZONE: with 30,000 events as children, that search
-  // alone took 8 seconds. This way it searches the zones and one more.
-  const calendar = new ICAL.Component(["vcalendar", parsed[1], [...zoneComponents, [EVENTS, [], eventComponents]]]);
+  // The events sit in a component of their own, one level down. For every
+  // time with a TZID, ical.js searches all the children of the calendar for a
+  // VTIMEZONE: with 30,000 events as children that search alone took 8
+  // seconds. Here the calendar has one child and no VTIMEZONE to find.
+  const calendar = new ICAL.Component(["vcalendar", [], [[EVENTS, [], eventComponents]]]);
   const vevents = calendar.getFirstSubcomponent(EVENTS)?.getAllSubcomponents("vevent") ?? [];
 
   const nowSeconds = Math.floor(now.getTime() / 1000);

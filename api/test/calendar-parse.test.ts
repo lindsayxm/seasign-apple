@@ -341,6 +341,151 @@ describe("times", () => {
   });
 });
 
+describe("time zone definitions in the file, read by our own code", () => {
+  const block = (kind: string, start: string, from: string, to: string, ...more: string[]) => [
+    `BEGIN:${kind}`,
+    `DTSTART:${start}`,
+    `TZOFFSETFROM:${from}`,
+    `TZOFFSETTO:${to}`,
+    ...more,
+    `END:${kind}`,
+  ];
+  const zone = (...blocks: string[][]) => ["BEGIN:VTIMEZONE", "TZID:File/Zone", ...blocks.flat(), "END:VTIMEZONE"];
+
+  // Each definition says what an IANA zone says, for the years given. A daily
+  // event is read once through the file's definition and once through the
+  // IANA zone (no VTIMEZONE), a window at a time across those years, and the
+  // two must agree on every instant. The times of day stay clear of the hour
+  // a clock change skips or repeats.
+  const definitions: [string, string, number, number, string[]][] = [
+    [
+      "New York as Google writes it",
+      "America/New_York",
+      2008,
+      2031,
+      zone(
+        block("DAYLIGHT", "20070311T020000", "-0500", "-0400", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU"),
+        block("STANDARD", "20071104T020000", "-0400", "-0500", "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU"),
+      ),
+    ],
+    [
+      "New York as Outlook writes it, from 1601",
+      "America/New_York",
+      2008,
+      2031,
+      zone(
+        block("STANDARD", "16010101T020000", "-0400", "-0500", "RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=1SU;BYMONTH=11"),
+        block("DAYLIGHT", "16010101T020000", "-0500", "-0400", "RRULE:FREQ=YEARLY;INTERVAL=1;BYDAY=2SU;BYMONTH=3"),
+      ),
+    ],
+    [
+      "New York with days of the month and a weekday",
+      "America/New_York",
+      2008,
+      2031,
+      zone(
+        block("DAYLIGHT", "20070311T020000", "-0500", "-0400", "RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=8,9,10,11,12,13,14;BYDAY=SU"),
+        block("STANDARD", "20071104T020000", "-0400", "-0500", "RRULE:FREQ=YEARLY;BYMONTH=11;BYMONTHDAY=1,2,3,4,5,6,7;BYDAY=SU"),
+      ),
+    ],
+    [
+      "New York with its earlier rules, ended by UNTIL",
+      "America/New_York",
+      1988,
+      2031,
+      zone(
+        block("DAYLIGHT", "19870405T020000", "-0500", "-0400", "RRULE:FREQ=YEARLY;BYMONTH=4;BYDAY=1SU;UNTIL=20060402T070000Z"),
+        block("STANDARD", "19671029T020000", "-0400", "-0500", "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU;UNTIL=20061029T060000Z"),
+        block("DAYLIGHT", "20070311T020000", "-0500", "-0400", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU"),
+        block("STANDARD", "20071104T020000", "-0400", "-0500", "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU"),
+      ),
+    ],
+    [
+      "Berlin, changing on last Sundays",
+      "Europe/Berlin",
+      1997,
+      2031,
+      zone(
+        block("DAYLIGHT", "19960331T020000", "+0100", "+0200", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU"),
+        block("STANDARD", "19961027T030000", "+0200", "+0100", "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU"),
+      ),
+    ],
+    [
+      "Sydney, where summer spans the new year",
+      "Australia/Sydney",
+      2009,
+      2031,
+      zone(
+        block("DAYLIGHT", "20081005T020000", "+1000", "+1100", "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=1SU"),
+        block("STANDARD", "20080406T030000", "+1100", "+1000", "RRULE:FREQ=YEARLY;BYMONTH=4;BYDAY=1SU"),
+      ),
+    ],
+    ["Kolkata, which never changes", "Asia/Kolkata", 1990, 2031, zone(block("STANDARD", "19700101T000000", "+0530", "+0530"))],
+    [
+      "Phoenix, with changes listed as dates long ago",
+      "America/Phoenix",
+      1990,
+      2031,
+      zone(
+        block("STANDARD", "19671029T020000", "-0600", "-0700", "RDATE:19671029T020000"),
+        block("DAYLIGHT", "19670430T020000", "-0700", "-0600", "RDATE:19670430T020000"),
+      ),
+    ],
+  ];
+
+  it.each(definitions)("%s agrees with %s", (_name, iana, fromYear, toYear, definition) => {
+    const series = (tzid: string) =>
+      ["0030", "0330", "1200", "2330"].map((time) =>
+        vevent(`SUMMARY:${time}`, `DTSTART;TZID=${tzid}:${fromYear - 1}0101T${time}00`, "RRULE:FREQ=DAILY"),
+      );
+    const fromFile = calendarOf(definition, ...series("File/Zone"));
+    const fromIana = calendarOf(...series(iana));
+
+    let compared = 0;
+    for (let at = Date.UTC(fromYear, 0, 3); at < Date.UTC(toYear, 0, 1); at += 9 * 86_400_000) {
+      const now = new Date(at);
+      const ours = parseCalendar(fromFile, now);
+      expect(ours, now.toISOString()).toEqual(parseCalendar(fromIana, now));
+      compared += ours.events.length;
+    }
+    // Four events a day, nine days in ten kept.
+    expect(compared).toBeGreaterThan((toYear - fromYear) * 365 * 3);
+  });
+
+  it("uses the offset before the first change for earlier times", () => {
+    const definition = zone(block("STANDARD", "20300101T000000", "+0300", "+0500"));
+    const text = calendarOf(definition, vevent("SUMMARY:x", "DTSTART;TZID=File/Zone:20261117T090000"));
+
+    expect(brief(upcoming(text))).toEqual(["x @ 2026-11-17T06:00:00Z"]);
+  });
+
+  it("reads offsets with seconds and the first definition of a name", () => {
+    const text = calendarOf(
+      zone(block("STANDARD", "19000101T000000", "+002000", "+001932")),
+      zone(block("STANDARD", "19000101T000000", "+0900", "+0900")),
+      vevent("SUMMARY:x", "DTSTART;TZID=File/Zone:20261117T090000"),
+    );
+
+    expect(brief(upcoming(text))).toEqual(["x @ 2026-11-17T08:40:28Z"]);
+  });
+
+  it.each([
+    ["no DTSTART", ["BEGIN:STANDARD", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0200", "END:STANDARD"]],
+    ["a date for DTSTART", ["BEGIN:STANDARD", "DTSTART;VALUE=DATE:19700101", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0200", "END:STANDARD"]],
+    ["no TZOFFSETTO", ["BEGIN:STANDARD", "DTSTART:19700101T000000", "TZOFFSETFROM:+0200", "END:STANDARD"]],
+    ["an offset that is not one", ["BEGIN:STANDARD", "DTSTART:19700101T000000", "TZOFFSETFROM:+0200", "TZOFFSETTO:+9900", "END:STANDARD"]],
+    ["no blocks", []],
+  ])("does not use a definition with %s", (_name, blocks) => {
+    const text = calendarOf(
+      ["BEGIN:VTIMEZONE", "TZID:File/Zone", ...blocks, "END:VTIMEZONE"],
+      vevent("SUMMARY:x", "DTSTART;TZID=File/Zone:20261117T090000"),
+    );
+
+    // Floating: 09:00 as written.
+    expect(brief(upcoming(text))).toEqual(["x @ 2026-11-17T09:00:00Z"]);
+  });
+});
+
 describe("repeating events", () => {
   it("applies an EXDATE written in UTC to a series in a named zone", () => {
     const text = calendarOf(
@@ -443,7 +588,7 @@ describe("repeating events", () => {
 
   it("honours COUNT, UNTIL and INTERVAL", () => {
     const text = calendarOf(
-      vevent("SUMMARY:count", "DTSTART:20261114T100000Z", "RRULE:FREQ=DAILY;COUNT=4"),
+      vevent("SUMMARY:count", "DTSTART:20261114T100000Z", "RRULE:freq=daily;count=4"),
       vevent("SUMMARY:until", "DTSTART:20261114T110000Z", "RRULE:FREQ=DAILY;UNTIL=20261118T110000Z"),
       vevent("SUMMARY:every third day", "DTSTART:20261101T120000Z", "RRULE:FREQ=DAILY;INTERVAL=3"),
       vevent("SUMMARY:every other week", "DTSTART:20260105T130000Z", "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,FR"),
@@ -608,6 +753,16 @@ describe("repeating events", () => {
       expect(starts("20261110T100000Z", "FREQ=WEEKLY;BYDAY=MO;COUNT=3", new Date("2026-11-29T00:00:00Z"))).toEqual([]);
     });
 
+    it("gives DTSTART alone when UNTIL is earlier than it", () => {
+      for (const until of ["20261101T000000Z", "20200101T000000Z", "20261116", "19990101"]) {
+        for (const rule of [`FREQ=DAILY;UNTIL=${until}`, `FREQ=WEEKLY;BYDAY=MO,TU,WE;UNTIL=${until}`, `FREQ=MONTHLY;UNTIL=${until}`]) {
+          expect(starts("20261117T100000Z", rule, NOW), rule).toEqual(["2026-11-17T10:00"]);
+        }
+      }
+      // And nothing once DTSTART itself has passed.
+      expect(starts("20261117T100000Z", "FREQ=DAILY;UNTIL=20200101T000000Z", new Date("2026-11-25T00:00:00Z"))).toEqual([]);
+    });
+
     it("reads UNTIL as a UTC instant, a local time or a date", () => {
       const daily = (until: string, tzid = "") =>
         parseCalendar(
@@ -651,13 +806,30 @@ describe("hostile and broken files", () => {
     expect(brief(upcoming(text))).toEqual(["x @ 2026-11-17T10:00:00Z"]);
   });
 
-  it("reads the first calendar of a file that holds several", () => {
+  it("reads every calendar of a file that holds several", () => {
     const text = [
       calendarOf(vevent("SUMMARY:first", "DTSTART:20261117T100000Z")),
-      calendarOf(vevent("SUMMARY:second", "DTSTART:20261117T110000Z")),
+      calendarOf(NEW_YORK, vevent("SUMMARY:second", "DTSTART;TZID=America/New_York:20261117T070000")),
+      calendarOf(vevent("SUMMARY:third", "DTSTART:20261117T140000Z")),
     ].join("\r\n");
 
-    expect(brief(upcoming(text))).toEqual(["first @ 2026-11-17T10:00:00Z"]);
+    expect(parseCalendar(text, NOW).partial).toBe(false);
+    expect(brief(upcoming(text))).toEqual([
+      "first @ 2026-11-17T10:00:00Z",
+      "second @ 2026-11-17T12:00:00Z",
+      "third @ 2026-11-17T14:00:00Z",
+    ]);
+  });
+
+  it("reads the first 20 calendars of a file and says the rest was left out", () => {
+    const text = Array.from({ length: 25 }, (_, i) =>
+      calendarOf(vevent(`SUMMARY:c${i}`, `DTSTART:20261117T10${String(i).padStart(2, "0")}00Z`)),
+    ).join("\r\n");
+
+    const parsed = parseCalendar(text, NOW);
+
+    expect(parsed.partial).toBe(true);
+    expect(parsed.events.map((event) => event.title)).toEqual(Array.from({ length: 20 }, (_, i) => `c${i}`));
   });
 
   it("reads an empty calendar as no events", () => {
@@ -870,7 +1042,7 @@ describe("hostile and broken files", () => {
     expect(brief(upcoming(text))).toEqual(["x @ 2026-11-17T14:00:00Z"]);
   });
 
-  it("ignores a VTIMEZONE that would be expensive to expand", () => {
+  it("ignores a VTIMEZONE whose rule is not a yearly one", () => {
     const trap = (rule: string) => [
       "BEGIN:VTIMEZONE",
       "TZID:America/New_York",
@@ -884,7 +1056,7 @@ describe("hostile and broken files", () => {
     ];
     const event = vevent("SUMMARY:x", "DTSTART;TZID=America/New_York:20261117T090000");
 
-    for (const rule of ["FREQ=SECONDLY", "FREQ=DAILY", "FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30", "FREQ=YEARLY;INTERVAL=2;BYMONTH=3;BYDAY=2SU"]) {
+    for (const rule of ["FREQ=SECONDLY", "FREQ=DAILY", "FREQ=MONTHLY;INTERVAL=48;BYDAY=5MO", "FREQ=YEARLY;INTERVAL=2;BYMONTH=3;BYDAY=2SU", "FREQ=YEARLY;COUNT=3", "FREQ=FOO"]) {
       const started = performance.now();
       // The file's definition says UTC+2; it is dropped, so the IANA zone answers.
       expect(brief(upcoming(calendarOf(trap(rule), event)))).toEqual(["x @ 2026-11-17T14:00:00Z"]);
@@ -893,8 +1065,8 @@ describe("hostile and broken files", () => {
   });
 
   describe("time zones that are expensive in bulk", () => {
-    // ical.js expands every observance from its DTSTART the first time a zone
-    // is used. Before these limits, 20 zones of 300 observances took 22 seconds.
+    // When ical.js expanded zones, 20 zones of 300 observances took 22 seconds.
+    // Zones are now read by our own code, and still limited in size.
     const zone = (tzid: string, observances: number) => [
       "BEGIN:VTIMEZONE",
       `TZID:${tzid}`,
@@ -919,11 +1091,15 @@ describe("hostile and broken files", () => {
       expect(brief(upcoming(text))).toEqual([kept("Twelve"), dropped("Thirteen")]);
     });
 
-    it("drops the zones past 40 repeating observances in one file", () => {
-      const names = ["A", "B", "C", "D", "E"];
-      const text = calendarOf(...names.map((name) => zone(name, 10)), ...names.map(at));
+    it("uses the first 50 zones of a file", () => {
+      const names = Array.from({ length: 52 }, (_, i) => `Z${i}`);
+      const text = calendarOf(...names.map((name) => zone(name, 1)), ...names.map(at));
 
-      expect(brief(upcoming(text))).toEqual([kept("A"), kept("B"), kept("C"), kept("D"), dropped("E")]);
+      const found = brief(upcoming(text));
+
+      expect(found.filter((line) => line.endsWith("07:00:00Z"))).toHaveLength(50);
+      expect(found).toContain(dropped("Z50"));
+      expect(found).toContain(dropped("Z51"));
     });
 
     it("reads a file of 20 zones with 300 observances each quickly", () => {
