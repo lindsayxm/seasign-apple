@@ -219,6 +219,147 @@
           "error",
           "message"
         ]
+      },
+      "CalendarEvents": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalendarEvent"
+            },
+            "description": "Events that have not ended and start within the next 7 days, soonest first, at most 50"
+          },
+          "calendars": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalendarStatus"
+            },
+            "description": "One entry per link, in request order"
+          }
+        },
+        "required": [
+          "events",
+          "calendars"
+        ]
+      },
+      "CalendarEvent": {
+        "type": "object",
+        "properties": {
+          "calendar": {
+            "type": "integer",
+            "description": "Index of the link in the request this event came from",
+            "example": 0
+          },
+          "title": {
+            "type": "string",
+            "description": "The event's summary; empty when it has none",
+            "example": "Dentist"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Start as a UTC instant. For an all-day event, midnight at the start of `date` in the request's time zone",
+            "example": "2026-11-16T15:00:00Z"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time",
+            "description": "End as a UTC instant. Equal to `start` for an event without a length",
+            "example": "2026-11-16T15:00:00Z"
+          },
+          "allDay": {
+            "type": "boolean",
+            "description": "True for an event that covers whole days"
+          },
+          "date": {
+            "type": "string",
+            "description": "Only for all-day events: the local date the event starts on, YYYY-MM-DD",
+            "example": "2026-11-16"
+          }
+        },
+        "required": [
+          "calendar",
+          "title",
+          "start",
+          "end",
+          "allDay"
+        ]
+      },
+      "CalendarStatus": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Index of the link in the request",
+            "example": 0
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "True when the calendar was read"
+          },
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_link",
+              "blocked_host",
+              "fetch_failed",
+              "timeout",
+              "too_large",
+              "not_calendar"
+            ],
+            "description": "Why the calendar could not be read: invalid_link (not an https link), blocked_host (a private or local address), fetch_failed (unreachable or an error status), timeout, too_large, not_calendar (the link did not return an iCalendar file)"
+          }
+        },
+        "required": [
+          "index",
+          "ok"
+        ]
+      },
+      "CalendarError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_request"
+            ],
+            "description": "Machine-readable reason"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable explanation"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "CalendarEventsRequest": {
+        "type": "object",
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Calendar links as the user pasted them: a Google \"Secret address in iCal format\", an iCloud published calendar (webcal://), or an Outlook published .ics link. https only; webcal:// is read as https://",
+            "example": [
+              "https://calendar.example.com/private/calendar.ics"
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA time zone of the device. Decides when all-day events and events without a time zone start and end. Defaults to UTC",
+            "example": "America/New_York"
+          }
+        },
+        "required": [
+          "links"
+        ]
       }
     },
     "parameters": {}
@@ -297,6 +438,44 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SkyError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/calendar/events": {
+      "post": {
+        "operationId": "postCalendarEvents",
+        "summary": "Upcoming events from the user's calendar links",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarEventsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upcoming events from the calendars that could be read, and the state of each link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEvents"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not JSON, has no links or more than 10, or names an unknown time zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarError"
                 }
               }
             }
