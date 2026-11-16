@@ -234,10 +234,27 @@ private final class AIClock: @unchecked Sendable {
         await s.ai.searchNow()
         #expect(s.ai.retryNotBefore == sentAt.addingTimeInterval(120))
         stub.answer(.ok, discoverJSONThreeItems)
+        // Take the spacing out of the way, so only the delay can hold.
+        let row = try #require(try s.context.fetch(FetchDescriptor<Settings>()).first)
+        row.aiLastSentAt = sentAt.addingTimeInterval(-86_400)
+        try s.context.save()
         clock.advance(90)
         await s.ai.refreshIfDue()
         #expect(stub.count == 1)
-        // Search now is not held; it just asks again.
+        clock.advance(31)
+        await s.ai.refreshIfDue()
+        #expect(stub.count == 2)
+        #expect(s.ai.problem == nil)
+        #expect(s.ai.usedToday == 1)
+    }
+
+    /// "Search now" is not held by the delay; it just asks again.
+    @Test func searchNowIsNotHeldByOurRateLimit() async throws {
+        let s = try setup()
+        stub.answer(.init(code: 429), discoverErrorJSON("rate_limited"), retryAfter: "60")
+        await s.ai.searchNow()
+        stub.answer(.ok, discoverJSONThreeItems)
+        clock.advance(10)
         await s.ai.searchNow()
         #expect(stub.count == 2)
         #expect(s.ai.problem == nil)
