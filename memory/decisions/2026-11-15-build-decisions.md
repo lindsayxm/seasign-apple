@@ -36,6 +36,7 @@ Product decisions from the planning session are in `2026-11-15-v1-product-decisi
 - `/v1/feed` needs the Workers Paid plan (CPU time and subrequest count).
 - Per-IP rate limiting is not built (task 19) and must be done before any deploy.
 - The calendar path can need up to 112 MB on a hostile 2 MB file (task 18).
+- Update 2026-11-16: the per-IP rate limit is built (task 19); limits, plan figures and post-deploy checks are in `2026-11-16-rate-limits-and-deploy-limits.md`.
 
 ## Visual polish is light while the design changes
 
