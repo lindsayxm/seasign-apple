@@ -1,23 +1,5 @@
 import SwiftUI
 
-/// A stand-in for a screen a later task builds (Do/Get, Saved, the 7-day
-/// history), so the Today buttons lead somewhere.
-struct PlaceholderScreen: View {
-    var title: String
-    var note: String
-
-    var body: some View {
-        SheetScaffold(title: title) {
-            Text(caps: note)
-                .capsRelative(11)
-                .foregroundStyle(Palette.dimText)
-            Text(caps: "Coming soon")
-                .capsRelative(11, medium: true)
-                .foregroundStyle(Palette.white)
-        }
-    }
-}
-
 /// The frame shared by the full-screen sheets: charcoal, a caps title, a close
 /// button, and scrolling content.
 struct SheetScaffold<Content: View>: View {

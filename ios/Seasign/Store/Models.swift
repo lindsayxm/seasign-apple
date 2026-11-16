@@ -50,9 +50,12 @@ final class CachedEvents {
 /// them would mean. A new model goes into `cacheModels` only if everything in
 /// it can be fetched again; anything the user typed belongs in `userModels`.
 enum SeasignSchema {
-    /// What the user entered: settings, the Do/Get lists, the calendar links
-    /// and the followed sites. Never deleted by the app.
-    static let userModels: [any PersistentModel.Type] = [Settings.self, ListItem.self, CalendarLink.self, Site.self]
+    /// What the user entered: settings, the Do/Get lists, the calendar links,
+    /// the followed sites and the saved articles with their notes. Never
+    /// deleted by the app.
+    static let userModels: [any PersistentModel.Type] = [
+        Settings.self, ListItem.self, CalendarLink.self, Site.self, SavedItem.self,
+    ]
     /// Copies of what the API returned. Safe to throw away.
     static let cacheModels: [any PersistentModel.Type] = [CachedSky.self, CachedEvents.self, FeedItem.self, CachedFeedState.self]
     static let models: [any PersistentModel.Type] = userModels + cacheModels

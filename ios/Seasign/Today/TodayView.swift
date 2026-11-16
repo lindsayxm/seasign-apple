@@ -9,6 +9,7 @@ struct TodayView: View {
     @Environment(TodayModel.self) private var model
     @Environment(EventsModel.self) private var events
     @Environment(FeedModel.self) private var feed
+    @Environment(SavedModel.self) private var saved
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var destination: Destination?
@@ -48,6 +49,11 @@ struct TodayView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            // Notes typed in Saved are written before the app leaves the
+            // foreground (Saved does this too; this covers it from the root).
+            if phase != .active {
+                saved.flushNotes()
+            }
             if phase == .active {
                 Task {
                     await model.refresh()
@@ -69,13 +75,13 @@ struct TodayView: View {
             case .doGet:
                 DoGetView()
             case .saved:
-                PlaceholderScreen(title: "Saved", note: "Saved publications will live here.")
+                SavedView(timeZone: headlineZone)
             case .history:
-                PlaceholderScreen(title: "Last 7 days", note: "Everything that has been in your feed will live here.")
+                HistoryView(timeZone: headlineZone)
             }
         }
         .fullScreenCover(item: $reading) { entry in
-            ReadingView(entry: entry, timeZone: headlineZone)
+            ReadingView(item: ReadingItem(entry), timeZone: headlineZone)
         }
     }
 

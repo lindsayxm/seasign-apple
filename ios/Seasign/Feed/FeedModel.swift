@@ -295,10 +295,12 @@ final class FeedModel {
 #if DEBUG
 extension FeedModel {
     /// Debug-only (`-debugFeed YES`): three sample sites and their items for
-    /// screenshots, held in a store that lives in memory. Nothing is fetched
-    /// and the user's own store is not touched.
-    static func sample(now: Date = Date()) throws -> FeedModel {
-        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+    /// screenshots, held in a store that lives in memory (`context`, or a new
+    /// one). Five items are from the last half day, for Today; three more are
+    /// two to six days old, for the 7-day history. Nothing is fetched and the
+    /// user's own store is not touched.
+    static func sample(now: Date = Date(), context: ModelContext? = nil) throws -> FeedModel {
+        let context = try context ?? ModelContext(SeasignSchema.inMemoryContainer())
         let science = Site(
             url: "https://news.example.com/science/", title: "Science | Example News", category: "Sci",
             mode: .feed, feedUrl: "https://news.example.com/science/feed/", createdAt: now
@@ -334,6 +336,25 @@ extension FeedModel {
                 excerpt: excerpts[index],
                 siteID: site.id,
                 category: site.category,
+                firstFetchedAt: published
+            )))
+        }
+        let older: [(title: String, site: Site, days: Double)] = [
+            ("Lake-effect snow arrives early along the eastern shore", lakes, 2),
+            ("Why the night sky looks brighter than it did a decade ago", science, 4),
+            ("Ferries add a winter crossing for the first time in years", wire, 6),
+        ]
+        for (index, entry) in older.enumerated() {
+            let published = now.addingTimeInterval(-entry.days * 86_400)
+            context.insert(FeedItem(FeedEntry(
+                link: "https://\(URL(string: entry.site.url)?.host() ?? "example.com")/sample/older-\(index)",
+                title: entry.title,
+                source: entry.site.title.components(separatedBy: " | ").last ?? entry.site.title,
+                published: published,
+                dateSource: .published,
+                excerpt: nil,
+                siteID: entry.site.id,
+                category: entry.site.category,
                 firstFetchedAt: published
             )))
         }

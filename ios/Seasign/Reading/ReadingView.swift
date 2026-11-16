@@ -1,8 +1,11 @@
 import SwiftUI
 
-/// One headline opened from Today (`ref-img/00-reading.png`): the source,
-/// category and date, the title, the site's own excerpt, and a way to read
-/// the article on the site.
+/// One article (`ref-img/00-reading.png`), opened from Today, History or
+/// Saved: the source, category and date, the save mark, the title, the
+/// site's own excerpt, and a way to read the article on the site.
+///
+/// It is driven by a `ReadingItem`, which a cached feed item and a saved item
+/// both produce, so a saved article opens after its feed item is gone.
 ///
 /// Everything shown here except the labels came from a website, so it is
 /// shown as plain text only (`Text(verbatim:)`, `Text(caps:)`). The article is
@@ -10,12 +13,15 @@ import SwiftUI
 /// only when `ArticleLink.url` accepts the link (https with a host). It is
 /// never loaded in a web view inside the app.
 struct ReadingView: View {
-    var entry: FeedEntry
+    var item: ReadingItem
     /// The zone the date is shown in (the zip's when known, else the phone's).
     var timeZone: TimeZone
 
+    @Environment(SavedModel.self) private var saved
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+
+    @State private var confirming: RemovalConfirmation?
 
     static let noExcerptNote = "This site doesn't publish a summary of its articles. Read the article on the site itself."
 
@@ -46,11 +52,20 @@ struct ReadingView: View {
 
                 HStack {
                     Spacer()
-                    saveMark
+                    SaveMark(isSaved: saved.isSaved(item.link), title: item.title) {
+                        if saved.toggleSave(item) == .needsConfirmation {
+                            confirming = RemovalConfirmation(link: item.link, in: saved)
+                        }
+                    }
                 }
                 .padding(.top, 14)
 
-                Text(verbatim: entry.title)
+                if let problem = saved.problem, problem != .notesNotSaved {
+                    SavedProblemLine(problem: problem, retry: {}, dismiss: { saved.problem = nil })
+                        .padding(.top, 8)
+                }
+
+                Text(verbatim: item.title)
                     .font(.system(size: 30, weight: .regular, design: .serif))
                     .foregroundStyle(Palette.white)
                     .fixedSize(horizontal: false, vertical: true)
@@ -71,15 +86,16 @@ struct ReadingView: View {
         .background(Palette.charcoal.ignoresSafeArea())
         .statusBarCover()
         .preferredColorScheme(.dark)
+        .removalConfirmation($confirming, model: saved)
     }
 
     // MARK: Parts
 
     private var details: some View {
-        let date = ReadingDate(entry: entry, timeZone: timeZone)
+        let date = ReadingDate(item: item, timeZone: timeZone)
         return VStack(alignment: .leading, spacing: 10) {
-            detailRow("Publication", entry.source)
-            detailRow("Category", entry.category)
+            detailRow("Publication", item.source)
+            detailRow("Category", item.category)
             detailRow(date.label, date.value)
         }
     }
@@ -99,22 +115,9 @@ struct ReadingView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// The save control of the mockup. Saving comes with Saved (task 9); until
-    /// then it is shown dimmed and does nothing.
-    private var saveMark: some View {
-        LineIconView(icon: .saved, size: 22, lineWidth: 1.5)
-            .foregroundStyle(Palette.rule)
-            .frame(width: 44, height: 44)
-            .background(Palette.rule.opacity(0.25))
-            .opacity(0.6)
-            .accessibilityElement()
-            .accessibilityLabel("Save")
-            .accessibilityValue("Not available yet")
-    }
-
     @ViewBuilder
     private var summary: some View {
-        if let excerpt = entry.excerpt, !excerpt.isEmpty {
+        if let excerpt = item.excerpt, !excerpt.isEmpty {
             Text(verbatim: excerpt)
                 .font(.system(.body, design: .serif))
                 .lineSpacing(8)
@@ -130,7 +133,7 @@ struct ReadingView: View {
 
     @ViewBuilder
     private var readOnSite: some View {
-        if let url = ArticleLink.url(entry.link) {
+        if let url = ArticleLink.url(item.link) {
             VStack(alignment: .leading, spacing: 4) {
                 Button {
                     openURL(url)

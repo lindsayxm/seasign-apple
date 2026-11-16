@@ -286,15 +286,37 @@ struct ReadingDate: Equatable, Sendable {
     private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
     init(entry: FeedEntry, timeZone: TimeZone) {
-        label = entry.dateSource == .firstSeen ? "First seen" : "Published"
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: entry.published)
-        let month = Self.months[max(0, min(11, (parts.month ?? 1) - 1))]
+        self.init(published: entry.published, dateSource: entry.dateSource, timeZone: timeZone)
+    }
+
+    init(item: ReadingItem, timeZone: TimeZone) {
+        self.init(published: item.published, dateSource: item.dateSource, timeZone: timeZone)
+    }
+
+    init(published: Date, dateSource: FeedDateSource, timeZone: TimeZone) {
+        label = dateSource == .firstSeen ? "First seen" : "Published"
+        let parts = Self.parts(of: published, in: timeZone)
         let hour = parts.hour ?? 0
         let hour12 = hour % 12 == 0 ? 12 : hour % 12
         let minute = String(format: "%02d", parts.minute ?? 0)
-        value = "\(month) \(parts.day ?? 1), \(parts.year ?? 1970) \(hour12):\(minute)\(hour < 12 ? "AM" : "PM")"
+        value = Self.day(parts) + " \(hour12):\(minute)\(hour < 12 ? "AM" : "PM")"
+    }
+
+    /// "Nov 10, 2026": the day alone, for the `SOURCE · DATE` line of the
+    /// History and Saved rows. Built by hand like `value`.
+    static func day(_ date: Date, timeZone: TimeZone) -> String {
+        day(parts(of: date, in: timeZone))
+    }
+
+    private static func parts(of date: Date, in timeZone: TimeZone) -> DateComponents {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+    }
+
+    private static func day(_ parts: DateComponents) -> String {
+        let month = months[max(0, min(11, (parts.month ?? 1) - 1))]
+        return "\(month) \(parts.day ?? 1), \(parts.year ?? 1970)"
     }
 }
 
