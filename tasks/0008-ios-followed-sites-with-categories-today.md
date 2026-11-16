@@ -5,7 +5,7 @@ status: todo
 owner: 
 depends_on: [4, 7]
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-15T22:33:55Z
+updated: 2026-11-16T03:45:09Z
 ---
 
 ## Goal
@@ -32,3 +32,4 @@ Read plans/2026-11-15-v1-build.md first; it holds the decisions and design. Sett
 ## Log
 
 - 2026-11-15T22:33:55Z [li] created (todo)
+- 2026-11-16T03:45:09Z [li] From task 7: /v1/feed items have published (never null) and dateSource published|first_seen; excerpt is null in links mode; /v1/sites/resolve returns ok, title, url, mode feed|links, feedUrl (feed mode only) and linkCount (warn in Settings when a links-mode page has 0); per-site errors invalid_url, blocked_host, fetch_failed, timeout, too_large, not_feed, not_html. Request bodies over 64 KB are refused. Do not start until task 7 has passed its second review.
