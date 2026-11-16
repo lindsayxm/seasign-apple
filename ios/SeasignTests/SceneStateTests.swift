@@ -381,6 +381,18 @@ private let losAngeles = TimeZone(identifier: "America/Los_Angeles")!
         #expect(late.clouds == .overcast)
     }
 
+    @Test func forcedMoonriseAndMoonsetPutTheMoonOnTheHorizon() async throws {
+        let now = instant("2026-11-15T16:00:00Z")
+        let rising = try await state(SceneDebugOverride(time: "moonrise-5", moon: "0.5"), at: now)
+        #expect(rising.nightness == 1)
+        #expect(rising.moon == .down(sinceSet: nil, untilRise: 300))
+        #expect(abs((rising.moonPlacement?.sunk ?? 0) - 1.0 / 3) < 1e-9)
+        let risen = try await state(SceneDebugOverride(time: "moonrise"), at: now)
+        #expect(risen.moonPlacement == SkyPlacement(progress: 0, sunk: 0))
+        let setting = try await state(SceneDebugOverride(time: "moonset+7.5"), at: now)
+        #expect(setting.moonPlacement == SkyPlacement(progress: 1, sunk: 0.5))
+    }
+
     @Test func forcedNightShowsTheMoonAtTheTopOfItsArc() async throws {
         let night = try await state(SceneDebugOverride(moon: "0.65"), at: instant("2026-11-15T16:00:00Z"))
         #expect(night.showsMoon)

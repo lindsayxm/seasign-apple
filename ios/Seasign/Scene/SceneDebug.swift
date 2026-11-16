@@ -12,11 +12,12 @@ import Foundation
 ///
 ///     -debugTime sunrise|midday|sunset|night
 ///     -debugTime sunrise-5       (a named time and an offset in minutes: "sunset+7.5", "night+90")
+///     -debugTime moonrise|moonset  (night, with the moon on the horizon; "moonrise-5", "moonset+8")
 ///     -debugMoon 0.35            (phase fraction; implies night unless -debugTime is given)
 ///     -debugWeather clear|cloudy|windy|rain|snow
 struct SceneDebugOverride: Equatable, Sendable {
     enum Time: String, CaseIterable, Sendable {
-        case sunrise, midday, sunset, night
+        case sunrise, midday, sunset, night, moonrise, moonset
     }
 
     enum Weather: String, CaseIterable, Sendable {
@@ -95,17 +96,26 @@ struct SceneDebugOverride: Equatable, Sendable {
             case .sunset:
                 // Without an offset: a second before sunset, the sun still up.
                 clock = sunset.addingTimeInterval(offset ?? -1)
-            case .night:
-                // Four hours after sunset, with the moon at the top of its arc.
-                clock = sunset.addingTimeInterval(4 * 3600 + (offset ?? 0))
-                let half = RiseSetTimeline.moonTimeUp / 2
+            case .night, .moonrise, .moonset:
+                // Four hours after sunset. For `night` the moon is at the top
+                // of its arc; for the other two it rose or set `offset`
+                // minutes ago (in `-offset` minutes when negative).
+                let moonrise: Date
+                if time == .night {
+                    clock = sunset.addingTimeInterval(4 * 3600 + (offset ?? 0))
+                    moonrise = clock.addingTimeInterval(-RiseSetTimeline.moonTimeUp / 2)
+                } else {
+                    clock = sunset.addingTimeInterval(4 * 3600)
+                    let event = clock.addingTimeInterval(-(offset ?? 0))
+                    moonrise = time == .moonrise ? event : event.addingTimeInterval(-RiseSetTimeline.moonTimeUp)
+                }
                 for index in sky.days.indices {
                     sky.days[index].moonrise = nil
                     sky.days[index].moonset = nil
                 }
                 if let index = sky.days.firstIndex(where: { $0.date == today?.date }) ?? sky.days.indices.first {
-                    sky.days[index].moonrise = clock.addingTimeInterval(-half)
-                    sky.days[index].moonset = clock.addingTimeInterval(half)
+                    sky.days[index].moonrise = moonrise
+                    sky.days[index].moonset = moonrise.addingTimeInterval(RiseSetTimeline.moonTimeUp)
                 }
             }
             sky.current.isDay = clock >= sunrise && clock < sunset
