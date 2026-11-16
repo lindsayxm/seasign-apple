@@ -81,6 +81,7 @@ struct TodayView: View {
                 SceneView(state: state)
 
                 header(date: date, state: state, s: s)
+                headerAccessibility(date: date, state: state, s: s)
 
                 // Vertical rule between the date and the events column.
                 Rectangle()
@@ -150,9 +151,18 @@ struct TodayView: View {
                     .placed(x: 64 * s, baseline: 166 * s)
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(headerLabel(date: date, state: state))
-        .accessibilityAddTraits(.isHeader)
+        // A Group passes modifiers to each child, so the four texts are hidden
+        // and one clear element over them carries the spoken date.
+        .accessibilityHidden(true)
+    }
+
+    private func headerAccessibility(date: HeaderDate, state: SceneState, s: CGFloat) -> some View {
+        Color.clear
+            .frame(width: 120 * s, height: 114 * s)
+            .accessibilityElement()
+            .accessibilityLabel(headerLabel(date: date, state: state))
+            .accessibilityAddTraits(.isHeader)
+            .placed(x: 57 * s, y: 56 * s)
     }
 
     private func headerLabel(date: HeaderDate, state: SceneState) -> String {
