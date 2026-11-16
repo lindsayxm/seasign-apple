@@ -225,6 +225,95 @@ import Testing
         #expect(try ModelContext(cacheOnly).fetch(FetchDescriptor<FeedItem>()).count == 1)
     }
 
+    /// Task 12 added optional fields to `Settings`, `SavedItem` and
+    /// `FeedItem`, and the `SearchCount` model. Stores written with the
+    /// schema before that (the three changed models declared again, as they
+    /// were, in `Task11Schema`) must open with nothing lost and neither file
+    /// thrown away; old rows read as "from a followed site" and "Use My List".
+    @Test func storesFromBeforeAISearchOpenAndKeepEverything() throws {
+        defer { cleanUp() }
+        let siteID = UUID()
+        do {
+            let user: [any PersistentModel.Type] = [
+                Task11Schema.Settings.self, ListItem.self, CalendarLink.self, Site.self, Task11Schema.SavedItem.self,
+            ]
+            let cache: [any PersistentModel.Type] = [
+                CachedSky.self, CachedEvents.self, Task11Schema.FeedItem.self, CachedFeedState.self,
+            ]
+            let old = try ModelContainer(
+                for: Schema(user + cache),
+                configurations: [
+                    ModelConfiguration("user", schema: Schema(user), url: files.user),
+                    ModelConfiguration("cache", schema: Schema(cache), url: files.cache),
+                ]
+            )
+            let context = ModelContext(old)
+            context.insert(ListItem(kind: .get, title: "Oat milk", createdAt: instant("2026-11-15T12:00:00Z")))
+            context.insert(Task11Schema.Settings(zip: "10001"))
+            context.insert(CalendarLink(name: "Family", url: "https://cal.example.com/a.ics", createdAt: .now))
+            context.insert(sampleSite())
+            context.insert(Task11Schema.SavedItem(link: "https://news.example.com/science/a", notes: "Mine"))
+            context.insert(CachedSky(zip: "10001", payload: Data("{}".utf8), fetchedAt: instant("2026-11-15T12:00:00Z")))
+            context.insert(Task11Schema.FeedItem(link: "https://news.example.com/science/a", siteID: siteID))
+            context.insert(CachedFeedState(payload: Data("{}".utf8), fetchedAt: .now))
+            try context.save()
+        }
+
+        do {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .kept)
+            let context = ModelContext(opened.container)
+            #expect(try titles(opened.container) == ["Oat milk"])
+            let settings = try #require(try context.fetch(FetchDescriptor<Settings>()).first)
+            #expect(settings.zip == "10001")
+            #expect(settings.aiModeRaw == nil)
+            #expect(settings.aiInterestsText == nil)
+            #expect(settings.aiDailyCap == nil)
+            #expect(try context.fetch(FetchDescriptor<CalendarLink>()).map(\.name) == ["Family"])
+            #expect(try context.fetch(FetchDescriptor<Site>()).map(\.category) == ["Sci"])
+            let saved = try #require(try context.fetch(FetchDescriptor<SavedItem>()).first)
+            #expect(saved.notes == "Mine")
+            #expect(saved.readingItem.title == "A")
+            #expect(saved.readingItem.origin == .site)
+            #expect(saved.readingItem.category == "Sci")
+            let item = try #require(try context.fetch(FetchDescriptor<FeedItem>()).first)
+            #expect(item.entry.origin == .site)
+            #expect(item.entry.siteID == siteID)
+            #expect(item.entry.title == "A")
+            #expect(try context.fetch(FetchDescriptor<CachedSky>()).map(\.zip) == ["10001"])
+            #expect(try context.fetch(FetchDescriptor<CachedFeedState>()).count == 1)
+            #expect(try context.fetch(FetchDescriptor<SearchCount>()).isEmpty)
+
+            settings.aiModeRaw = AIMode.aiSearch.rawValue
+            settings.aiInterestsText = "tide pools"
+            context.insert(SearchCount(day: "2026-11-16", count: 2))
+            context.insert(SavedItem(ReadingItem(
+                link: "https://coast.example.org/a", title: "Pools", source: "Coast", published: .now,
+                dateSource: .firstSeen, excerpt: nil, category: "tide pools",
+                origin: .ai, interest: "tide pools", provider: .openai
+            ), savedAt: .now))
+            try context.save()
+        }
+
+        let again = try LocalStore.open(files)
+        #expect(again.cache == .kept)
+        let context = ModelContext(again.container)
+        #expect(try context.fetch(FetchDescriptor<SearchCount>()).map(\.count) == [2])
+        #expect(try context.fetch(FetchDescriptor<Settings>()).first?.aiInterestsText == "tide pools")
+        let ai = try #require(try context.fetch(FetchDescriptor<SavedItem>()).first { $0.link == "https://coast.example.org/a" })
+        #expect(ai.readingItem.isAI)
+        #expect(ai.readingItem.provider == .openai)
+        #expect(try titles(again.container) == ["Oat milk"])
+
+        // The count is in the user store's file.
+        let userOnly = try ModelContainer(
+            for: Schema(SeasignSchema.userModels),
+            configurations: [ModelConfiguration("user", schema: Schema(SeasignSchema.userModels), url: files.user)]
+        )
+        #expect(try ModelContext(userOnly).fetch(FetchDescriptor<SearchCount>()).count == 1)
+        #expect(try ModelContext(userOnly).fetch(FetchDescriptor<SavedItem>()).count == 2)
+    }
+
     /// A saved article and its notes are the user's: they survive the loss
     /// of the cache, where its feed item was.
     @Test func savedItemsSurviveABrokenCache() throws {
@@ -535,5 +624,75 @@ import Testing
         #expect(try context.fetch(FetchDescriptor<Settings>()).map(\.zip) == ["94103"])
         // The old cached sky is not carried over; the next refresh fetches one.
         #expect(try context.fetch(FetchDescriptor<CachedSky>()).isEmpty)
+    }
+}
+
+/// The three models task 12 changed, exactly as they were before it, for
+/// `storesFromBeforeAISearchOpenAndKeepEverything`. Same class names, so
+/// SwiftData gives them the same entity names as the current models.
+enum Task11Schema {
+    @Model
+    final class Settings {
+        var zip: String?
+
+        init(zip: String? = nil) {
+            self.zip = zip
+        }
+    }
+
+    @Model
+    final class FeedItem {
+        var id: UUID
+        var link: String
+        var title: String
+        var source: String
+        var published: Date
+        var dateSourceRaw: String
+        var excerpt: String?
+        var siteID: UUID
+        var category: String
+        var firstFetchedAt: Date
+
+        init(link: String, siteID: UUID) {
+            id = UUID()
+            self.link = link
+            title = "A"
+            source = "Example News"
+            published = .now
+            dateSourceRaw = "published"
+            excerpt = nil
+            self.siteID = siteID
+            category = "Sci"
+            firstFetchedAt = .now
+        }
+    }
+
+    @Model
+    final class SavedItem {
+        var id: UUID
+        var link: String
+        var title: String
+        var source: String
+        var published: Date
+        var dateSourceRaw: String
+        var excerpt: String?
+        var category: String
+        var notes: String
+        var savedAt: Date
+        var updatedAt: Date
+
+        init(link: String, notes: String) {
+            id = UUID()
+            self.link = link
+            title = "A"
+            source = "Example News"
+            published = .now
+            dateSourceRaw = "published"
+            excerpt = nil
+            category = "Sci"
+            self.notes = notes
+            savedAt = .now
+            updatedAt = .now
+        }
     }
 }

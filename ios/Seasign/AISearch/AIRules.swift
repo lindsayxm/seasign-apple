@@ -131,6 +131,8 @@ enum SearchDay {
     /// `GMT-0500`, which the API would refuse.
     static func ianaName(_ timeZone: TimeZone) -> String? {
         let identifier = timeZone.identifier
+        // Foundation names UTC "GMT"; both are UTC to the API.
+        if ["GMT", "UTC", "Etc/UTC", "Etc/GMT"].contains(identifier) { return "UTC" }
         guard TimeZone.knownTimeZoneIdentifiers.contains(identifier) else { return nil }
         return identifier
     }
