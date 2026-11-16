@@ -403,12 +403,17 @@
               "feed",
               "links"
             ],
-            "description": "How the site is followed: feed (an RSS or Atom feed, `feedUrl`) or links (article links read from the page itself)"
+            "description": "How the site is followed: feed (an RSS or Atom feed, `feedUrl`) or links (article links read from the page itself). A section page that advertises only a feed for the whole site is followed by its links, so that the user gets the section they asked for"
           },
           "feedUrl": {
             "type": "string",
             "description": "Only with mode feed: the feed the page advertises, or the address itself when it is a feed",
             "example": "https://news.example.com/science/feed/"
+          },
+          "linkCount": {
+            "type": "integer",
+            "description": "How many article links the page itself shows right now, at most 200. Present when the address is a web page, absent when it is a feed. With mode links and 0, following this page will give nothing: tell the user",
+            "example": 24
           }
         },
         "required": [
@@ -457,7 +462,7 @@
             "items": {
               "$ref": "#/components/schemas/FeedItem"
             },
-            "description": "Items of the last 7 days from the sites that could be read, newest first, then items without a date; at most 30 per site and 300 in all. A link appears once, under the first site that has it"
+            "description": "Items of the last 7 days from the sites that could be read, newest first; at most 30 per site and 300 in all. A link appears once, under the first site that has it"
           },
           "sites": {
             "type": "array",
@@ -497,19 +502,17 @@
           },
           "published": {
             "type": "string",
-            "nullable": true,
             "format": "date-time",
-            "description": "A UTC instant at second precision: when the item was published (`dateSource` published), or when this API first saw its link (first_seen). Null when a feed gives no readable date (none)",
+            "description": "A UTC instant at second precision: when the item was published (`dateSource` published), or when this API first saw its link (first_seen)",
             "example": "2026-11-15T11:42:55Z"
           },
           "dateSource": {
             "type": "string",
             "enum": [
               "published",
-              "first_seen",
-              "none"
+              "first_seen"
             ],
-            "description": "Where `published` comes from: published (the feed or the page's own date), first_seen (the page gives no date, so it is the time this API first found the link there), none (a feed item without a readable date)"
+            "description": "Where `published` comes from: published (the feed's or the page's own date), first_seen (the site gives no readable date for this item, so it is the time this API first found the link; for a site nobody has asked for before, a day before that first fetch)"
           },
           "excerpt": {
             "type": "string",

@@ -181,12 +181,12 @@ describe("scanPage", () => {
   it("prefers the feed whose path is closest to the page's, and a comments feed last", async () => {
     const scan = await scanPage(bytes(section), "text/html");
     expect(feedCandidates(scan, new URL("https://news.example.com/science/"))).toEqual([
-      "https://news.example.com/science/feed/?format=rss&v=2",
-      "https://news.example.com/feed/",
-      "https://news.example.com/comments/feed/",
+      { url: "https://news.example.com/science/feed/?format=rss&v=2", shared: 1 },
+      { url: "https://news.example.com/feed/", shared: 0 },
+      { url: "https://news.example.com/comments/feed/", shared: 0 },
     ]);
     // From another section, none is closer: document order, comments last.
-    expect(feedCandidates(scan, new URL("https://news.example.com/sport/"))).toEqual([
+    expect(feedCandidates(scan, new URL("https://news.example.com/sport/")).map((feed) => feed.url)).toEqual([
       "https://news.example.com/feed/",
       "https://news.example.com/science/feed/?format=rss&v=2",
       "https://news.example.com/comments/feed/",
@@ -206,7 +206,26 @@ describe("scanPage", () => {
       <link rel="stylesheet alternate" type="text/css" href="/alt.css">
       </head><body></body></html>`;
     const scan = await scanPage(bytes(page), "text/html");
-    expect(feedCandidates(scan, new URL("https://news.example.com/"))).toEqual(["https://cdn.example.com/site/atom.xml"]);
+    expect(feedCandidates(scan, new URL("https://news.example.com/"))).toEqual([{ url: "https://cdn.example.com/site/atom.xml", shared: 0 }]);
+  });
+
+  it("takes a generic XML type for a feed only when the title or the address says so", async () => {
+    const page = `<html><head>
+      <link rel="alternate" type="text/xml" title="RSS" href="/index.xml">
+      <link rel="alternate" type="application/xml" href="/blog/feed">
+      <link rel="alternate" type="application/xml" title="Atom 1.0" href="/a">
+      <link rel="alternate" type="text/xml" title="Sitemap" href="/sitemap.xml">
+      <link rel="alternate" type="application/xml" href="/opensearch.xml">
+      <link rel="alternate" type="text/html" title="RSS" href="/rss.html">
+      <link rel="alternate stylesheet" type="application/rss+xml" title="feed" href="/contrast-feed.css">
+      <link rel="stylesheet alternate" type="text/xml" title="High contrast rss" href="/contrast.css">
+      </head><body></body></html>`;
+    const scan = await scanPage(bytes(page), "text/html");
+    expect(feedCandidates(scan, new URL("https://news.example.com/")).map((feed) => feed.url)).toEqual([
+      "https://news.example.com/index.xml",
+      "https://news.example.com/blog/feed",
+      "https://news.example.com/a",
+    ]);
   });
 
   it("chooses article links and leaves out navigation, footer, tags, authors and other sites", async () => {
@@ -251,6 +270,61 @@ describe("scanPage", () => {
       "/category/science/2026/deep-sea-vents/",
       "/story/www-host-counts-as-the-same-site/",
     ]);
+  });
+
+  it.each([
+    // [what, the page, the link, kept?]
+    ["a numeric id at the same depth", "/news/world/", "/news/12345678", true],
+    ["a short number at the same depth", "/news/world/", "/news/2026", false],
+    ["a page file beside a section page", "/section/", "/story.html", true],
+    ["an index file", "/section/", "/news/index.html", false],
+    ["an id in the query, from a deeper page", "/a/b/", "/article?id=12345", true],
+    ["a short id in the query", "/a/b/", "/item?id=4", true],
+    ["a query that names no article", "/a/b/", "/list?sort=new", false],
+    ["the same script with another article query", "/index.php?cat=2", "/index.php?p=77", true],
+    ["the same script with another listing query", "/index.php?cat=2", "/index.php?cat=3", false],
+    ["the page itself, query and all", "/index.php?p=77", "/index.php?p=77", false],
+    ["an article query on the front page", "/", "/?p=123", true],
+    ["a pagination query on the page itself", "/news/", "/news/?page=2", false],
+    ["an opaque id at the same depth", "/news/world/", "/news/a1B2c3D4e5F6", true],
+    ["a plain word at the same depth", "/news/world/", "/news/business", false],
+    ["a dated path under a category", "/", "/category/tech/2026/11/15/a-real-story", true],
+    ["a slug two levels under a category", "/", "/category/tech/a-real-story-about-chips", true],
+    ["a category listing", "/", "/category/tech", false],
+    ["a category listing with a long name", "/", "/category/science-and-technology-news", false],
+    ["a tag with a three-word name", "/", "/tag/climate-change-policy", false],
+    ["an author page", "/", "/author/mary-jane-smith", false],
+    ["a sign-in page however deep", "/", "/account/login/return-to-the-story-page", false],
+    ["an about page file", "/section/", "/about.html", false],
+    ["a PDF", "/news/", "/news/2026/annual-report-for-the-year.pdf", false],
+    ["a WordPress login script", "/", "/wp-login.php?id=5", false],
+    ["a slug beside the section page", "/category/science/", "/story/the-long-road-to-fusion-power/", true],
+    ["a deeper path", "/news/", "/news/2026/x", true],
+    ["a page above", "/news/world/", "/news/", false],
+  ] as [string, string, string, boolean][])("article path rule: %s", async (_name, pagePath, href, kept) => {
+    const page = new URL(`https://plain.example.com${pagePath}`);
+    const html = `<main><a href="${href}">A headline long enough to be one</a></main>`;
+    const found = articleLinks(await scanPage(bytes(html), "text/html"), page, page);
+    expect(found.map((link) => link.link)).toEqual(kept ? [new URL(href, page).href] : []);
+  });
+
+  it.each([
+    ["Thai", "นายกรัฐมนตรีแถลงนโยบายใหม่", true],
+    ["Chinese, seven characters", "央行宣布下调利率", true],
+    ["Chinese, six characters", "股市今日大涨", true],
+    ["a Chinese menu entry", "国际新闻", false],
+    ["Japanese", "東京で新しい駅が開業", true],
+    ["Korean", "서울에 새 도서관 개관", true],
+    ["emoji only", "🎉🎉🎉🎉🎉🎉🎉🎉", false],
+    ["a short phrase with emoji", "Big win 🎉🎉🎉🎉", false],
+    ["an English headline", "Council approves the new bridge", true],
+    ["two English words", "Latest headlines", false],
+    ["a call to action", "Read more about the council vote", false],
+  ] as [string, string, boolean][])("headline rule: %s", async (_name, text, kept) => {
+    const page = new URL("https://plain.example.com/news/");
+    const html = `<main><a href="/news/2026/some-story-address/">${text}</a></main>`;
+    const found = articleLinks(await scanPage(bytes(html), "text/html"), page, page);
+    expect(found.map((link) => link.title)).toEqual(kept ? [text] : []);
   });
 
   it("returns only links in article, main or a heading when there are at least three of them", async () => {
@@ -357,6 +431,24 @@ describe("scanPage on hostile input", () => {
     expect(await padded(MAX_HANDLER_CALLS - 3000)).toHaveLength(1);
     expect(await padded(MAX_HANDLER_CALLS + 3000)).toHaveLength(0);
     expect(await padded(200_000)).toHaveLength(0);
+  });
+
+  it("never returns half an emoji or half a character reference, wherever the cut falls", async () => {
+    const grin = "\u{1F600}";
+    for (let pad = 0; pad < 14; pad++) {
+      // 600 characters of anchor text are kept and 300 of a title; emoji and references sit on both edges.
+      const text = `${"a ".repeat(pad)}${`${grin}&amp;`.repeat(120)}`;
+      const html = `<title>${"t".repeat(3590 + pad)}${`${grin}&eacute;`.repeat(20)}</title>
+        <main><a href="/news/an-emoji-story-number-${pad}/"><h2>${text}</h2></a>
+        <a href="/news/a-short-emoji-story-${pad}/">${"b ".repeat(90 + pad)}${`${grin} `.repeat(10)}</a></main>`;
+      const scan = await scanPage(bytes(html), "text/html");
+      const strings = [scan.title ?? "", ...scan.links.flatMap((link) => [link.text, link.headingText]), ...articleLinks(scan, page, page).map((link) => link.title)];
+      expect(strings.length).toBeGreaterThan(5);
+      for (const value of strings) {
+        expect(value.isWellFormed(), JSON.stringify(value.slice(-12))).toBe(true);
+        expect(value).not.toMatch(/&[a-z]{1,6}$/);
+      }
+    }
   });
 
   it("cuts long titles, anchor text and addresses", async () => {

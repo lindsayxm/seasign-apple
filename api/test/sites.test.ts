@@ -61,6 +61,7 @@ describe("POST /v1/sites/resolve", () => {
       url: SECTION,
       mode: "feed",
       feedUrl: SECTION_FEED,
+      linkCount: 1,
     });
     expect(requested(spy)).toEqual([SECTION, SECTION_FEED]);
   });
@@ -79,28 +80,53 @@ describe("POST /v1/sites/resolve", () => {
     }
   });
 
-  it("tries the next advertised feed when the best one does not answer with a feed", async () => {
-    const spy = mockWeb({ [SECTION]: html(section), [SECTION_FEED]: status(404), [SITE_FEED]: rss(rss2) });
+  it("follows a section page by its links when only the feed of the whole site works", async () => {
+    // The section's own feed is gone. The site-wide feed and the comments feed
+    // answer, but would bring in every section: they are not asked for.
+    const spy = mockWeb({ [SECTION]: html(section), [SECTION_FEED]: status(404), [SITE_FEED]: rss(rss2), [COMMENTS_FEED]: rss(rss2) });
 
     const body = await resolve(SECTION);
 
-    expect(body).toMatchObject({ ok: true, mode: "feed", feedUrl: SITE_FEED });
-    expect(requested(spy)).toEqual([SECTION, SECTION_FEED, SITE_FEED]);
+    expect(body).toEqual({ ok: true, title: "Science | Example News & Views", url: SECTION, mode: "links", linkCount: 1 });
+    expect(requested(spy)).toEqual([SECTION, SECTION_FEED]);
   });
 
-  it("falls back to the page's links when no advertised feed works, after trying two", async () => {
-    const spy = mockWeb({
-      [SECTION]: html(section),
-      // A web page where the feed should be, and a feed address that is gone.
-      [SECTION_FEED]: html("<!doctype html><html><body>Sign in</body></html>"),
-      [SITE_FEED]: status(410),
-      [COMMENTS_FEED]: rss(rss2),
-    });
+  it("follows a section page by its links when it advertises only the feed of the whole site", async () => {
+    const page = section.replace(/<link rel="ALTERNATE"[^>]*>/, "");
+    const spy = mockWeb({ [SECTION]: html(page), [SITE_FEED]: rss(rss2), [COMMENTS_FEED]: rss(rss2) });
 
     const body = await resolve(SECTION);
 
-    expect(body).toEqual({ ok: true, title: "Science | Example News & Views", url: SECTION, mode: "links" });
-    expect(requested(spy)).toEqual([SECTION, SECTION_FEED, SITE_FEED]);
+    expect(body).toEqual({ ok: true, title: "Science | Example News & Views", url: SECTION, mode: "links", linkCount: 1 });
+    expect(requested(spy)).toEqual([SECTION]);
+  });
+
+  it("uses the feed of the whole site for a section page that shows no article links", async () => {
+    const page = section.replace(/<link rel="ALTERNATE"[^>]*>/, "").replace(/<article>.*<\/article>/, "<p>Loading…</p>");
+    const spy = mockWeb({ [SECTION]: html(page), [SITE_FEED]: rss(rss2) });
+
+    const body = await resolve(SECTION);
+
+    expect(body).toEqual({ ok: true, title: "Science | Example News & Views", url: SECTION, mode: "feed", feedUrl: SITE_FEED, linkCount: 0 });
+    expect(requested(spy)).toEqual([SECTION, SITE_FEED]);
+  });
+
+  it("on the front page any advertised feed will do: the next is tried when the first fails, then no more", async () => {
+    const front = "https://news.example.com/";
+    let spy = mockWeb({ [front]: html(section), [SITE_FEED]: status(404), [SECTION_FEED]: rss(rss2), [COMMENTS_FEED]: rss(rss2) });
+    expect(await resolve(front)).toEqual({ ok: true, title: "Science | Example News & Views", url: front, mode: "feed", feedUrl: SECTION_FEED, linkCount: 1 });
+    expect(requested(spy)).toEqual([front, SITE_FEED, SECTION_FEED]);
+
+    // A web page where one feed should be, and a feed address that is gone: two are tried, not the third.
+    vi.restoreAllMocks();
+    spy = mockWeb({
+      [front]: html(section),
+      [SITE_FEED]: html("<!doctype html><html><body>Sign in</body></html>"),
+      [SECTION_FEED]: status(410),
+      [COMMENTS_FEED]: rss(rss2),
+    });
+    expect(await resolve(front)).toEqual({ ok: true, title: "Science | Example News & Views", url: front, mode: "links", linkCount: 1 });
+    expect(requested(spy)).toEqual([front, SITE_FEED, SECTION_FEED]);
   });
 
   it("answers links for a page that advertises no feed", async () => {
@@ -108,7 +134,7 @@ describe("POST /v1/sites/resolve", () => {
 
     const body = await resolve(WORLD);
 
-    expect(body).toEqual({ ok: true, title: "World & Politics – The Daily Example", url: WORLD, mode: "links" });
+    expect(body).toEqual({ ok: true, title: "World & Politics – The Daily Example", url: WORLD, mode: "links", linkCount: 6 });
     expect(requested(spy)).toEqual([WORLD]);
   });
 
@@ -122,7 +148,7 @@ describe("POST /v1/sites/resolve", () => {
 
     const body = await resolve(WORLD);
 
-    expect(body).toEqual({ ok: true, title: "Intranet bait", url: WORLD, mode: "links" });
+    expect(body).toEqual({ ok: true, title: "Intranet bait", url: WORLD, mode: "links", linkCount: 0 });
     expect(requested(spy)).toEqual([WORLD]);
   });
 
@@ -130,13 +156,12 @@ describe("POST /v1/sites/resolve", () => {
     const spy = mockWeb({
       [SECTION]: html(section),
       [SECTION_FEED]: () => new Response(null, { status: 302, headers: { location: "https://192.168.1.1/feed" } }),
-      [SITE_FEED]: rss(rss2),
     });
 
     const body = await resolve(SECTION);
 
-    expect(body).toMatchObject({ ok: true, mode: "feed", feedUrl: SITE_FEED });
-    expect(requested(spy)).toEqual([SECTION, SECTION_FEED, SITE_FEED]);
+    expect(body).toMatchObject({ ok: true, mode: "links" });
+    expect(requested(spy)).toEqual([SECTION, SECTION_FEED]);
   });
 
   it.each([
@@ -155,6 +180,28 @@ describe("POST /v1/sites/resolve", () => {
     expect(requested(spy)).toEqual([address]);
   });
 
+  it("is not fooled by a comment that mentions a feed, and reads past comments to find one", async () => {
+    const page = "https://www.bare.example.com/page";
+    mockWeb({
+      [page]: () => new Response("<!-- <rss version='2.0'> used to live here -->\n<html><head><title>Still a page</title></head></html>", { headers: { "content-type": "text/plain" } }),
+      [SITE_FEED]: () => new Response(`<?xml version="1.0"?>\n<!-- <html> generated by a tool -->\n<?xml-stylesheet href="x.xsl"?>\n${rss2.replace(/^<\?xml[^>]*>/, "")}`, { headers: { "content-type": "text/html" } }),
+    });
+
+    expect(await resolve(page)).toEqual({ ok: true, title: "Still a page", url: page, mode: "links", linkCount: 0 });
+    expect(await resolve(SITE_FEED)).toEqual({ ok: true, title: "Example News » Science", url: SITE_FEED, mode: "feed", feedUrl: SITE_FEED });
+  });
+
+  it("returns a title cut inside an emoji as well-formed text", async () => {
+    const page = "https://www.bare.example.com/emoji";
+    for (let pad = 0; pad < 3; pad++) {
+      mockWeb({ [page]: html(`<title>${"t".repeat(117 + pad)}\u{1F600}\u{1F600}\u{1F600} tail</title>`) });
+      const body = await resolve(page);
+      expect((body.title as string).isWellFormed()).toBe(true);
+      expect((body.title as string).length).toBeLessThanOrEqual(120);
+      vi.restoreAllMocks();
+    }
+  });
+
   it("uses the host as the title of a page without one", async () => {
     mockWeb({ "https://www.bare.example.com/": html("<html><body><p>Hello</p></body></html>") });
     expect(await resolve("https://www.bare.example.com")).toEqual({
@@ -162,6 +209,7 @@ describe("POST /v1/sites/resolve", () => {
       title: "bare.example.com",
       url: "https://www.bare.example.com/",
       mode: "links",
+      linkCount: 0,
     });
   });
 
@@ -187,6 +235,8 @@ describe("POST /v1/sites/resolve", () => {
       ["plain text", () => new Response("just words", { headers: { "content-type": "text/plain" } }), "not_html"],
       ["XML that is not a feed", () => new Response('<?xml version="1.0"?><urlset><url/></urlset>', { headers: { "content-type": "application/xml" } }), "not_feed"],
       ["more than 2 MB", () => new Response("<html><body>" + "<p>padding</p>".repeat(170_000), { headers: { "content-type": "text/html" } }), "too_large"],
+      ["a feed of a shape the parser could not hold in memory", () => new Response("<rss><channel>" + "< ".repeat(400_000), { headers: { "content-type": "application/rss+xml" } }), "not_feed"],
+      ["a feed of more than 1 MB", () => new Response("<rss><channel>" + "<item><title>padding</title></item>".repeat(40_000), { headers: { "content-type": "application/rss+xml" } }), "too_large"],
       ["more than 2 MB by its Content-Length", () => new Response("<html>", { headers: { "content-type": "text/html", "content-length": "3000000" } }), "too_large"],
       ["a redirect to a private address", () => new Response(null, { status: 302, headers: { location: "https://10.0.0.5/internal" } }), "blocked_host"],
       ["a redirect to plain http", () => new Response(null, { status: 301, headers: { location: "http://broken.example.com/" } }), "invalid_url"],

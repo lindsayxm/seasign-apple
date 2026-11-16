@@ -16,6 +16,7 @@ import {
   type StoredItem,
   type StoredSite,
 } from "../lib/site-reader.ts";
+import { wellFormed } from "../lib/text.ts";
 
 // Site addresses are never logged and never put in a response or an error:
 // sites are named by their index in the request, log lines carry the index
@@ -55,15 +56,15 @@ const FeedItemSchema = z
     title: z.string().openapi({ description: "Headline as plain text", example: "A new telescope sees first light" }),
     link: z.string().openapi({ description: "The article's address: an absolute https URL", example: "https://news.example.com/science/new-telescope-first-light/" }),
     source: z.string().openapi({ description: "Title of the feed or of the site", example: "Example News" }),
-    published: z.string().nullable().openapi({
+    published: z.string().openapi({
       format: "date-time",
       description:
-        "A UTC instant at second precision: when the item was published (`dateSource` published), or when this API first saw its link (first_seen). Null when a feed gives no readable date (none)",
+        "A UTC instant at second precision: when the item was published (`dateSource` published), or when this API first saw its link (first_seen)",
       example: "2026-11-15T11:42:55Z",
     }),
-    dateSource: z.enum(["published", "first_seen", "none"]).openapi({
+    dateSource: z.enum(["published", "first_seen"]).openapi({
       description:
-        "Where `published` comes from: published (the feed or the page's own date), first_seen (the page gives no date, so it is the time this API first found the link there), none (a feed item without a readable date)",
+        "Where `published` comes from: published (the feed's or the page's own date), first_seen (the site gives no readable date for this item, so it is the time this API first found the link; for a site nobody has asked for before, a day before that first fetch)",
     }),
     excerpt: z.string().nullable().openapi({
       description: "The site's own summary as plain text, about 300 characters at most; null when it gives none (always null in links mode)",
@@ -87,7 +88,7 @@ const FeedSchema = z
   .object({
     items: z.array(FeedItemSchema).openapi({
       description:
-        "Items of the last 7 days from the sites that could be read, newest first, then items without a date; at most 30 per site and 300 in all. A link appears once, under the first site that has it",
+        "Items of the last 7 days from the sites that could be read, newest first; at most 30 per site and 300 in all. A link appears once, under the first site that has it",
     }),
     sites: z.array(FeedSiteStatusSchema).openapi({ description: "One entry per site, in request order" }),
   })
@@ -219,8 +220,11 @@ feed.openapi(postFeed, async (c) => {
       try {
         const remaining = REQUEST_BUDGET_MS - (performance.now() - started);
         if (remaining < MIN_SITE_MS) throw new SiteFailure("timeout");
-        const site = await readSite(sources.get(key) as SiteSource, cache, now, { timeoutMs: Math.min(SITE_TIMEOUT_MS, remaining) });
+        const { site, cacheable } = await readSite(sources.get(key) as SiteSource, cache, now, {
+          timeoutMs: Math.min(SITE_TIMEOUT_MS, remaining),
+        });
         outcomes.set(key, { site });
+        if (!cacheable) return;
         try {
           await cache.put(key, JSON.stringify(site), { expirationTtl: SITE_TTL });
         } catch {
@@ -257,24 +261,19 @@ feed.openapi(postFeed, async (c) => {
     return { index, ok: true };
   });
 
-  items.sort(
-    (a, b) =>
-      Number(a.published === null) - Number(b.published === null) ||
-      (b.published ?? 0) - (a.published ?? 0) ||
-      a.site - b.site ||
-      a.position - b.position,
-  );
+  items.sort((a, b) => b.published - a.published || a.site - b.site || a.position - b.position);
 
   return c.json(
     {
       items: items.slice(0, MAX_ITEMS).map((item) => ({
         site: item.site,
-        title: item.title,
+        // Cut and cleaned when they were read; checked once more on the way out.
+        title: wellFormed(item.title),
         link: item.link,
-        source: item.source,
-        published: item.published === null ? null : instantOf(item.published),
+        source: wellFormed(item.source),
+        published: instantOf(item.published),
         dateSource: item.dateSource,
-        excerpt: item.excerpt,
+        excerpt: item.excerpt === null ? null : wellFormed(item.excerpt),
       })),
       sites: statuses,
     },

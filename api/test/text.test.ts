@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clip, collapseSpace, decodeEntities, htmlToText, plainText } from "../src/lib/text.ts";
+import { clip, collapseSpace, cut, cutSource, decodeEntities, htmlToText, plainText, wellFormed } from "../src/lib/text.ts";
 
 describe("decodeEntities", () => {
   it.each([
@@ -68,6 +68,77 @@ describe("htmlToText", () => {
   it("collapses and trims", () => {
     expect(collapseSpace(" a \r\n b\t\tc ")).toBe("a b c");
     expect(plainText("  A &amp;  B <b> ", 50)).toBe("A & B <b>");
+  });
+});
+
+describe("cutting text", () => {
+  const GRIN = "\u{1F600}"; // two UTF-16 units
+
+  it("never cuts a surrogate pair in half", () => {
+    expect(cut(`ab${GRIN}`, 3)).toBe("ab");
+    expect(cut(`ab${GRIN}`, 4)).toBe(`ab${GRIN}`);
+    expect(cut(`ab${GRIN}cd`, 10)).toBe(`ab${GRIN}cd`);
+    expect(cut(GRIN, 1)).toBe("");
+    expect(cut("abc", 0)).toBe("");
+    for (let max = 0; max <= 12; max++) expect(cut(GRIN.repeat(6), max).isWellFormed()).toBe(true);
+  });
+
+  it("drops a character reference the cut went through", () => {
+    expect(cutSource("fish &amp; chips", 8)).toBe("fish ");
+    expect(cutSource("fish &amp; chips", 9)).toBe("fish ");
+    expect(cutSource("fish &amp; chips", 10)).toBe("fish &amp;");
+    expect(cutSource("it&#8217;s", 5)).toBe("it");
+    expect(cutSource("it&#8217;s", 9)).toBe("it&#8217;");
+    // Not a reference: an ampersand followed by a space, or one that is too far back.
+    expect(cutSource("a & b and more", 5)).toBe("a & b");
+    expect(cutSource("a &abcdefghijklmnop", 16)).toBe("a &abcdefghijklm");
+    expect(cutSource(`ab${GRIN}`, 3)).toBe("ab");
+    expect(cutSource("short", 50)).toBe("short");
+  });
+
+  it("replaces a lone surrogate that the site itself sent", () => {
+    expect(wellFormed("a\ud83db")).toBe("a\ufffdb");
+    expect(wellFormed("a\ude00")).toBe("a\ufffd");
+    expect(wellFormed(`ok ${GRIN}`)).toBe(`ok ${GRIN}`);
+    expect(collapseSpace("a\ud83d b")).toBe("a\ufffd b");
+    expect(plainText("title \ud83d", 50)).toBe("title \ufffd");
+    expect(htmlToText("<p>title \ud83d</p>", 50)).toBe("title \ufffd");
+  });
+
+  it("gives well-formed text at every length", () => {
+    const html = `<p>${`caf&eacute; ${GRIN} &amp; `.repeat(40)}</p>`;
+    for (let max = 1; max <= 60; max++) {
+      for (const text of [htmlToText(html, max), plainText(html, max), clip(`${GRIN} `.repeat(30), max)]) {
+        expect(text.length).toBeLessThanOrEqual(max);
+        expect(text.isWellFormed()).toBe(true);
+      }
+    }
+  });
+
+  it("does not leave half a reference when the scan stops inside one", () => {
+    // 300 characters are wanted, so 3,664 are scanned; the reference straddles that point.
+    const padded = `start${" ".repeat(3657)}&amp;after`;
+    expect(padded.indexOf("&")).toBe(3662);
+    expect(htmlToText(padded, 300)).toBe("start");
+    expect(plainText(padded, 300)).toBe("start");
+    // The same at the 40,000-character limit of the HTML scan.
+    const long = `<p>start</p>${"<i></i>".repeat(5712)}  &amp;after`;
+    expect(long.indexOf("&")).toBe(39_998);
+    expect(htmlToText(long, 300)).toBe("start");
+  });
+
+  it("removes control and direction characters, and keeps the joiners emoji need", () => {
+    // C1 controls, and the override that makes "gnp.exe" read "exe.png".
+    expect(collapseSpace("a\u0085b\u009fc")).toBe("abc");
+    expect(collapseSpace("invoice\u202egnp.exe")).toBe("invoicegnp.exe");
+    expect(collapseSpace("a\u202ab\u202bc\u202cd\u202de\u2066f\u2067g\u2068h\u2069i")).toBe("abcdefghi");
+    expect(collapseSpace("a\u200eb\u200fc\ufeffd\u0000e\u007ff")).toBe("abcdef");
+    const family = "\u{1F468}\u200d\u{1F469}\u200d\u{1F467}";
+    expect(collapseSpace(` ${family} `)).toBe(family);
+    expect(collapseSpace("می\u200cخواهم")).toBe("می\u200cخواهم");
+    // White space of every kind is still one space.
+    expect(collapseSpace("a\u00a0\u2003\u2028\t\n b")).toBe("a b");
+    expect(htmlToText("<p>pay\u202eload</p>", 50)).toBe("payload");
   });
 });
 

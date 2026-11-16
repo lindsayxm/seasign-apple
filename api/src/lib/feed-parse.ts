@@ -1,21 +1,35 @@
 import { XMLParser } from "fast-xml-parser";
 import { assertSafeUrl } from "./safe-fetch.ts";
-import { clip, collapseSpace, decodeEntities, htmlToText, plainText } from "./text.ts";
+import { clip, collapseSpace, cut, cutSource, decodeEntities, htmlToText, plainText } from "./text.ts";
 
 // RSS 2.0, RSS 1.0 (RDF) and Atom text to a list of items. A feed is
 // untrusted input:
 //
-// - The parser expands no entities at all (`processEntities: false`), so a
-//   DOCTYPE that defines entities ("billion laughs") defines nothing; the five
-//   XML references and numeric ones are decoded by `decodeEntities`, which
-//   cannot grow its input. External entities make the parser throw.
+// - Entities: a DOCTYPE with an internal subset, the only place a document
+//   can define entities ("billion laughs", external entities), is refused
+//   before parsing, and the parser is told to expand none
+//   (`processEntities: false`). The five XML references and numeric ones are
+//   decoded by `decodeEntities`, which cannot grow its input.
 // - Nesting deeper than MAX_NESTING makes the parser throw.
+// - Memory: fast-xml-parser builds strings and objects per tag and per
+//   attribute, and some shapes of 2 MB (one endless tag, an element with a
+//   hundred thousand attributes, half a million empty elements) need more
+//   than the 128 MB a Worker has. `checkShape` reads the text once before the
+//   parser sees it and refuses those shapes; see the limits below.
 // - At most MAX_ITEMS_SCANNED items are read, and every field is cut before
 //   it is decoded or stripped.
 // - Whatever the parser throws becomes `FeedParseError` with no text of its
 //   own: the parser's messages quote the input.
 
 export const MAX_NESTING = 64;
+/** Characters of feed text accepted. The fetch stops at the same number of bytes. */
+export const MAX_FEED_CHARS = 1024 * 1024;
+/** Characters of one tag, from "<" to ">". Real tags with long URLs in attributes stay under 3,000. */
+export const MAX_TAG_CHARS = 8192;
+/** Attributes on one element, counted as "=" outside quotes. A root element with every namespace has about 20. */
+export const MAX_ATTRIBUTES = 64;
+/** Tags, comments, CDATA sections and processing instructions in one document. 500 items of 40 elements each are 40,000 tags. */
+export const MAX_MARKUP = 60_000;
 export const MAX_ITEMS_SCANNED = 500;
 export const MAX_TITLE = 300;
 export const MAX_EXCERPT = 300;
@@ -51,17 +65,27 @@ export type ParsedFeed = { title: string | null; items: FeedItem[] };
 const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
 };
-// RFC 822 zone names, in minutes east of UTC.
+// Zone names feeds use, in minutes east of UTC: the RFC 822 ones and the
+// common ones elsewhere. Where a name is used for more than one zone, the
+// one more feeds mean is taken (CST and EST are North American, IST is India).
+// A name that is not here is read as UTC: a date a few hours out is better
+// than an item with no date.
 const ZONES: Record<string, number> = {
   ut: 0, utc: 0, gmt: 0, z: 0, est: -300, edt: -240, cst: -360, cdt: -300, mst: -420, mdt: -360, pst: -480, pdt: -420,
+  akst: -540, akdt: -480, hst: -600, ast: -240, adt: -180, nst: -210, ndt: -150, brt: -180, art: -180,
+  wet: 0, west: 60, bst: 60, cet: 60, cest: 120, met: 60, mest: 120, eet: 120, eest: 180, msk: 180, trt: 180,
+  sast: 120, cat: 120, eat: 180, wat: 60, gst: 240, pkt: 300, ist: 330, ict: 420, wib: 420, sgt: 480, hkt: 480,
+  awst: 480, pht: 480, jst: 540, kst: 540, acst: 570, acdt: 630, aest: 600, aedt: 660, nzst: 720, nzdt: 780,
 };
 
 // Both patterns are anchored and have no nested or adjacent unbounded
 // quantifiers over the same characters; the input is cut to 64 characters first.
 const ISO_DATE =
   /^(\d{4})-(\d{2})-(\d{2})(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d{1,9})?)?)?\s?(?:([Zz])|([+-])(\d{2}):?(\d{2}))?$/;
+// Optional weekday ("Sat, " or "Sat,"), day, month name, year, time, then an
+// offset or a zone name, then an optional comment such as "(UTC)".
 const RFC822_DATE =
-  /^(?:[A-Za-z]{3,9},?\s)?(\d{1,2})\s([A-Za-z]{3})[A-Za-z]{0,6}\s(\d{2}|\d{4})\s(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s(?:([+-])(\d{2}):?(\d{2})|([A-Za-z]{1,3})))?$/;
+  /^(?:[A-Za-z]{3,9},?\s?)?(\d{1,2})\s([A-Za-z]{3})[A-Za-z]{0,6}\s(\d{2}|\d{4})\s(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s?(?:([+-])(\d{2}):?(\d{2})|([A-Za-z]{1,5})))?(?:\s?\([^()]{0,40}\))?$/;
 
 function utcSeconds(year: number, month: number, day: number, hour: number, minute: number, second: number, offsetMinutes: number) {
   if (month < 0 || month > 11 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) return null;
@@ -99,9 +123,8 @@ export function parseFeedDate(input: string): number | null {
     if (rfc[7]) {
       offset = (rfc[7] === "-" ? -1 : 1) * (Number(rfc[8]) * 60 + Number(rfc[9]));
     } else if (rfc[10]) {
-      const zone = ZONES[rfc[10].toLowerCase()];
-      if (zone === undefined) return null;
-      offset = zone;
+      const name = rfc[10].toLowerCase();
+      offset = Object.hasOwn(ZONES, name) ? (ZONES[name] as number) : 0;
     }
     return utcSeconds(year, month, Number(rfc[1]), Number(rfc[4]), Number(rfc[5]), Number(rfc[6] ?? 0), offset);
   }
@@ -185,7 +208,7 @@ function attribute(node: XmlNode, name: string): string | null {
   const key = `@_${name}`;
   if (!Object.hasOwn(attributes, key)) return null;
   const value = (attributes as Record<string, unknown>)[key];
-  return typeof value === "string" ? decodeEntities(value.slice(0, MAX_FIELD)) : null;
+  return typeof value === "string" ? decodeEntities(cutSource(value, MAX_FIELD)) : null;
 }
 
 // An item is asked for a dozen fields; its children are sorted by name once.
@@ -240,13 +263,13 @@ function markup(node: XmlNode, decodeText: boolean): string {
       if (tag === "#text") {
         const value = item["#text"];
         if (typeof value === "string") {
-          const piece = value.slice(0, MAX_FIELD - out.length);
+          const piece = cutSource(value, MAX_FIELD - out.length);
           out += decodeText ? decodeEntities(piece) : piece;
         }
       } else if (tag === "#cdata") {
         for (const part of kids(item)) {
           const value = part["#text"];
-          if (typeof value === "string") out += value.slice(0, MAX_FIELD - out.length);
+          if (typeof value === "string") out += cutSource(value, MAX_FIELD - out.length);
         }
       } else if (depth < MAX_NESTING) {
         const inline = INLINE.has(tag.toLowerCase());
@@ -282,7 +305,7 @@ function atomText(node: XmlNode, max: number): string {
 function firstDate(node: XmlNode, names: string[]): number | null {
   for (const name of names) {
     for (const candidate of children(node, name)) {
-      const seconds = parseFeedDate(markup(candidate, false).slice(0, 80));
+      const seconds = parseFeedDate(cut(markup(candidate, false), 80));
       if (seconds !== null) return seconds;
     }
   }
@@ -337,7 +360,7 @@ function rssItem(item: XmlNode, base: URL): FeedItem | null {
   return { title, link, published: firstDate(item, RSS_DATES), excerpt: excerpt === "" ? null : excerpt };
 }
 
-function readRss(channel: XmlNode | null, itemParents: XmlNode[], base: URL): ParsedFeed {
+function readRss(channel: XmlNode | null, itemParents: XmlNode[], feedBase: URL): ParsedFeed {
   const titleNode = channel ? child(channel, "title") : null;
   const title = titleNode ? htmlField(titleNode, MAX_SOURCE) : "";
   const items: FeedItem[] = [];
@@ -347,6 +370,8 @@ function readRss(channel: XmlNode | null, itemParents: XmlNode[], base: URL): Pa
       if (scanned >= MAX_ITEMS_SCANNED) break;
       if (tagOf(node).toLowerCase() !== "item") continue;
       scanned += 1;
+      // xml:base may stand on the channel (or the RDF root) and on the item.
+      const base = rebase(rebase(feedBase, attribute(parent, "xml:base")), attribute(node, "xml:base"));
       const item = rssItem(node, base);
       if (item) items.push(item);
     }
@@ -413,6 +438,77 @@ function readAtom(feed: XmlNode, feedUrl: URL): ParsedFeed {
 }
 
 // ---------------------------------------------------------------------------
+// The shape check
+
+/** The index of the quote that closes the one at `at`, or -1. */
+const closingQuote = (text: string, at: number) => text.indexOf(text[at] as string, at + 1);
+
+/**
+ * Reads the text once and throws `FeedParseError` unless every piece of
+ * markup is closed and small: a tag is at most MAX_TAG_CHARS long with at
+ * most MAX_ATTRIBUTES attributes, there are at most MAX_MARKUP tags, comments,
+ * CDATA sections and processing instructions, a "<" starts one of those
+ * (never "< " or "<<"), and a DOCTYPE has no internal subset, which is where
+ * entities are defined.
+ *
+ * It finds the end of each piece the way fast-xml-parser 5 does (quotes hide
+ * a ">" in an opening tag and in a processing instruction, not in a closing
+ * tag), so what is one small tag here is one small tag there. Comments and
+ * CDATA are skipped, whatever they hold. Each step moves forward: linear.
+ */
+export function checkShape(text: string): void {
+  if (text.length > MAX_FEED_CHARS) throw new FeedParseError();
+  let markupCount = 0;
+  let at = text.indexOf("<");
+  while (at >= 0) {
+    if (++markupCount > MAX_MARKUP) throw new FeedParseError();
+    let end: number;
+    if (text.startsWith("<!--", at)) {
+      end = text.indexOf("-->", at + 4);
+      if (end < 0) throw new FeedParseError();
+      end += 3;
+    } else if (text.startsWith("<![CDATA[", at)) {
+      end = text.indexOf("]]>", at + 9);
+      if (end < 0) throw new FeedParseError();
+      end += 3;
+    } else if (text.charCodeAt(at + 1) === 47) {
+      // A closing tag: the parser takes the next ">", quotes or not.
+      end = text.indexOf(">", at + 2);
+      if (end < 0 || end - at > MAX_TAG_CHARS) throw new FeedParseError();
+      end += 1;
+    } else {
+      const next = text.charCodeAt(at + 1);
+      const instruction = next === 63; // "<?"
+      const declaration = next === 33; // "<!"
+      if (declaration && !/^<!doctype\s/i.test(text.slice(at, at + 10))) throw new FeedParseError();
+      const nameStart = (next >= 65 && next <= 90) || (next >= 97 && next <= 122) || next === 95 || next === 58 || next >= 0x80;
+      if (!instruction && !declaration && !nameStart) throw new FeedParseError();
+
+      const limit = Math.min(text.length, at + MAX_TAG_CHARS);
+      let attributes = 0;
+      end = -1;
+      for (let i = at + 2; i < limit; i++) {
+        const c = text.charCodeAt(i);
+        if (c === 34 || c === 39) {
+          i = closingQuote(text, i);
+          if (i < 0 || i >= limit) throw new FeedParseError();
+        } else if (c === 61) {
+          attributes += 1;
+        } else if (c === 91 && declaration) {
+          // "<!DOCTYPE x [": an internal subset.
+          throw new FeedParseError();
+        } else if (c === 62 && (!instruction || text.charCodeAt(i - 1) === 63)) {
+          end = i + 1;
+          break;
+        }
+      }
+      if (end < 0 || attributes > MAX_ATTRIBUTES) throw new FeedParseError();
+    }
+    at = text.indexOf("<", end);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 /**
  * Parses feed text fetched from `feedUrl` (the address that answered, used to
@@ -421,6 +517,7 @@ function readAtom(feed: XmlNode, feedUrl: URL): ParsedFeed {
  * `FeedParseError` when the text is not RSS, RDF or Atom.
  */
 export function parseFeed(text: string, feedUrl: URL): ParsedFeed {
+  checkShape(text);
   let tree: unknown;
   try {
     tree = parser().parse(text);
@@ -441,13 +538,13 @@ export function parseFeed(text: string, feedUrl: URL): ParsedFeed {
     case "rss": {
       const channel = child(root, "channel");
       if (!channel) throw new FeedParseError();
-      return readRss(channel, [channel], feedUrl);
+      return readRss(channel, [channel], rebase(feedUrl, attribute(root, "xml:base")));
     }
     case "rdf:rdf": {
       const channel = child(root, "channel");
       if (!channel && children(root, "item").length === 0) throw new FeedParseError();
       // RSS 1.0 lists items beside the channel; RSS 0.90 feeds sometimes nest them.
-      return readRss(channel, channel ? [root, channel] : [root], feedUrl);
+      return readRss(channel, channel ? [root, channel] : [root], rebase(feedUrl, attribute(root, "xml:base")));
     }
     case "feed":
     case "atom:feed":

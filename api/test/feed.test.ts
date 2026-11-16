@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { linkHash, seenCacheKey, siteCacheKey, type SiteSource } from "../src/lib/site-reader.ts";
+import { linkHash, readSite, seenCacheKey, siteCacheKey, type SiteSource } from "../src/lib/site-reader.ts";
 // Written by hand in the shape of real feeds and pages; no real site was fetched.
 import atom from "./fixtures/sites/atom.xml?raw";
 import badDates from "./fixtures/sites/bad-dates.xml?raw";
@@ -52,7 +52,7 @@ const post = (body: unknown) =>
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 
-type Item = { site: number; title: string; link: string; source: string; published: string | null; dateSource: string; excerpt: string | null };
+type Item = { site: number; title: string; link: string; source: string; published: string; dateSource: string; excerpt: string | null };
 type Body = { items: Item[]; sites: { index: number; ok: boolean; error?: string }[] };
 
 async function feed(sites: Site[]): Promise<Body> {
@@ -160,7 +160,7 @@ describe("POST /v1/feed", () => {
       ]);
     });
 
-    it("puts items whose date cannot be read last, with a null date, and leaves out far-future ones", async () => {
+    it("gives an item whose date cannot be read a first-seen time, and leaves out far-future ones", async () => {
       mockWeb(web);
 
       const body = await feed([CARELESS]);
@@ -168,15 +168,57 @@ describe("POST /v1/feed", () => {
       expect(body.items.map((item) => [item.link.split("/posts/")[1], item.published, item.dateSource])).toEqual([
         // Stamped three hours ahead: counted as now, so it cannot sit on top for hours.
         ["ahead", "2026-11-16T15:00:00Z", "published"],
+        // No readable date, and nobody has fetched this feed before: nothing says
+        // these are new, so they are placed a day back, in feed order.
+        ["yesterday", "2026-11-15T15:00:00Z", "first_seen"],
+        ["thirty-second", "2026-11-15T14:59:59Z", "first_seen"],
+        ["none", "2026-11-15T14:59:58Z", "first_seen"],
+        ["thirteen", "2026-11-15T14:59:57Z", "first_seen"],
+        ["number", "2026-11-15T14:59:56Z", "first_seen"],
         ["good", "2026-11-15T10:00:00Z", "published"],
         ["second-date", "2026-11-13T04:00:00Z", "published"],
-        ["yesterday", null, "none"],
-        ["thirty-second", null, "none"],
-        ["none", null, "none"],
-        ["thirteen", null, "none"],
-        ["number", null, "none"],
         // "future" (2031) is left out.
       ]);
+      expect(body.items.every((item) => typeof item.published === "string")).toBe(true);
+    });
+
+    it("lets an undated feed item age out after 7 days, and stamps a later one when it appears", async () => {
+      mockWeb(web);
+      await feed([CARELESS]);
+      const cacheKey = await siteCacheKey(source(CARELESS));
+
+      // Three hours on, the feed has one more undated item.
+      vi.setSystemTime(new Date(NOW.getTime() + 180 * MINUTE));
+      await env.CACHE.delete(cacheKey);
+      vi.restoreAllMocks();
+      const added = badDates.replace("<item>", "<item><title>Added later without a date</title><link>https://careless.example.com/posts/later</link></item><item>");
+      mockWeb({ [CARELESS.feedUrl]: xml(added) });
+      const later = await feed([CARELESS]);
+      expect(later.items.slice(0, 3).map((item) => [item.link.split("/posts/")[1], item.published, item.dateSource])).toEqual([
+        // "ahead" says 18:00 itself, which has now come.
+        ["ahead", "2026-11-16T18:00:00Z", "published"],
+        // New to a feed we already know: first seen now.
+        ["later", "2026-11-16T18:00:00Z", "first_seen"],
+        ["yesterday", "2026-11-15T15:00:00Z", "first_seen"],
+      ]);
+
+      // Six days and a minute after the first fetch the undated items of that
+      // day are 7 days old by their stamps and are gone, though the feed still lists them.
+      vi.setSystemTime(new Date(NOW.getTime() + 6 * DAY + MINUTE));
+      await env.CACHE.delete(cacheKey);
+      const week = await feed([CARELESS]);
+      expect(week.items.map((item) => item.link.split("/posts/")[1])).toEqual(["ahead", "later"]);
+
+      // And they do not come back.
+      vi.setSystemTime(new Date(NOW.getTime() + 20 * DAY));
+      await env.CACHE.delete(cacheKey);
+      expect((await feed([CARELESS])).items).toEqual([]);
+    });
+
+    it("uses no first-seen record for a feed whose items all have dates", async () => {
+      mockWeb(web);
+      await feed([NEWS, BLOG, JOURNAL]);
+      expect((await env.CACHE.list({ prefix: "feed:seen:" })).keys).toEqual([]);
     });
 
     it("merges sites newest first and names each item's site by index", async () => {
@@ -280,18 +322,33 @@ describe("POST /v1/feed", () => {
         excerpt: null,
       });
       expect(body.items).toEqual([
-        // No date in the markup: the time this API first saw the link, which is now. Page order among equals.
-        item("Two border towns agree to share a library", "/world/2026/11/border-towns-share-a-library/", "2026-11-16T15:00:00Z", "first_seen"),
-        item("A quiet year for the river delta", "/story/quiet-year-for-the-river-delta", "2026-11-16T15:00:00Z", "first_seen"),
-        item("Night train returns to the coast line", "/world/2026/11/night-train-returns/", "2026-11-16T15:00:00Z", "first_seen"),
         // A <time datetime> by the link.
         item("Harbor city votes on a new bridge & tunnel", "/world/2026/11/harbor-city-votes-on-new-bridge/", "2026-11-16T14:30:00Z", "published"),
+        // No date in the markup, and nobody has fetched this page before, so
+        // nothing says these are new: they are placed a day back, a second
+        // apart in page order (they are the 4th, 5th and 6th article links).
+        item("Two border towns agree to share a library", "/world/2026/11/border-towns-share-a-library/", "2026-11-15T14:59:57Z", "first_seen"),
+        item("A quiet year for the river delta", "/story/quiet-year-for-the-river-delta", "2026-11-15T14:59:56Z", "first_seen"),
+        item("Night train returns to the coast line", "/world/2026/11/night-train-returns/", "2026-11-15T14:59:55Z", "first_seen"),
         item("Island ferry service resumes after storm", "/world/2026/11/island-ferry-service-resumes/", "2026-11-14T00:00:00Z", "published"),
         // "Mountain pass closes…" carries <time datetime="2026-11-02">: older than 7 days.
       ]);
     });
 
-    it("keeps the first-seen time of a link across later fetches, and drops it 7 days after", async () => {
+    it("does not let a newly followed page push in above what other sites published today", async () => {
+      mockWeb(web);
+
+      const body = await feed([WORLD, NEWS]);
+
+      // The news feed's item of 13:45 today stays above the page's undated links.
+      expect(body.items.slice(0, 3).map((item) => [item.site, item.published, item.dateSource])).toEqual([
+        [0, "2026-11-16T14:30:00Z", "published"],
+        [1, "2026-11-16T13:45:00Z", "published"],
+        [0, "2026-11-15T14:59:57Z", "first_seen"],
+      ]);
+    });
+
+    it("stamps a link that appears later as seen now, keeps every stamp across fetches, and drops a link 7 days after its stamp", async () => {
       mockWeb(web);
       await feed([WORLD]);
       const cacheKey = await siteCacheKey(source(WORLD));
@@ -310,21 +367,24 @@ describe("POST /v1/feed", () => {
       const later = await feed([WORLD]);
 
       expect(later.items.map((item) => [item.title, item.published, item.dateSource])).toEqual([
+        // New to a page we already know: really first seen now, so it goes to the top.
         ["The last lighthouse keeper retires", "2026-11-16T17:00:00Z", "first_seen"],
-        ["Two border towns agree to share a library", "2026-11-16T15:00:00Z", "first_seen"],
-        ["A quiet year for the river delta", "2026-11-16T15:00:00Z", "first_seen"],
-        ["Night train returns to the coast line", "2026-11-16T15:00:00Z", "first_seen"],
         ["Harbor city votes on a new bridge & tunnel", "2026-11-16T14:30:00Z", "published"],
+        // The stamps of the first fetch, unchanged although the links moved down the page.
+        ["Two border towns agree to share a library", "2026-11-15T14:59:57Z", "first_seen"],
+        ["A quiet year for the river delta", "2026-11-15T14:59:56Z", "first_seen"],
+        ["Night train returns to the coast line", "2026-11-15T14:59:55Z", "first_seen"],
         ["Island ferry service resumes after storm", "2026-11-14T00:00:00Z", "published"],
       ]);
 
-      // Seven days and a minute after the first fetch, the page unchanged:
-      // the links first seen then have fallen out, the later one has not.
-      vi.setSystemTime(new Date(NOW.getTime() + 7 * DAY + MINUTE));
+      // Six days and a minute after the first fetch, the page unchanged: the
+      // links stamped at the first fetch are 7 days old and have fallen out.
+      vi.setSystemTime(new Date(NOW.getTime() + 6 * DAY + MINUTE));
       await env.CACHE.delete(cacheKey);
       const week = await feed([WORLD]);
       expect(week.items.map((item) => [item.title, item.published])).toEqual([
         ["The last lighthouse keeper retires", "2026-11-16T17:00:00Z"],
+        ["Harbor city votes on a new bridge & tunnel", "2026-11-16T14:30:00Z"],
       ]);
 
       // A month on, the same links are still on the page: they do not come back as new.
@@ -346,7 +406,8 @@ describe("POST /v1/feed", () => {
 
       // Every article link on the page, dated or not, including the one outside the window.
       expect(Object.keys(record.seen)).toHaveLength(6);
-      expect(record.seen[await linkHash("https://daily.example.org/world/2026/11/night-train-returns/")]).toBe(NOW.getTime() / 1000);
+      // The sixth article link of a page never fetched before: a day back, less five seconds.
+      expect(record.seen[await linkHash("https://daily.example.org/world/2026/11/night-train-returns/")]).toBe(NOW.getTime() / 1000 - 86_400 - 5);
       expect(Object.keys(record.seen).every((hash) => /^[0-9a-f]{16}$/.test(hash))).toBe(true);
       expect(stored).not.toContain("example.org");
       expect(stored).not.toContain("night-train");
@@ -378,6 +439,8 @@ describe("POST /v1/feed", () => {
       const body = await feed([WORLD]);
 
       expect(body.items.find((item) => item.title.startsWith("Night train"))?.published).toBe("2026-11-13T15:00:00Z");
+      // The record exists, so a link it does not hold is new: seen now.
+      expect(body.items.find((item) => item.title.startsWith("Two border towns"))?.published).toBe("2026-11-16T15:00:00Z");
       const record = JSON.parse((await env.CACHE.get(key)) ?? "") as { seen: Record<string, number> };
       expect(Object.keys(record.seen).sort()).toContain("aaaaaaaaaaaaaaaa");
       expect(Object.keys(record.seen)).not.toContain("bbbbbbbbbbbbbbbb");
@@ -389,6 +452,38 @@ describe("POST /v1/feed", () => {
       await env.CACHE.put(key, '{"version":1,"seen":"__proto__"}');
       await env.CACHE.delete(await siteCacheKey(source(WORLD)));
       expect((await feed([WORLD])).sites).toEqual([{ index: 0, ok: true }]);
+    });
+
+    it("does not write the record or cache the site when the record cannot be read", async () => {
+      mockWeb(web);
+      const site = source(WORLD);
+      const nightTrain = await linkHash("https://daily.example.org/world/2026/11/night-train-returns/");
+      const seconds = NOW.getTime() / 1000;
+      const remembered = JSON.stringify({ version: 1, seen: { [nightTrain]: seconds - 3 * 86_400 } });
+      await env.CACHE.put(await seenCacheKey(site), remembered);
+
+      // A KV namespace whose reads fail, and which notes every write.
+      const writes: string[] = [];
+      const failing = {
+        get: () => Promise.reject(new Error("KV is down")),
+        put: (key: string) => {
+          writes.push(key);
+          return Promise.resolve();
+        },
+      } as unknown as KVNamespace;
+
+      const result = await readSite(site, failing, seconds, { timeoutMs: 5000 });
+
+      // The items are served, placed a day back like a first fetch, so nothing jumps to the top.
+      expect(result.cacheable).toBe(false);
+      expect(result.site.items.find((item) => item.title.startsWith("Night train"))).toMatchObject({ published: seconds - 86_400 - 5, dateSource: "first_seen" });
+      expect(writes).toEqual([]);
+      // Through the route nothing was stored either, and the remembered times survive.
+      expect(await env.CACHE.get(await seenCacheKey(site))).toBe(remembered);
+
+      // With KV back, the remembered time is used again.
+      const body = await feed([WORLD]);
+      expect(body.items.find((item) => item.title.startsWith("Night train"))?.published).toBe("2026-11-13T15:00:00Z");
     });
 
     it("reports a links-mode address that is not a web page", async () => {
@@ -408,7 +503,8 @@ describe("POST /v1/feed", () => {
       ["returns a web page instead of a feed", html("<!doctype html><html><body>Sign in</body></html>"), "not_feed"],
       ["returns a picture", () => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "content-type": "image/png" } }), "not_feed"],
       ["returns XML that is cut off", xml("<rss><channel><item><title>x</tit"), "not_feed"],
-      ["returns more than 2 MB", xml("<rss><channel>" + "<item><title>padding</title></item>".repeat(70_000)), "too_large"],
+      ["returns more than 1 MB", xml("<rss><channel>" + "<item><title>padding</title></item>".repeat(32_000)), "too_large"],
+      ["returns a shape the parser could not hold in memory", xml("<rss><channel>" + "<item a= ".repeat(100_000)), "not_feed"],
       ["redirects to a private address", () => new Response(null, { status: 302, headers: { location: "https://10.0.0.5/feed.xml" } }), "blocked_host"],
       ["redirects to plain http", () => new Response(null, { status: 301, headers: { location: "http://broken.example.com/feed" } }), "invalid_url"],
       ["redirects for ever", () => new Response(null, { status: 302, headers: { location: BROKEN.feedUrl } }), "fetch_failed"],
@@ -593,6 +689,36 @@ describe("POST /v1/feed", () => {
       // Six at a time for 6 seconds each: three full rounds, then a round with the 2 seconds left, then none.
       expect(spy.mock.calls.length).toBe(24);
     });
+  });
+
+  it("returns well-formed strings when a site's text is cut inside an emoji", async () => {
+    const grin = "\u{1F600}";
+    for (let pad = 0; pad < 3; pad++) {
+      await clearCache();
+      vi.restoreAllMocks();
+      const date = NOW.toUTCString();
+      mockWeb({
+        [NEWS.feedUrl]: xml(
+          `<rss version="2.0"><channel><title>${"s".repeat(117 + pad)}${grin.repeat(4)}</title><item><link>https://news.example.com/e</link>
+            <title>${"a".repeat(297 + pad)}${grin.repeat(4)}</title><pubDate>${date}</pubDate>
+            <description>${"b".repeat(297 + pad)}${grin.repeat(4)}</description></item></channel></rss>`,
+        ),
+        [WORLD.url]: html(`<title>${"w".repeat(117 + pad)}${grin.repeat(4)}</title><main><a href="/world/2026/an-emoji-headline/">${"word ".repeat(38)}${"x".repeat(47 + pad)}${grin.repeat(4)}</a>
+          <a href="/world/2026/a-lone-surrogate/">A headline with half an emoji \ud83d in it</a></main>`),
+      });
+
+      const response = await post({ sites: [NEWS, WORLD] });
+      const text = await response.text();
+      const body = JSON.parse(text) as Body;
+
+      expect(body.items).toHaveLength(3);
+      // No escaped lone surrogate in the JSON, and none in any string.
+      expect(text).not.toMatch(/\\ud[89ab][0-9a-f]{2}(?!\\ud[c-f])/i);
+      for (const entry of body.items) {
+        for (const value of [entry.title, entry.source, entry.excerpt ?? ""]) expect(value.isWellFormed()).toBe(true);
+      }
+      expect(body.items.find((entry) => entry.link.endsWith("a-lone-surrogate/"))?.title).toMatch(/^A headline with half an emoji \ufffd+ in it$/);
+    }
   });
 
   it("never puts a site's address in a log line, a KV key or an error answer", async () => {

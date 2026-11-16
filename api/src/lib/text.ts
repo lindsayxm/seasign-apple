@@ -101,9 +101,59 @@ export function decodeEntities(input: string): string {
   return out + input.slice(from);
 }
 
-/** Runs of white space, control and zero-width characters become one space; the ends are trimmed. */
+/**
+ * A string safe to put in JSON for any client: half of a surrogate pair (cut
+ * in two by a length limit, or sent that way by the site) becomes U+FFFD.
+ * Every string that leaves a route goes through this.
+ */
+export function wellFormed(text: string): string {
+  return text.isWellFormed() ? text : text.toWellFormed();
+}
+
+/**
+ * The first `max` UTF-16 units of `text`, less one when the cut would fall
+ * inside a surrogate pair. Use this, never a bare `.slice()`, to shorten text
+ * that came from a site.
+ */
+export function cut(text: string, max: number): string {
+  if (text.length <= max) return text;
+  if (max <= 0) return "";
+  const last = text.charCodeAt(max - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
+}
+
+/**
+ * `cut` for text that still holds character references (HTML or XML source):
+ * a reference the cut went through ("&am", "&#82") is dropped whole, so the
+ * decoded text does not end in half of one.
+ */
+export function cutSource(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = cut(text, max);
+  const amp = head.lastIndexOf("&");
+  if (amp < 0 || amp < head.length - MAX_REFERENCE) return head;
+  for (let i = amp + 1; i < head.length; i++) {
+    const c = head.charCodeAt(i);
+    const alnum = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+    // A ";" closes it, anything else that cannot be in a reference means it is not one.
+    if (!alnum && c !== 35) return head;
+  }
+  return head.slice(0, amp);
+}
+
+// Characters that are removed outright: C0 and C1 controls, DEL, zero-width
+// space, the left-to-right and right-to-left marks, the bidirectional
+// embedding, override and isolate controls (which can make text display in
+// another order than it is stored), and the byte-order mark. Zero-width
+// joiner and non-joiner stay: emoji sequences and some scripts need them.
+const INVISIBLE = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]+/g;
+
+/**
+ * Control and direction characters are removed, runs of white space become
+ * one space, the ends are trimmed, and lone surrogates are replaced.
+ */
 export function collapseSpace(text: string): string {
-  return text.replace(/[\s\u0000-\u001f\u007f\u00a0\u200b-\u200f\u2028\u2029\ufeff]+/g, " ").trim();
+  return wellFormed(text).replace(INVISIBLE, "").replace(/\s+/g, " ").trim();
 }
 
 /** Cuts text to at most `max` characters, at a word boundary when one is near, and marks the cut with "…". */
@@ -112,10 +162,7 @@ export function clip(text: string, max: number): string {
   let end = max - 1;
   const space = text.lastIndexOf(" ", end);
   if (space >= end - 40 && space > 0) end = space;
-  // Do not cut a surrogate pair in half.
-  const last = text.charCodeAt(end - 1);
-  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
-  return `${text.slice(0, end).trimEnd()}…`;
+  return `${cut(text, end).trimEnd()}…`;
 }
 
 // Tags that end a line or a block: a space is put where they stood.
@@ -174,7 +221,7 @@ function closingTag(input: string, name: string, from: number): number {
  * script ends the text there.
  */
 export function htmlToText(html: string, max: number): string {
-  const input = html.length > MAX_HTML_SCAN ? html.slice(0, MAX_HTML_SCAN) : html;
+  const input = cutSource(html, MAX_HTML_SCAN);
   // A reference is at most MAX_REFERENCE characters for one of output.
   const enough = max * MAX_REFERENCE + 64;
   let out = "";
@@ -182,10 +229,10 @@ export function htmlToText(html: string, max: number): string {
   while (i < input.length && out.length < enough) {
     const lt = input.indexOf("<", i);
     if (lt < 0) {
-      out += input.slice(i, i + enough);
+      out += cutSource(input.slice(i), enough);
       break;
     }
-    out += input.slice(i, Math.min(lt, i + enough));
+    out += cutSource(input.slice(i, lt), enough);
     const next = input.charCodeAt(lt + 1);
     if (!isLetter(next) && next !== 47 && next !== 33 && next !== 63) {
       // "a < b": not a tag.
@@ -219,6 +266,6 @@ export function htmlToText(html: string, max: number): string {
 
 /** Text that is not HTML (an Atom `type="text"` title, a page's `<title>`): references decoded, space collapsed, cut to `max`. */
 export function plainText(text: string, max: number): string {
-  const input = text.length > max * MAX_REFERENCE + 64 ? text.slice(0, max * MAX_REFERENCE + 64) : text;
+  const input = cutSource(text, max * MAX_REFERENCE + 64);
   return clip(collapseSpace(decodeEntities(input)), max);
 }

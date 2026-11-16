@@ -1,4 +1,4 @@
-import { FeedParseError, MAX_SOURCE, parseFeed, type ParsedFeed } from "./feed-parse.ts";
+import { FeedParseError, MAX_FEED_CHARS, MAX_SOURCE, parseFeed, type ParsedFeed } from "./feed-parse.ts";
 import { articleLinks, scanPage, type PageScan } from "./page-links.ts";
 import { SafeFetchError, parseSafeUrl, safeFetch, type SafeFetchResult } from "./safe-fetch.ts";
 import { clip } from "./text.ts";
@@ -18,7 +18,12 @@ export const MAX_FUTURE_SECONDS = 60 * 60 * 24;
 export const MAX_ITEMS_PER_SITE = 30;
 export const MAX_URL_LENGTH = 2048;
 export const MAX_PAGE_BYTES = 2 * 1024 * 1024;
-export const MAX_FEED_BYTES = 2 * 1024 * 1024;
+/** Feeds are read up to 1 MB: ordinary feeds are 20 KB to 700 KB, and the parser's memory grows with the text. */
+export const MAX_FEED_BYTES = MAX_FEED_CHARS;
+/** How long ago the links of a site are stamped when it is fetched for the very first time. */
+export const FIRST_FETCH_AGE = 60 * 60 * 24;
+/** Feed items without a readable date that are given a first-seen time. */
+export const MAX_UNDATED = 100;
 /** Links remembered per site in the first-seen record. */
 export const MAX_SEEN = 600;
 
@@ -91,7 +96,7 @@ const siteHash = (site: SiteSource) =>
 
 /** KV key of a site's items. Holds no part of any URL. Exported for the tests. */
 export const siteCacheKey = async (site: SiteSource) => `feed:site:v1:${await siteHash(site)}`;
-/** KV key of a links-mode site's first-seen record. Exported for the tests. */
+/** KV key of a site's first-seen record (a links-mode site, or a feed with undated items). Exported for the tests. */
 export const seenCacheKey = async (site: SiteSource) => `feed:seen:v1:${await siteHash(site)}`;
 
 /** The first 16 hex digits of a link's SHA-256: how the first-seen record names a link. */
@@ -129,26 +134,45 @@ export type BodyKind = "feed" | "html" | "other";
 export function bodyKind(body: Uint8Array, contentType: string | null): BodyKind {
   const type = (contentType ?? "").split(";", 1)[0]?.trim().toLowerCase() ?? "";
   const head = decodeBody(body.subarray(0, 4096), contentType).toLowerCase();
-  // The first "<" followed by a letter starts the root element, past any
-  // declaration, comment or DOCTYPE.
+  // The root element is the first thing that is not white space, a comment,
+  // a processing instruction or a DOCTYPE. A comment may hold anything
+  // ("<!-- <rss> -->"), so comments are stepped over, not searched.
   let root = "";
-  for (let at = head.indexOf("<"); at >= 0; at = head.indexOf("<", at + 1)) {
-    if (head.startsWith("<!doctype html", at)) {
+  let at = 0;
+  for (;;) {
+    while (at < head.length && " \t\r\n\ufeff".includes(head[at] as string)) at += 1;
+    if (head.startsWith("<!--", at)) {
+      const end = head.indexOf("-->", at + 4);
+      if (end < 0) break;
+      at = end + 3;
+    } else if (head.startsWith("<?", at)) {
+      const end = head.indexOf("?>", at + 2);
+      if (end < 0) break;
+      at = end + 2;
+    } else if (head.startsWith("<!doctype html", at)) {
       root = "html";
       break;
-    }
-    const c = head.charCodeAt(at + 1);
-    if (c >= 97 && c <= 122) {
-      let end = at + 1;
-      while (end < head.length && end - at < 16 && !" \t\r\n>/".includes(head[end] as string)) end += 1;
-      root = head.slice(at + 1, end);
+    } else if (head.startsWith("<!", at)) {
+      const end = head.indexOf(">", at + 2);
+      if (end < 0) break;
+      at = end + 1;
+    } else {
+      const c = head.charCodeAt(at + 1);
+      if (head[at] === "<" && c >= 97 && c <= 122) {
+        let end = at + 1;
+        while (end < head.length && end - at < 16 && !" \t\r\n>/".includes(head[end] as string)) end += 1;
+        root = head.slice(at + 1, end);
+      } else if (at < head.length) {
+        // Text before any element: neither XML nor a page that starts as one.
+        root = "#text";
+      }
       break;
     }
   }
   if (root === "rss" || root === "feed" || root === "rdf:rdf" || root === "atom:feed") return "feed";
   if (type.includes("html") || root === "html" || root === "head" || root === "body") return "html";
   if (type.endsWith("xml")) return "feed";
-  if ((type === "" || type === "text/plain") && root !== "") return "html";
+  if ((type === "" || type === "text/plain") && root !== "" && root !== "#text") return "html";
   return "other";
 }
 
@@ -157,94 +181,96 @@ const hostName = (url: URL) => url.hostname.replace(/^www\./, "");
 // ---------------------------------------------------------------------------
 // Items
 
-export type DateSource = "published" | "first_seen" | "none";
+export type DateSource = "published" | "first_seen";
 
 export type StoredItem = {
   title: string;
   link: string;
-  /** Unix seconds. Null only with `dateSource: "none"`. */
-  published: number | null;
+  /** Unix seconds. */
+  published: number;
   dateSource: DateSource;
   excerpt: string | null;
 };
 
 /** What is cached for a site. The page and feed addresses are not in it; the items' own links are. */
-export type StoredSite = { version: 1; source: string; items: StoredItem[] };
+export type StoredSite = { version: 2; source: string; items: StoredItem[] };
 
-/** Dated items inside the window, newest first, then undated ones in their own order. */
+/** The items inside the 7-day window at `now`, newest first; equal times keep their order. */
 export function inWindow(items: StoredItem[], now: number): StoredItem[] {
-  const dated = items.filter(
-    (item) => item.published !== null && item.published >= now - WINDOW_SECONDS && item.published <= now + MAX_FUTURE_SECONDS,
-  );
-  dated.sort((a, b) => (b.published as number) - (a.published as number));
-  return [...dated, ...items.filter((item) => item.published === null)];
+  return items
+    .filter((item) => item.published >= now - WINDOW_SECONDS && item.published <= now + MAX_FUTURE_SECONDS)
+    .sort((a, b) => b.published - a.published);
 }
 
-function feedItems(feed: ParsedFeed, now: number): StoredItem[] {
-  const seen = new Set<string>();
-  const items: StoredItem[] = [];
-  for (const item of feed.items) {
-    if (seen.has(item.link)) continue;
-    seen.add(item.link);
-    items.push({
-      title: item.title,
-      link: item.link,
-      // A date a little ahead of the clock (a wrong time zone) counts as now,
-      // so the item cannot sit above everything else for hours.
-      published: item.published !== null && item.published <= now + MAX_FUTURE_SECONDS ? Math.min(item.published, now) : item.published,
-      dateSource: item.published === null ? "none" : "published",
-      excerpt: item.excerpt,
-    });
-  }
-  return inWindow(items, now).slice(0, MAX_ITEMS_PER_SITE);
-}
+/** An article as found on a page or in a feed, before it has a time for certain. */
+type Found = { title: string; link: string; published: number | null; excerpt: string | null };
 
 type SeenRecord = { version: 1; seen: Record<string, number> };
 
 /**
- * Gives every link without a date of its own the time this Worker first saw
- * it, and writes the record back.
+ * Gives every found article a time. One with a believable date of its own
+ * keeps it (`published`; a date up to a day ahead of the clock counts as
+ * now, so a wrong time zone cannot hold an item above everything else). One
+ * without gets the time this Worker first saw its link (`first_seen`), from
+ * the site's first-seen record, which is then written back.
  *
  * The record is one KV value per site: link hash to first-seen Unix seconds.
- * A link on the page keeps its entry for as long as it stays there, so an
- * article that sits on a section page for a month does not come back as new;
- * entries for links no longer on the page are dropped after 30 days, oldest
- * first beyond MAX_SEEN. Two requests reading the same site at once can each
- * write the record; the later write wins and at worst a link's first-seen
- * time moves by the gap between them.
+ * - A link keeps its entry for as long as it is still found, so an article
+ *   that sits on a section page for a month does not come back as new;
+ *   entries for links no longer found are dropped after 30 days, oldest
+ *   first beyond MAX_SEEN.
+ * - A link that is new to an existing record was first seen now.
+ * - When there is no record yet (a site nobody has fetched before), nothing
+ *   says which links are new, so they are stamped a day ago, one second
+ *   apart in page order: they show in the history but do not sit above what
+ *   other sites really published today.
+ * - When the record cannot be read, the links are stamped the same way but
+ *   nothing is written: writing would replace every remembered time with a
+ *   new one for good. `cacheable` is false then, so the next request tries
+ *   again instead of repeating the guess for 30 minutes.
+ * - Two requests reading the same site at once can each write the record;
+ *   the later write wins and at worst a link's time moves by the gap.
  */
-async function withFirstSeen(
-  links: { title: string; link: string; published: number | null }[],
+async function withTimes(
+  found: Found[],
   key: string,
   cache: KVNamespace,
   now: number,
-): Promise<StoredItem[]> {
-  let previous: Record<string, number> = {};
+): Promise<{ items: StoredItem[]; cacheable: boolean }> {
+  let previous: Record<string, number> | null = null;
+  let readable = true;
   try {
     const stored = await cache.get<SeenRecord>(key, "json");
     if (stored?.version === 1 && typeof stored.seen === "object" && stored.seen !== null) previous = stored.seen;
   } catch {
-    // Without the record every link counts as seen now.
+    readable = false;
   }
 
   const next: Record<string, number> = {};
   const items: StoredItem[] = [];
-  for (const link of links) {
-    const hash = await linkHash(link.link);
-    const before = Object.hasOwn(previous, hash) ? previous[hash] : undefined;
-    const first = typeof before === "number" && before <= now ? before : now;
+  for (const [position, entry] of found.entries()) {
+    const hash = await linkHash(entry.link);
+    const before = previous && Object.hasOwn(previous, hash) ? previous[hash] : undefined;
+    const first = typeof before === "number" && before <= now ? before : previous ? now : now - FIRST_FETCH_AGE - position;
     next[hash] = first;
-    items.push(
-      link.published !== null && link.published <= now + MAX_FUTURE_SECONDS
-        ? { title: link.title, link: link.link, published: Math.min(link.published, now), dateSource: "published", excerpt: null }
-        : { title: link.title, link: link.link, published: first, dateSource: "first_seen", excerpt: null },
-    );
+    const dated = entry.published !== null && entry.published <= now + MAX_FUTURE_SECONDS;
+    items.push({
+      title: entry.title,
+      link: entry.link,
+      published: dated ? Math.min(entry.published as number, now) : first,
+      dateSource: dated ? "published" : "first_seen",
+      excerpt: entry.excerpt,
+    });
+  }
+  if (!readable) {
+    console.warn("feed: first-seen read failed");
+    return { items, cacheable: false };
   }
 
-  const gone = Object.entries(previous)
+  const gone = Object.entries(previous ?? {})
     .filter(([hash, first]) => !Object.hasOwn(next, hash) && typeof first === "number" && first >= now - SEEN_TTL && first <= now)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, Math.max(0, MAX_SEEN - links.length));
+    .slice(0, Math.max(0, MAX_SEEN - found.length));
   for (const [hash, first] of gone) next[hash] = first;
 
   try {
@@ -252,7 +278,35 @@ async function withFirstSeen(
   } catch {
     console.warn("feed: first-seen write failed");
   }
-  return items;
+  return { items, cacheable: true };
+}
+
+/**
+ * A feed's items with times. Items the feed dates need no record; only when
+ * some have no readable date is the first-seen record used, for those items
+ * alone (at most MAX_UNDATED of them).
+ */
+async function feedItems(feed: ParsedFeed, key: () => Promise<string>, cache: KVNamespace, now: number) {
+  const links = new Set<string>();
+  const dated: Found[] = [];
+  const undated: Found[] = [];
+  for (const item of feed.items) {
+    if (links.has(item.link)) continue;
+    links.add(item.link);
+    if (item.published !== null && item.published <= now + MAX_FUTURE_SECONDS) dated.push(item);
+    else if (item.published === null && undated.length < MAX_UNDATED) undated.push(item);
+    // An item dated more than a day ahead is left out.
+  }
+  const items: StoredItem[] = dated.map((item) => ({
+    title: item.title,
+    link: item.link,
+    published: Math.min(item.published as number, now),
+    dateSource: "published",
+    excerpt: item.excerpt,
+  }));
+  if (undated.length === 0) return { items, cacheable: true };
+  const stamped = await withTimes(undated, await key(), cache, now);
+  return { items: [...items, ...stamped.items], cacheable: stamped.cacheable };
 }
 
 // ---------------------------------------------------------------------------
@@ -278,25 +332,39 @@ export function pageSource(scan: PageScan, pageUrl: URL): string {
 
 /**
  * Fetches a site and returns what is cached for it: at most
- * MAX_ITEMS_PER_SITE items, dated ones inside the 7-day window at the time of
- * the fetch. Throws `SafeFetchError`, `FeedParseError` or `SiteFailure`.
+ * MAX_ITEMS_PER_SITE items inside the 7-day window at the time of the fetch.
+ * `cacheable` is false when the result rests on a guess that should not be
+ * kept (see `withTimes`). Throws `SafeFetchError`, `FeedParseError` or
+ * `SiteFailure`.
  */
-export async function readSite(site: SiteSource, cache: KVNamespace, now: number, options: ReadOptions): Promise<StoredSite> {
+export async function readSite(
+  site: SiteSource,
+  cache: KVNamespace,
+  now: number,
+  options: ReadOptions,
+): Promise<{ site: StoredSite; cacheable: boolean }> {
+  const stored = (source: string, items: StoredItem[]): StoredSite => ({
+    version: 2,
+    source,
+    items: inWindow(items, now).slice(0, MAX_ITEMS_PER_SITE),
+  });
+
   if (site.mode === "feed") {
     const { feed } = await fetchFeed(site.feedUrl, options);
-    return { version: 1, source: clip(feed.title ?? hostName(site.url), MAX_SOURCE), items: feedItems(feed, now) };
+    const { items, cacheable } = await feedItems(feed, () => seenCacheKey(site), cache, now);
+    return { site: stored(clip(feed.title ?? hostName(site.url), MAX_SOURCE), items), cacheable };
   }
 
   const { kind, response } = await fetchPage(site.url, options);
   if (kind !== "html") throw new SiteFailure("not_html");
   const scan = await scanPage(response.body, response.headers.get("content-type"));
-  const links = articleLinks(scan, site.url, response.url);
-  const items = await withFirstSeen(links, await seenCacheKey(site), cache, now);
-  return { version: 1, source: pageSource(scan, site.url), items: inWindow(items, now).slice(0, MAX_ITEMS_PER_SITE) };
+  const links = articleLinks(scan, site.url, response.url).map((link) => ({ ...link, excerpt: null }));
+  const { items, cacheable } = await withTimes(links, await seenCacheKey(site), cache, now);
+  return { site: stored(pageSource(scan, site.url), items), cacheable };
 }
 
 /** A cached site, when the value has the expected shape. */
 export function asStoredSite(value: unknown): StoredSite | null {
   const site = value as Partial<StoredSite> | null;
-  return site?.version === 1 && typeof site.source === "string" && Array.isArray(site.items) ? (site as StoredSite) : null;
+  return site?.version === 2 && typeof site.source === "string" && Array.isArray(site.items) ? (site as StoredSite) : null;
 }
