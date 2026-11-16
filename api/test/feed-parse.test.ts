@@ -375,6 +375,13 @@ describe("parseFeed on hostile input", () => {
       ["20 KB of '< '", () => "< ".repeat(10 * KB)],
       ["one '< ' inside a feed", () => wrap(`<item><title>a < b</title></item>`)],
       ["1 MB of '<a '", () => "<a ".repeat(340 * KB)],
+      // Closed with ">", these are one tag as long as the document: the parser alone needs 256 to 512 MB for 2 MB of them.
+      ["1 MB of '< ' closed by the end of the document", () => wrap("< ".repeat(500 * KB))],
+      ["1 MB of '<a ' closed by the end of the document", () => wrap("<a ".repeat(330 * KB))],
+      ["one tag of 1 MB of bare words", () => wrap(`<a ${"b ".repeat(500 * KB)}>`)],
+      ["tags of 8 KB filled with '<'", () => wrap(`<a ${"< ".repeat(4000)}>`.repeat(100))],
+      ["a '<' inside a tag", () => wrap(`<item <b>></item>`)],
+      ["a '<' inside a processing instruction", () => wrap(`<?x <y ?>`)],
       ["1 MB of '<'", () => "<".repeat(1000 * KB)],
       ["one element with 300,000 unquoted attributes", () => `<item ${"a= ".repeat(300_000)}/>`],
       ["one element with 80,000 quoted attributes", () => `<rss ${Array.from({ length: 80_000 }, (_v, i) => `a${i}="v"`).join(" ")}><channel/></rss>`],

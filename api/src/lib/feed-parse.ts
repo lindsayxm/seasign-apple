@@ -448,8 +448,8 @@ const closingQuote = (text: string, at: number) => text.indexOf(text[at] as stri
  * markup is closed and small: a tag is at most MAX_TAG_CHARS long with at
  * most MAX_ATTRIBUTES attributes, there are at most MAX_MARKUP tags, comments,
  * CDATA sections and processing instructions, a "<" starts one of those
- * (never "< " or "<<"), and a DOCTYPE has no internal subset, which is where
- * entities are defined.
+ * (never "< " or "<<") and does not stand inside one outside quotes, and a
+ * DOCTYPE has no internal subset, which is where entities are defined.
  *
  * It finds the end of each piece the way fast-xml-parser 5 does (quotes hide
  * a ">" in an opening tag and in a processing instruction, not in a closing
@@ -494,10 +494,12 @@ export function checkShape(text: string): void {
           if (i < 0 || i >= limit) throw new FeedParseError();
         } else if (c === 61) {
           attributes += 1;
-        } else if ((c === 91 || c === 60) && declaration) {
-          // "<!DOCTYPE x [": an internal subset. A "<" has no place in a
-          // DOCTYPE without one, and the parser's DOCTYPE reader takes a
-          // comment there as a way into a subset.
+        } else if (c === 60) {
+          // A "<" outside quotes is never part of a tag. In a DOCTYPE the
+          // parser's reader takes "<!--" there as a way into a subset.
+          throw new FeedParseError();
+        } else if (c === 91 && declaration) {
+          // "<!DOCTYPE x [": an internal subset.
           throw new FeedParseError();
         } else if (c === 62 && (!instruction || text.charCodeAt(i - 1) === 63)) {
           end = i + 1;
