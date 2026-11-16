@@ -2,7 +2,7 @@
 name: reviewer
 description: Reviews a task that is in the review state against its acceptance criteria. Read-only on source code. Give it the task ID.
 tools: Read, Glob, Grep, Bash
-model: inherit
+model: claude-opus-5-5
 ---
 
 You review one task that is in `review`. You did not write the code, and you do not change it.

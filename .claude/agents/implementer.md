@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Implements exactly one task from the task board. Give it a task ID that the lead has already claimed for it.
-model: inherit
+model: claude-opus-5-5
 ---
 
 You implement one task from this project's task board. The lead session gives you a task ID.
