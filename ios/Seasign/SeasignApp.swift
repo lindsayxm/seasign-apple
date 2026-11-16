@@ -6,7 +6,7 @@ struct SeasignApp: App {
     /// The local stores and the models that read them, or the fact that the
     /// user's store would not open (see `LocalStore`).
     private enum Session {
-        case ready(ModelContainer, TodayModel, ListsModel, EventsModel)
+        case ready(ModelContainer, TodayModel, ListsModel, EventsModel, FeedModel)
         case storeUnreadable
     }
 
@@ -19,11 +19,12 @@ struct SeasignApp: App {
     var body: some Scene {
         WindowGroup {
             switch session {
-            case .ready(let container, let today, let lists, let events):
+            case .ready(let container, let today, let lists, let events, let feed):
                 TodayView()
                     .environment(today)
                     .environment(lists)
                     .environment(events)
+                    .environment(feed)
                     .modelContainer(container)
             case .storeUnreadable:
                 StoreErrorView {
@@ -48,13 +49,19 @@ struct SeasignApp: App {
                 EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent)
             }
             let lists = ListsModel(context: container.mainContext)
+            var events = live
+            var feed = FeedModel(context: container.mainContext)
             #if DEBUG
             // `-debugEvents YES` shows sample links and events held in memory.
             if UserDefaults.standard.bool(forKey: "debugEvents"), let sample = try? EventsModel.sample() {
-                return .ready(container, today, lists, sample)
+                events = sample
+            }
+            // `-debugFeed YES` shows sample sites and headlines held in memory.
+            if UserDefaults.standard.bool(forKey: "debugFeed"), let sample = try? FeedModel.sample() {
+                feed = sample
             }
             #endif
-            return .ready(container, today, lists, live)
+            return .ready(container, today, lists, events, feed)
         } catch {
             return .storeUnreadable
         }

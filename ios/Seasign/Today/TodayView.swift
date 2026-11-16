@@ -8,9 +8,12 @@ import SwiftUI
 struct TodayView: View {
     @Environment(TodayModel.self) private var model
     @Environment(EventsModel.self) private var events
+    @Environment(FeedModel.self) private var feed
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var destination: Destination?
+    /// The headline open in the reading view.
+    @State private var reading: FeedEntry?
     /// Width of the day name as laid out, which positions the vertical rule.
     @State private var dayNameWidth: CGFloat = 90
 
@@ -33,6 +36,10 @@ struct TodayView: View {
         }
         .preferredColorScheme(.dark)
         .task {
+            // Headlines at launch and on return to the foreground only (at
+            // most every 15 minutes, see `FeedModel.refreshInterval`), not on
+            // the minute loop below.
+            Task { await feed.refresh() }
             // Refresh at launch, then whenever the sky has gone stale.
             while !Task.isCancelled {
                 await model.refresh()
@@ -46,6 +53,7 @@ struct TodayView: View {
                     await model.refresh()
                     await events.refresh()
                 }
+                Task { await feed.refresh() }
             }
         }
         // Events are asked for in the zip's time zone; when that changes (a
@@ -65,6 +73,9 @@ struct TodayView: View {
             case .history:
                 PlaceholderScreen(title: "Last 7 days", note: "Everything that has been in your feed will live here.")
             }
+        }
+        .fullScreenCover(item: $reading) { entry in
+            ReadingView(entry: entry, timeZone: headlineZone)
         }
     }
 
@@ -117,13 +128,17 @@ struct TodayView: View {
                 iconButton(.saved, label: "Saved", opens: .saved, s: s)
                     .placed(x: 333 * s - 22, y: 306 * s - 22)
 
-                headlines(s: s)
-                    .frame(
-                        width: 326 * s,
-                        height: max(0, proxy.size.height - 52 * s - (layout.horizonY + 57 * s)),
-                        alignment: .topLeading
-                    )
-                    .placed(x: 35 * s, y: layout.horizonY + 57 * s)
+                let waterHeight = max(0, proxy.size.height - 52 * s - (layout.horizonY + 57 * s))
+                HeadlinesColumn(
+                    candidates: feed.headlines(now: clock, timeZone: headlineZone),
+                    s: s,
+                    height: waterHeight,
+                    followsNoSites: feed.sites.isEmpty,
+                    open: { reading = $0 },
+                    openSettings: { destination = .settings }
+                )
+                .frame(width: 326 * s, height: waterHeight, alignment: .topLeading)
+                .placed(x: 35 * s, y: layout.horizonY + 57 * s)
 
                 Button {
                     destination = .history
@@ -214,25 +229,10 @@ struct TodayView: View {
 
     // MARK: Headlines
 
-    /// As many of the newest headlines as fit above the `>>` button, most first.
-    private func headlines(s: CGFloat) -> some View {
-        let all = PlaceholderHeadlines.all
-        return ViewThatFits(in: .vertical) {
-            ForEach([5, 4, 3, 2, 1], id: \.self) { count in
-                VStack(alignment: .leading, spacing: 28.5 * s) {
-                    ForEach(all.prefix(count), id: \.self) { headline in
-                        WrappedCaps(
-                            text: headline,
-                            size: 11.2 * s,
-                            tracking: 0.185,
-                            linePitch: 14.5 * s,
-                            width: 326 * s
-                        )
-                        .foregroundStyle(Palette.ink)
-                    }
-                }
-            }
-        }
+    /// The day "since yesterday" is counted in: the zip's time zone when a zip
+    /// is set and its sky is known, otherwise the phone's.
+    private var headlineZone: TimeZone {
+        EventZone.resolve(zip: model.zip, snapshot: model.snapshot, device: .autoupdatingCurrent)
     }
 }
 

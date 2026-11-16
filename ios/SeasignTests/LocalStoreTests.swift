@@ -101,6 +101,102 @@ import Testing
         #expect(try titles(again.container) == ["Oat milk"])
     }
 
+    /// Task 8 added `Site` to the user store and `FeedItem` and
+    /// `CachedFeedState` to the cache store. Stores written with the schema
+    /// of the build before that (listed here by hand, not from
+    /// `SeasignSchema`) must open with nothing lost and neither file thrown away.
+    @Test func storesFromBeforeSitesOpenAndKeepEverything() throws {
+        defer { cleanUp() }
+        do {
+            let user: [any PersistentModel.Type] = [Settings.self, ListItem.self, CalendarLink.self]
+            let cache: [any PersistentModel.Type] = [CachedSky.self, CachedEvents.self]
+            let old = try ModelContainer(
+                for: Schema(user + cache),
+                configurations: [
+                    ModelConfiguration("user", schema: Schema(user), url: files.user),
+                    ModelConfiguration("cache", schema: Schema(cache), url: files.cache),
+                ]
+            )
+            let context = ModelContext(old)
+            context.insert(ListItem(kind: .get, title: "Oat milk", createdAt: instant("2026-11-15T12:00:00Z")))
+            context.insert(Settings(zip: "10001"))
+            context.insert(CalendarLink(name: "Family", url: "https://cal.example.com/a.ics", createdAt: .now))
+            context.insert(CachedSky(zip: "10001", payload: Data("{}".utf8), fetchedAt: instant("2026-11-15T12:00:00Z")))
+            context.insert(CachedEvents(payload: Data("{}".utf8), fetchedAt: .now))
+            try context.save()
+        }
+
+        do {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .kept)
+            let context = ModelContext(opened.container)
+            #expect(try titles(opened.container) == ["Oat milk"])
+            #expect(try context.fetch(FetchDescriptor<Settings>()).map(\.zip) == ["10001"])
+            #expect(try context.fetch(FetchDescriptor<CalendarLink>()).map(\.name) == ["Family"])
+            #expect(try context.fetch(FetchDescriptor<CachedSky>()).map(\.zip) == ["10001"])
+            #expect(try context.fetch(FetchDescriptor<CachedEvents>()).count == 1)
+            #expect(try context.fetch(FetchDescriptor<Site>()).isEmpty)
+            context.insert(sampleSite())
+            context.insert(sampleItem())
+            context.insert(CachedFeedState(payload: Data("{}".utf8), fetchedAt: .now))
+            try context.save()
+        }
+
+        // The next launch finds everything, and each model is in its own file.
+        let again = try LocalStore.open(files)
+        #expect(again.cache == .kept)
+        let context = ModelContext(again.container)
+        #expect(try context.fetch(FetchDescriptor<Site>()).map(\.category) == ["Sci"])
+        #expect(try context.fetch(FetchDescriptor<FeedItem>()).count == 1)
+        #expect(try titles(again.container) == ["Oat milk"])
+
+        let userOnly = try ModelContainer(
+            for: Schema(SeasignSchema.userModels),
+            configurations: [ModelConfiguration("user", schema: Schema(SeasignSchema.userModels), url: files.user)]
+        )
+        #expect(try ModelContext(userOnly).fetch(FetchDescriptor<Site>()).count == 1)
+        let cacheOnly = try ModelContainer(
+            for: Schema(SeasignSchema.cacheModels),
+            configurations: [ModelConfiguration("cache", schema: Schema(SeasignSchema.cacheModels), url: files.cache)]
+        )
+        #expect(try ModelContext(cacheOnly).fetch(FetchDescriptor<FeedItem>()).count == 1)
+        #expect(try ModelContext(cacheOnly).fetch(FetchDescriptor<CachedFeedState>()).count == 1)
+    }
+
+    /// A followed site is something the user entered: it survives the loss of
+    /// the cache, and the cached items go with the cache.
+    @Test func sitesSurviveABrokenCache() throws {
+        defer { cleanUp() }
+        do {
+            let opened = try LocalStore.open(files)
+            let context = ModelContext(opened.container)
+            context.insert(sampleSite())
+            context.insert(sampleItem())
+            try context.save()
+        }
+        try overwriteWithJunk(files.cache)
+        let opened = try LocalStore.open(files)
+        #expect(opened.cache == .recreated)
+        let context = ModelContext(opened.container)
+        #expect(try context.fetch(FetchDescriptor<Site>()).map(\.url) == ["https://news.example.com/science/"])
+        #expect(try context.fetch(FetchDescriptor<FeedItem>()).isEmpty)
+    }
+
+    private func sampleSite() -> Site {
+        Site(
+            url: "https://news.example.com/science/", title: "Science | Example News", category: "Sci",
+            mode: .feed, feedUrl: "https://news.example.com/science/feed/", createdAt: .now
+        )
+    }
+
+    private func sampleItem() -> FeedItem {
+        FeedItem(FeedEntry(
+            link: "https://news.example.com/science/a", title: "A", source: "Example News",
+            published: .now, dateSource: .published, excerpt: nil, siteID: UUID(),
+            category: "Sci", firstFetchedAt: .now
+        ))
+    }
+
     /// A calendar link is something the user entered: it survives the loss of
     /// the cache, and the cached events go with the cache.
     @Test func calendarLinksSurviveABrokenCache() throws {

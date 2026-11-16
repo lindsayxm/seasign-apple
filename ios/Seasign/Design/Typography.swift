@@ -40,8 +40,11 @@ extension Text {
     /// accessibility label. `textCase(.uppercase)` is not used anywhere: it
     /// also capitalises accessibility labels, including explicit ones on an
     /// enclosing button, and VoiceOver may then spell a word out ("C-L-O-S-E").
+    ///
+    /// The string is taken verbatim, never as Markdown or a localization key,
+    /// so it is safe for text that came from a website.
     init(caps string: String) {
-        self = Text(string.uppercased()).accessibilityLabel(Text(string))
+        self = Text(verbatim: string.uppercased()).accessibilityLabel(Text(verbatim: string))
     }
 }
 

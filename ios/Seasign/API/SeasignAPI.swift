@@ -98,6 +98,166 @@ struct SeasignAPI: Sendable {
             throw CalendarFailure.unavailable
         }
     }
+
+    /// Why a sites or feed request failed as a whole. Payload-free, like
+    /// `CalendarFailure`: the generated client's errors describe the request.
+    enum SitesFailure: Error, Equatable {
+        /// The API refused the request (400): a bad body, too many sites, or
+        /// a body over 64 KB.
+        case invalidRequest
+        /// The server could not be reached, failed, or sent something unreadable.
+        case unavailable
+    }
+
+    /// `POST /v1/sites/resolve`: how the page at `url` can be followed, or why
+    /// it cannot. A page that cannot be read is `.failed`, not thrown. Throws
+    /// a `SitesFailure`.
+    func resolveSite(url: String) async throws -> SiteResolveResult {
+        let output: Operations.postSitesResolve.Output
+        do {
+            output = try await client.postSitesResolve(body: .json(.init(url: url)))
+        } catch {
+            throw SitesFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let body = try? response.body.json,
+                  let result = SiteResolveResult(body)
+            else { throw SitesFailure.unavailable }
+            return result
+        case .badRequest:
+            throw SitesFailure.invalidRequest
+        default:
+            throw SitesFailure.unavailable
+        }
+    }
+
+    /// `POST /v1/feed`: the last 7 days of items from up to 50 sites, newest
+    /// first, and how reading each site went. A site that cannot be read is
+    /// reported in `sites`, not thrown. Throws a `SitesFailure`.
+    func feed(sites: [FeedAnswer.Request]) async throws -> FeedAnswer {
+        let output: Operations.postFeed.Output
+        do {
+            output = try await client.postFeed(
+                body: .json(.init(sites: sites.map {
+                    Components.Schemas.FeedSite(
+                        url: $0.url,
+                        mode: $0.mode == .feed ? .feed : .links,
+                        feedUrl: $0.feedUrl
+                    )
+                }))
+            )
+        } catch {
+            throw SitesFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let body = try? response.body.json else { throw SitesFailure.unavailable }
+            return FeedAnswer(body)
+        case .badRequest:
+            throw SitesFailure.invalidRequest
+        default:
+            throw SitesFailure.unavailable
+        }
+    }
+}
+
+/// A `POST /v1/sites/resolve` answer in the app's own types.
+enum SiteResolveResult: Sendable, Equatable {
+    struct Resolved: Sendable, Equatable {
+        /// The page's or feed's title, as the site gives it (untrusted text).
+        var title: String
+        /// The address in normal form; what to store and send to `/v1/feed`.
+        var url: String
+        var mode: SiteMode
+        /// Only in feed mode.
+        var feedUrl: String?
+        /// How many article links the page shows now; nil when the address is a feed.
+        var linkCount: Int?
+    }
+
+    case resolved(Resolved)
+    case failed(SiteProblem)
+}
+
+extension SiteResolveResult {
+    /// Nil for an answer that says it worked but lacks what following the
+    /// site needs (an address and a mode, and a feed address in feed mode).
+    init?(_ body: Components.Schemas.SiteResolve) {
+        guard body.ok else {
+            let problem = body.error.flatMap { SiteProblem(rawValue: $0.rawValue) } ?? .fetchFailed
+            self = .failed(problem)
+            return
+        }
+        guard let url = body.url, !url.isEmpty, let rawMode = body.mode,
+              let mode = SiteMode(rawValue: rawMode.rawValue)
+        else { return nil }
+        let feedUrl = mode == .feed ? body.feedUrl : nil
+        if mode == .feed, feedUrl?.isEmpty ?? true { return nil }
+        self = .resolved(Resolved(
+            title: body.title ?? "",
+            url: url,
+            mode: mode,
+            feedUrl: feedUrl,
+            linkCount: body.linkCount
+        ))
+    }
+}
+
+/// A `POST /v1/feed` response in the app's own types. Sites are named by
+/// their index in the request.
+struct FeedAnswer: Sendable, Equatable {
+    /// One site as the request names it.
+    struct Request: Sendable, Equatable {
+        var url: String
+        var mode: SiteMode
+        var feedUrl: String?
+    }
+
+    struct Item: Sendable, Equatable {
+        /// Index of the site in the request.
+        var site: Int
+        var title: String
+        var link: String
+        var source: String
+        var published: Date
+        var dateSource: FeedDateSource
+        /// Nil when the site gives no summary (always for links mode).
+        var excerpt: String?
+    }
+
+    struct Status: Sendable, Equatable {
+        var index: Int
+        var ok: Bool
+        var error: SiteProblem?
+    }
+
+    var items: [Item]
+    /// One entry per site, in request order.
+    var sites: [Status]
+}
+
+extension FeedAnswer {
+    init(_ body: Components.Schemas.Feed) {
+        items = body.items.map { item in
+            Item(
+                site: item.site,
+                title: item.title,
+                link: item.link,
+                source: item.source,
+                published: item.published,
+                dateSource: FeedDateSource(rawValue: item.dateSource.rawValue) ?? .published,
+                excerpt: item.excerpt
+            )
+        }
+        sites = body.sites.map { status in
+            Status(
+                index: status.index,
+                ok: status.ok,
+                error: status.error.flatMap { SiteProblem(rawValue: $0.rawValue) }
+            )
+        }
+    }
 }
 
 /// A `POST /v1/calendar/events` response in the app's own types. Calendars are

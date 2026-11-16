@@ -23,7 +23,8 @@ struct WrappedCaps: View {
         }
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                Text(line)
+                // Verbatim: headlines come from websites and are never read as markup.
+                Text(verbatim: line)
                     .caps(size, tracking: tracking)
                     .lineLimit(1)
                     .fixedSize()
@@ -32,7 +33,7 @@ struct WrappedCaps: View {
         }
         .frame(width: width, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(text)
+        .accessibilityLabel(Text(verbatim: text))
     }
 }
 
