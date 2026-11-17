@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seasign v4 — cartography</title>
+<style>
+  /* Baskerville and Snell Roundhand ship with macOS and iOS; nothing is downloaded. */
+  :root { --ink: 44, 38, 31; --paper: #efe8d6; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #17181a; color: #c9c5bb;
+    font-family: Baskerville, "Libre Baskerville", "Iowan Old Style", Georgia, serif;
+    display: flex; align-items: center; justify-content: center; gap: 48px; flex-wrap: wrap; padding: 24px;
+  }
+  body.bare { display: block; padding: 0; background: #000; overflow: hidden; }
+
+  .phone {
+    position: relative; width: 393px; height: 852px; flex: none; border-radius: 46px; overflow: hidden; background: var(--paper);
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 0 0 9px #050506, 0 0 0 10px rgba(255,255,255,.10), 0 30px 90px rgba(0,0,0,.7);
+  }
+  body.bare .phone { border-radius: 0; box-shadow: none; }
+  canvas { position: absolute; inset: 0; width: 393px; height: 852px; display: block; }
+
+  /* ---------- the printed matter ---------- */
+  .ui { position: absolute; inset: 0; color: rgb(var(--ink)); }
+  .caps { text-transform: uppercase; letter-spacing: .2em; }
+  .clock { position: absolute; left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; opacity: .9; }
+
+  .date { position: absolute; left: 35px; top: 60px; font-size: 9.5px; }
+  .day  { position: absolute; left: 32px; top: 66px; font-size: 62px; line-height: 76px; letter-spacing: -.01em; }
+  .now  { position: absolute; left: 34px; top: 146px; display: flex; align-items: center; gap: 9px; font-size: 10px; }
+  .now svg { width: 26px; height: 26px; }
+  .now i { font-size: 13px; letter-spacing: .02em; text-transform: none; }
+
+  .rule-v { position: absolute; left: 180px; top: 64px; width: 1px; height: 104px; background: rgba(var(--ink), .55); }
+  .rule-h { position: absolute; left: 30px; right: 30px; top: 190px; height: 3px;
+            border-top: 1px solid rgba(var(--ink), .8); border-bottom: 1px solid rgba(var(--ink), .35); }
+
+  .events { position: absolute; left: 193px; top: 66px; width: 174px; margin: 0; padding: 0; list-style: none; font-size: 8.5px; line-height: 14px; }
+  .events li { display: grid; grid-template-columns: 62px 1fr; margin-bottom: 10px; letter-spacing: .15em; text-transform: uppercase; }
+  .events time { font-style: italic; font-size: 11.5px; letter-spacing: .02em; text-transform: none; opacity: .8; }
+
+  svg.glyph { fill: none; stroke: rgb(var(--ink)); stroke-width: 1.15; stroke-linecap: round; stroke-linejoin: round; }
+  .icons { position: absolute; left: 327px; top: 208px; display: grid; gap: 17px; }
+  .icons svg { width: 27px; height: 27px; }
+
+  .fig { position: absolute; top: 399px; font: 17px "Snell Roundhand", "Apple Chancery", Baskerville, cursive; opacity: .82; white-space: nowrap; }
+
+  .feed { position: absolute; left: 34px; top: 500px; width: 330px; margin: 0; padding: 0; list-style: none; font-size: 14.5px; line-height: 18.5px; }
+  .feed li { display: grid; grid-template-columns: 26px 1fr; height: 56px; }
+  .feed i { opacity: .6; }
+
+  .more { position: absolute; left: 34px; top: 802px; font-size: 20px; }
+  .home { position: absolute; left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(var(--ink), .5); }
+
+  /* ---------- beside the phone: the states, and the key to the weather signs ---------- */
+  nav { width: 270px; font-family: Baskerville, Georgia, serif; }
+  nav h1 { font-size: 13px; font-weight: 400; letter-spacing: .3em; text-transform: uppercase; margin: 0 0 6px; color: #f1ecdf; }
+  nav h2 { font-size: 11px; font-weight: 400; letter-spacing: .3em; text-transform: uppercase; margin: 26px 0 10px; color: #f1ecdf; }
+  nav p { font-size: 14px; line-height: 1.45; color: #99958c; margin: 0 0 16px; }
+  nav button {
+    display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 1px solid #33342f;
+    color: #a5a198; font: 11px Baskerville, Georgia, serif; letter-spacing: .24em; text-transform: uppercase; padding: 8px 14px; cursor: pointer;
+  }
+  nav button:hover { color: #fff; }
+  nav button[aria-pressed="true"] { color: #fff; border-left-color: #f1ecdf; }
+  nav button:focus-visible { outline: 1px solid #fff; outline-offset: -1px; }
+  .key { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 8px; }
+  .key div { text-align: center; font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase; color: #a5a198; }
+  .key svg { width: 34px; height: 34px; display: block; margin: 0 auto 4px; stroke: #f1ecdf; }
+  body.bare nav { display: none; }
+</style>
+</head>
+<body>
+
+<!-- The signs. The first three are the app's own (settings, list, saved); the weather signs are drawn to sit with them:
+     one weight of line, round ends, a long stroke crossed or interrupted by short ones, nothing quite symmetrical. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="g-settings" viewBox="0 0 26 26"><path d="M4 9h18M4 17h18M16 5.5v7M10 13.5v7"/></symbol>
+  <symbol id="g-list" viewBox="0 0 26 26"><circle cx="13" cy="13" r="7.5"/><path d="M3 10.5h20M3 15.5h20"/></symbol>
+  <symbol id="g-saved" viewBox="0 0 26 26"><path d="M13 3.5v19M4.8 8.2l16.4 9.6M21.2 8.2L4.8 17.8"/></symbol>
+
+  <symbol id="g-clear" viewBox="0 0 26 26"><circle cx="13" cy="11" r="5.5"/><path d="M13 2.5v17M4 21.5h18M17.5 19v5"/></symbol>
+  <symbol id="g-clouds" viewBox="0 0 26 26"><path d="M3 16.5h20M6 16.5a5.5 5.5 0 0 1 11 0M14.5 12.2a4 4 0 0 1 7 2.6M8 21h13"/></symbol>
+  <symbol id="g-rain" viewBox="0 0 26 26"><path d="M3 8.5h20M9.5 5.5l-3.6 15M14.5 8.5l-2.6 11M20 8.5l-1.7 7"/></symbol>
+  <symbol id="g-snow" viewBox="0 0 26 26"><path d="M3 8.5h20M17 5.5v6M5.5 13.5l4 4M9.5 13.5l-4 4M11.5 18.5l4 4M15.5 18.5l-4 4M18 13l3.5 3.5M21.5 13L18 16.5"/></symbol>
+  <symbol id="g-night" viewBox="0 0 26 26"><path d="M16.5 6.2a7.5 7.5 0 1 0 0 13.6a9 9 0 0 1 0 -13.6zM3 13h9M21 3.5v5M18.5 6h5"/></symbol>
+</svg>
+
+<div class="phone" id="phone">
+  <canvas id="scene" width="393" height="852"></canvas>
+  <div class="ui">
+    <div class="clock">6:23</div>
+    <div class="date caps">Nov. 16</div>
+    <div class="day">Mon</div>
+    <div class="now caps"><svg class="glyph"><use id="weather" href="#g-clear"/></svg><span>55°F &nbsp;·&nbsp; <span id="weather-word">Clear</span></span></div>
+    <div class="rule-v"></div>
+    <ul class="events">
+      <li><time>6:45 pm</time><span>Hanna's show</span></li>
+      <li><time>8:15 pm</time><span>Submit work hours for St…</span></li>
+      <li><time>Tue., all day</time><span>Brush pets teeth</span></li>
+    </ul>
+    <div class="rule-h"></div>
+    <div class="icons" aria-hidden="true">
+      <svg class="glyph"><use href="#g-settings"/></svg>
+      <svg class="glyph"><use href="#g-list"/></svg>
+      <svg class="glyph"><use href="#g-saved"/></svg>
+    </div>
+    <div class="fig" id="fig">Fig. 1.</div>
+    <ul class="feed">
+      <li><i>a.</i><span>A short explainer on how El Niño works [video]</span></li>
+      <li><i>b.</i><span>It's getting too dry for even cactuses to survive</span></li>
+      <li><i>c.</i><span>'Birdbrain' is a misnomer. Crows make decisions faster than we can</span></li>
+      <li><i>d.</i><span>What the Great Lakes remember about last winter</span></li>
+      <li><i>e.</i><span>The quiet return of the paper map</span></li>
+    </ul>
+    <div class="more">»</div>
+    <div class="home"></div>
+  </div>
+</div>
+
+<nav id="nav" aria-label="Scene state">
+  <h1>Seasign v4 · Cartography</h1>
+  <p>An engraved plate: off-white paper by day, charcoal at night. Weather is a sign beside the temperature, not a picture.</p>
+  <div id="states"></div>
+  <h2>Weather signs</h2>
+  <div class="key">
+    <div><svg class="glyph"><use href="#g-clear"/></svg>Clear</div>
+    <div><svg class="glyph"><use href="#g-clouds"/></svg>Clouds</div>
+    <div><svg class="glyph"><use href="#g-rain"/></svg>Rain</div>
+    <div><svg class="glyph"><use href="#g-snow"/></svg>Snow</div>
+    <div><svg class="glyph"><use href="#g-night"/></svg>Clear night</div>
+  </div>
+</nav>
+
+<script>
+"use strict";
+const W = 393, H = 852, HZ = 440;              // HZ: the horizon
+const TAU = Math.PI * 2;
+const ARC = { cx: W / 2, rx: 106, ry: 200 };   // the path of the sun and moon: up at the left, down at the right
+
+const PAPER = {
+  day:   { paper: "#efe8d6", ink: "44,38,31",    fleck: "120,96,60" },
+  night: { paper: "#26282b", ink: "233,228,216", fleck: "255,255,255", night: true },
+};
+/* `turn`: 0 = on the horizon at the left, .5 = the top of the path, 1 = on the horizon at the right */
+const STATES = [
+  { id: "sunrise",     label: "Sunrise",     paper: "day",   turn: .075, sign: "clear",  word: "Clear" },
+  { id: "mid-day",     label: "Mid-day",     paper: "day",   turn: .5,   sign: "clear",  word: "Clear" },
+  { id: "sunset",      label: "Sunset",      paper: "day",   turn: .925, sign: "clear",  word: "Clear" },
+  { id: "clouds",      label: "Clouds",      paper: "day",   turn: .5,   sign: "clouds", word: "Clouds" },
+  { id: "rain",        label: "Rain",        paper: "day",   turn: .5,   sign: "rain",   word: "Rain" },
+  { id: "snow",        label: "Snow",        paper: "day",   turn: .5,   sign: "snow",   word: "Snow" },
+  { id: "moon-rise",   label: "Moon rise",   paper: "night", turn: .075, sign: "night",  word: "Clear", phase: .5 },
+  { id: "mid-night",   label: "Mid-night",   paper: "night", turn: .5,   sign: "night",  word: "Clear", phase: .5 },
+  { id: "moon-waxing", label: "Waxing moon", paper: "night", turn: .38,  sign: "night",  word: "Clear", phase: .25 },
+  { id: "moon-waning", label: "Waning moon", paper: "night", turn: .62,  sign: "night",  word: "Clear", phase: .75 },
+  { id: "moon-full",   label: "Full moon",   paper: "night", turn: .5,   sign: "night",  word: "Clear", phase: .5 },
+  { id: "moon-set",    label: "Moon set",    paper: "night", turn: .925, sign: "night",  word: "Clear", phase: .5 },
+];
+
+function prng(seed) {                          // mulberry32: the same picture every time
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+const DPR = Math.min(3, window.devicePixelRatio || 1);
+canvas.width = W * DPR; canvas.height = H * DPR;
+
+let state, look, body, sheet, bits;
+const ink = a => `rgba(${look.ink},${a})`;
+
+/* The sheet of paper, with its grain, is made once per state. */
+function makeSheet() {
+  const c = document.createElement("canvas"); c.width = W * DPR; c.height = H * DPR;
+  const g = c.getContext("2d"); g.scale(DPR, DPR);
+  g.fillStyle = look.paper; g.fillRect(0, 0, W, H);
+  const rnd = prng(5);
+  for (let i = 0; i < 9000; i++) {                                   // fibres and flecks
+    g.fillStyle = `rgba(${rnd() < .5 ? look.fleck : (look.night ? "0,0,0" : "255,255,255")},${.02 + rnd() * .05})`;
+    g.fillRect(rnd() * W, rnd() * H, .5 + rnd() * 1.4, .5 + rnd() * .9);
+  }
+  for (let i = 0; i < 14; i++) {                                     // uneven tone, as on old stock
+    const x = rnd() * W, y = rnd() * H, r = 60 + rnd() * 160;
+    const s = g.createRadialGradient(x, y, 0, x, y, r);
+    s.addColorStop(0, `rgba(${look.night ? "0,0,0" : "150,120,70"},${.03 + rnd() * .04})`); s.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = s; g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  const v = g.createRadialGradient(W / 2, H / 2, H * .35, W / 2, H / 2, H * .75);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, look.night ? "rgba(0,0,0,.3)" : "rgba(110,84,40,.16)");
+  g.fillStyle = v; g.fillRect(0, 0, W, H);
+  return c;
+}
+function makeBits() {
+  const rnd = prng(23), list = (n, f) => Array.from({ length: n }, f);
+  return {
+    stars: list(90, () => ({ x: 14 + rnd() * (W - 28), y: 204 + rnd() * (HZ - 214), s: .5 + Math.pow(rnd(), 3) * 1.3, ph: rnd() * TAU, sp: .5 + rnd() * 1.5, four: rnd() < .1 })),
+    figures: [                                                        // three small constellations
+      [[40, 262], [58, 248], [79, 256], [88, 276], [70, 290], [58, 248]],
+      [[292, 232], [309, 250], [300, 272], [322, 284], [309, 250]],
+      [[252, 392], [270, 380], [292, 388], [306, 372]],
+    ],
+  };
+}
+
+function ring(x, y, r, alpha, width = .7, dash) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.setLineDash(dash || []); ctx.lineWidth = width; ctx.strokeStyle = ink(alpha); ctx.stroke(); ctx.setLineDash([]);
+}
+function line(x0, y0, x1, y1, alpha, width = .7, dash) {
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.setLineDash(dash || []); ctx.lineWidth = width; ctx.strokeStyle = ink(alpha); ctx.stroke(); ctx.setLineDash([]);
+}
+function letter(text, x, y, alpha = .8) {
+  ctx.font = "italic 10px Baskerville, Georgia, serif"; ctx.fillStyle = ink(alpha); ctx.textAlign = "center"; ctx.fillText(text, x, y);
+}
+
+function draw(t) {
+  const { x: bx, y: by } = body, night = look.night;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(sheet, 0, 0);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.lineCap = "round";
+
+  /* ---- the sky, between the rule under the heading and the horizon ---- */
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 198, W, HZ - 198); ctx.clip();
+  if (night) {
+    for (const f of bits.figures) {
+      ctx.beginPath(); f.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.lineWidth = .5; ctx.strokeStyle = ink(.3); ctx.stroke();
+      for (const [x, y] of f) { ctx.beginPath(); ctx.arc(x, y, 1.3, 0, TAU); ctx.fillStyle = ink(.55); ctx.fill(); }
+    }
+    for (const s of bits.stars) {
+      const tw = .55 + .45 * Math.sin(t * s.sp + s.ph);
+      ctx.fillStyle = ink(.85 * tw);
+      if (s.four) { ctx.fillRect(s.x - 3, s.y - .3, 6, .6); ctx.fillRect(s.x - .3, s.y - 3, .6, 6); }
+      else { ctx.beginPath(); ctx.arc(s.x, s.y, s.s, 0, TAU); ctx.fill(); }
+    }
+    /* orbits round the moon: whole, long-dashed and dotted in turn, slowly turning */
+    [[26, .8, null], [44, .5, [9, 5]], [66, .55, null], [92, .4, [2, 5]], [124, .4, [14, 6]], [162, .3, null], [206, .26, [3, 7]], [256, .2, [18, 8]]]
+      .forEach(([r, a, dash], i) => {
+        ctx.save(); ctx.translate(bx, by); ctx.rotate(t * .02 * (i % 2 ? -1 : 1));
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.setLineDash(dash || []); ctx.lineWidth = i === 2 ? 1.1 : .7; ctx.strokeStyle = ink(a); ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(r, 0, i % 3 ? 1.4 : 2.4, 0, TAU); ctx.fillStyle = i % 3 ? ink(.8) : look.paper; ctx.fill(); ctx.lineWidth = .7; ctx.strokeStyle = ink(.8); ctx.stroke();
+        ctx.restore();
+      });
+  } else {
+    /* light spreading from the sun as dotted rings, as waves are drawn on an optics plate; they move outward slowly */
+    const drift = (t * 2.2) % 13;
+    for (let r = 34 + drift; r < 330; r += 13) ring(bx, by, r, Math.max(.1, .62 - r / 520) * Math.min(1, (r - 30) / 12), .75, [1.1, 3.1]);
+    for (const [r, w] of [[15, 2.6], [25, 3.4]]) {                     // two shaded rings close in
+      ring(bx, by, r, .8, .7);
+      ctx.beginPath(); ctx.arc(bx, by, r - w / 2, -.5, 2.4); ctx.lineWidth = w; ctx.lineCap = "butt"; ctx.strokeStyle = ink(.62); ctx.stroke(); ctx.lineCap = "round";
+    }
+  }
+
+  /* the path, with hour marks, and its feet lettered A and B */
+  const a = Math.PI + state.turn * Math.PI;
+  ctx.beginPath(); ctx.ellipse(ARC.cx, HZ, ARC.rx, ARC.ry, 0, Math.PI, a); ctx.lineWidth = .9; ctx.strokeStyle = ink(.85); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(ARC.cx, HZ, ARC.rx, ARC.ry, 0, a, TAU); ctx.setLineDash([4, 4]); ctx.strokeStyle = ink(.6); ctx.stroke(); ctx.setLineDash([]);
+  for (let i = 1; i < 12; i++) {
+    const q = Math.PI + i * Math.PI / 12, n = i % 3 === 0 ? 6 : 3;
+    const px = ARC.cx + ARC.rx * Math.cos(q), py = HZ + ARC.ry * Math.sin(q);
+    const nx = Math.cos(q) * ARC.ry, ny = Math.sin(q) * ARC.rx, m = Math.hypot(nx, ny);
+    line(px, py, px + nx / m * n, py + ny / m * n, .75, .8);
+  }
+  line(bx, by + (night ? 13 : 10), bx, HZ, .7, .8);                    // the plumb line from the light to the water
+
+  /* the sun or moon */
+  if (night) {
+    const R = 11, c = Math.cos(TAU * state.phase), k = (1 - c) / 2;
+    ctx.save(); ctx.translate(bx, by);
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fillStyle = look.paper; ctx.fill();
+    ctx.save(); ctx.clip();                                            // the dark of the moon, hatched
+    for (let d = -2 * R; d < 2 * R; d += 2.6) line(d, -R, d + R, R, .55, .6);
+    ctx.restore();
+    ctx.fillStyle = ink(1);
+    if (k > .985) { ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fill(); }
+    else if (k > .015) {
+      ctx.save(); if (state.phase > .5) ctx.scale(-1, 1);
+      ctx.beginPath(); ctx.arc(0, 0, R, -Math.PI / 2, Math.PI / 2); ctx.ellipse(0, 0, R * Math.abs(c), R, 0, Math.PI / 2, Math.PI * 1.5, k < .5); ctx.fill();
+      ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.lineWidth = .9; ctx.strokeStyle = ink(1); ctx.stroke();
+    ctx.restore();
+  } else {
+    ctx.beginPath(); ctx.arc(bx, by, 8.5, 0, TAU); ctx.fillStyle = look.paper; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = ink(1); ctx.stroke();
+    for (let i = 0; i < 24; i++) { const q = i / 24 * TAU + t * .03; line(bx + Math.cos(q) * 8.5, by + Math.sin(q) * 8.5, bx + Math.cos(q) * 11, by + Math.sin(q) * 11, .9, .8); }
+    ctx.beginPath(); ctx.arc(bx, by, 1.7, 0, TAU); ctx.fillStyle = ink(1); ctx.fill();
+  }
+  ctx.restore();
+
+  /* ---- the horizon, and the water as ruled lines ---- */
+  const foot = [ARC.cx - ARC.rx, ARC.cx + ARC.rx];
+  line(18, HZ, W - 18, HZ, 1, 1.9);
+  for (const x of foot) { ctx.beginPath(); ctx.arc(x, HZ, 2.6, 0, TAU); ctx.fillStyle = look.paper; ctx.fill(); ctx.lineWidth = .9; ctx.strokeStyle = ink(1); ctx.stroke(); }
+  letter("A", foot[0] - 9, HZ - 6); letter("B", foot[1] + 9, HZ - 6);
+  /* where the light falls on the water the ruling is heavier */
+  const spread = y => 5 + (y - HZ) * .32;
+  let y = HZ + 5.5, gap = 3.2, n = 0;
+  while (y < HZ + 44) {
+    const sway = Math.sin(t * .9 + n * 1.3) * 1.5, half = spread(y);
+    line(18, y, W - 18, y, .5 - n * .035, .6);
+    line(bx - half + sway, y, bx + half + sway, y, .95, 1.5 + (n % 2) * .7);
+    y += gap; gap *= 1.17; n++;
+  }
+  /* two dotted rays run on down the page, behind the text, lightly */
+  for (const s of [-1, 1]) line(bx + s * spread(HZ + 46), HZ + 46, bx + s * spread(H - 60), H - 60, .34, .7, [1.1, 3.4]);
+  for (const [name, x] of [["G", bx - spread(H - 60)], ["H", bx + spread(H - 60)]]) if (x > 14 && x < W - 14) letter(name, x, H - 48, .5);
+}
+
+/* ---------- choosing a state ---------- */
+const params = new URLSearchParams(location.search);
+const still = params.has("still");
+if (params.has("bare")) document.body.classList.add("bare");
+
+function show(id) {
+  state = STATES.find(s => s.id === id) || STATES[0];
+  look = PAPER[state.paper];
+  const a = Math.PI + state.turn * Math.PI;
+  body = { x: ARC.cx + ARC.rx * Math.cos(a), y: HZ + ARC.ry * Math.sin(a) };
+  sheet = makeSheet(); bits = makeBits();
+  const phone = document.getElementById("phone");
+  phone.style.setProperty("--ink", look.ink); phone.style.setProperty("--paper", look.paper);
+  document.getElementById("weather").setAttribute("href", "#g-" + state.sign);
+  document.getElementById("weather-word").textContent = state.word;
+  const fig = document.getElementById("fig");
+  fig.textContent = `Fig. ${STATES.indexOf(state) + 1}. ${state.label}.`;
+  fig.style.left = body.x < W / 2 - 20 ? "auto" : "34px"; fig.style.right = body.x < W / 2 - 20 ? "34px" : "auto";
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
+  if (still) draw(7.3); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
+}
+const holder = document.getElementById("states");
+for (const s of STATES) {
+  const b = document.createElement("button");
+  b.textContent = s.label; b.dataset.id = s.id; b.onclick = () => show(s.id); holder.appendChild(b);
+}
+addEventListener("keydown", e => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  show(STATES[(STATES.indexOf(state) + step + STATES.length) % STATES.length].id);
+});
+
+((document.fonts && document.fonts.ready) || Promise.resolve()).then(() => {
+  show(params.get("state") || "mid-day");
+  if (still) { document.title = "ready"; return; }
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const loop = ms => { draw(calm ? 7.3 : ms / 1000); if (!calm) requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
