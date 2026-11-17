@@ -331,22 +331,13 @@ function draw(t) {
   if (state.phase == null) {
     const g = ctx.createRadialGradient(bx - 2, by - 2, 0, bx, by, R);
     g.addColorStop(0, col(body, veil)); g.addColorStop(1, col(body, .9 * veil));
-    /* its edge is not a clean circle: it ripples a little, and small tongues of light flicker just outside it. Both are slight high in the sky and strongest on the horizon */
-    const amp = .006 + .017 * lowness, edge = q => R * (1 + amp * (.5 * Math.sin(3 * q + t * .8) + .3 * Math.sin(7 * q - t * 1.3 + 1) + .2 * Math.sin(13 * q + t * 2.1 + 2) + .15 * Math.sin(23 * q - t * 3.1)));
-    const limb = () => { ctx.beginPath(); for (let j = 0; j <= 96; j++) { const q = j / 96 * TAU, e = edge(q); ctx.lineTo(bx + e * Math.cos(q), by + e * Math.sin(q)); } ctx.closePath(); };
-    ctx.globalCompositeOperation = "lighter";
-    for (let k = 0; k < 14; k++) {
-      const q = hash(k * 3.3 + 70) * TAU + t * .05 * (k % 2 ? 1 : -1), fl = Math.pow(.5 + .5 * Math.sin(t * (1.6 + hash(k * 2.1) * 2.4) + k * 1.9), 2), len = R * (.05 + .1 * hash(k * 5.7)) * (.5 + lowness);
-      glow(bx + (R + len * .4) * Math.cos(q), by + (R + len * .4) * Math.sin(q), len * 1.5, len * 1.5, k % 3 ? body : "255,214,120", .55 * fl * veil * (.35 + .65 * lowness), .45);
-    }
-    ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = "#020306"; limb(); ctx.fill();
-    ctx.fillStyle = g; limb(); ctx.fill();
+    ctx.fillStyle = "#020306"; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
     /* burning gas: a hot centre, a deeper edge, and bright and dark cells that churn and flicker */
     ctx.save(); ctx.clip();
     const fire = ctx.createRadialGradient(bx, by, 0, bx, by, R);
     fire.addColorStop(0, col("255,244,190", .95 * veil)); fire.addColorStop(.5, col(halo, .55 * veil)); fire.addColorStop(.82, col(body, 0)); fire.addColorStop(1, col("176,30,6", .5));
-    ctx.fillStyle = fire; ctx.fillRect(bx - R * 1.1, by - R * 1.1, R * 2.2, R * 2.2);
+    ctx.fillStyle = fire; ctx.fillRect(bx - R, by - R, R * 2, R * 2);
     for (let k = 0; k < 16; k++) {
       const ang = k * 2.4 + t * (.22 + hash(k * 1.7) * .3) * (k % 2 ? 1 : -1), rad = R * (.1 + .8 * hash(k * 3.1)) * (.85 + .15 * Math.sin(t * .9 + k));
       const size = R * (.24 + .3 * hash(k * 7.7)) * (.8 + .3 * Math.sin(t * 1.7 + k * 2.1)), cx = bx + rad * Math.cos(ang), cy = by + rad * Math.sin(ang);
@@ -357,7 +348,20 @@ function draw(t) {
     const go = Math.floor(t * 10); ctx.drawImage(grain, Math.floor(hash(go) * 90), Math.floor(hash(go + 4.2) * 90), 84, 84, bx - R - 1, by - R - 1, R * 2 + 2, R * 2 + 2);
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
     ctx.globalCompositeOperation = "lighter";
-    ctx.beginPath(); ctx.arc(bx, by, R + 3.5, t * .5, t * .5 + 4.2); ctx.lineWidth = .7; ctx.strokeStyle = col(halo, .8 * veil); ctx.stroke();
+    ctx.beginPath(); ctx.arc(bx, by, R + 3.5, t * .5, t * .5 + 4.2); ctx.lineWidth = .7; ctx.strokeStyle = col(halo, .8 * veil * (1 - lowness)); ctx.stroke();
+    /* near the horizon the sun's own edge stays a clean circle, and a dark orange line just outside it ripples, like burning gas; a fainter second line follows further out */
+    if (lowness > .02) {
+      ctx.globalCompositeOperation = "source-over";
+      for (const [gap, wide, al, sp] of [[3.2, 1.3, .95, 1], [6.4, .7, .5, -1.4]]) {
+        ctx.beginPath();
+        for (let j = 0; j <= 120; j++) {
+          const q = j / 120 * TAU, rip = .5 * Math.sin(5 * q + t * 1.1 * sp) + .3 * Math.sin(11 * q - t * 1.9 * sp + 1) + .2 * Math.sin(19 * q + t * 2.9 * sp + 2);
+          const rr = R + gap + rip * (1.5 + gap * .12) * lowness; ctx.lineTo(bx + rr * Math.cos(q), by + rr * Math.sin(q));
+        }
+        ctx.closePath(); ctx.lineWidth = wide; ctx.lineJoin = "round"; ctx.strokeStyle = col("214,78,10", al * lowness * veil); ctx.stroke();
+      }
+      ctx.globalCompositeOperation = "lighter";
+    }
   } else {
     const k = Math.cos(TAU * state.phase), lit = (1 - k) / 2;
     ctx.fillStyle = "#0b1018"; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
