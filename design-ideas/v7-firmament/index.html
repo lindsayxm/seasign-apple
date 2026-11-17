@@ -9,7 +9,7 @@
   @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
 
   /* --amber: buttons and main highlights; --teal: times and numbers; --hi: the day name. All three are warm by day and cool at night (set per state below). */
-  :root { --amber: 255, 170, 48; --teal: 255, 122, 60; --hi: 255, 214, 160; }
+  :root { --btn: 255, 196, 56; --amber: 255, 170, 48; --teal: 255, 122, 60; --hi: 255, 214, 160; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
@@ -49,7 +49,9 @@
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
   /* one column at the right: saved stays put, list sits centred on the horizon (y 426), settings the same step above */
   .icons { right: 30px; top: 365px; display: flex; flex-direction: column; gap: 26.5px; }
-  .icons svg { width: 23px; height: 23px; filter: drop-shadow(0 0 5px rgba(var(--amber), .7)); }
+  /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
+  .icons svg, svg.more { stroke: rgb(var(--btn)); filter: drop-shadow(0 0 1.5px rgba(0,0,0,.95)) drop-shadow(0 0 4px rgba(0,0,0,.6)) drop-shadow(0 0 5px rgba(var(--btn), .55)); }
+  .icons svg { width: 23px; height: 23px; stroke-width: .1; }
   .more { left: 44px; top: 470px; width: 12px; height: 12px; stroke-width: .17; }
 
   .feed { left: 44px; top: 530px; width: 322px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
@@ -229,7 +231,16 @@ function draw(t) {
     const wet = ctx.createLinearGradient(0, HZ, 0, HZ + 96);                                          // and the sea takes some of that blue
     wet.addColorStop(0, blue(64, 112, 176, .42)); wet.addColorStop(1, blue(20, 40, 90, 0));
     ctx.fillStyle = wet; ctx.fillRect(0, HZ, W, 96);
-    if (warm) {                                                                                       // sunrise and sunset: orange on the horizon, red and pink above it, strongest on the sun's side
+    if (warm && state.look === "sunrise") {                                                           // sunrise: yellow on the horizon, peach and a little pink above, then light blue
+      const band = ctx.createLinearGradient(0, HZ, 0, HZ - 230);
+      band.addColorStop(0, col("255,218,96", .34)); band.addColorStop(.13, col("255,180,92", .25)); band.addColorStop(.3, col("244,140,150", .13));
+      band.addColorStop(.5, col("120,184,240", .2)); band.addColorStop(.75, col("70,130,214", .1)); band.addColorStop(1, col("40,80,170", 0));
+      ctx.fillStyle = band; ctx.fillRect(0, HZ - 230, W, 230);
+      glow(bx, HZ, 250, 70, "255,214,70", .22, .45);
+      glow(bx, HZ - 30, 280, 120, "255,170,90", .12, .5);
+      glow(x + 40, HZ - 120, 330, 120, "130,196,250", .14, .55);
+      glow(bx, HZ + 22, 230, 56, "255,206,110", .1, .45);
+    } else if (warm) {                                                                                // sunset: orange on the horizon, red and pink above it, strongest on the sun's side
       const band = ctx.createLinearGradient(0, HZ, 0, HZ - 190);
       band.addColorStop(0, col("255,134,40", .3)); band.addColorStop(.16, col("250,92,44", .26)); band.addColorStop(.4, col("232,60,84", .17));
       band.addColorStop(.7, col("200,84,130", .07)); band.addColorStop(1, col("120,70,150", 0));
@@ -394,6 +405,8 @@ function show(id) {
   look = LOOK[state.look];
   const tones = look.night ? { amber: "120,226,234", teal: "104,164,222", hi: "218,246,252" }      // cool: aqua, blue, ice
                            : { amber: "255,170,48",  teal: "255,122,60",  hi: "255,214,160" };     // warm: amber, orange, peach
+  /* buttons: the opposite of the sky behind them. Blue day sky: warm yellow. Orange and pink sunrise or sunset: pale ice blue. Black night: bright aqua. */
+  tones.btn = look.night ? "140,240,248" : state.look === "sunrise" || state.look === "sunset" ? "206,246,255" : "255,196,56";
   for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
   document.getElementById("weather").setAttribute("href", "#w-" + state.sign);
   document.getElementById("clock").textContent = state.time.replace(/^0/, "");
