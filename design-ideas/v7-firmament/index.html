@@ -48,14 +48,14 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* one column at the right: saved below the horizon, list centred on it (y 426), settings the same step above; the ∀ button is at the left, just above the first article title */
+  /* one column at the right: saved below the horizon, list centred on it (y 426), settings the same step above; the ∀ button is at the left edge, its bottom level with the bottom of saved */
   .icons { right: 30px; top: 365px; display: flex; flex-direction: column; gap: 26.5px; }
   /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
   .icons svg, svg.more { stroke: rgb(var(--btn)); }
   body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
   .icons svg { width: 23px; height: 23px; stroke-width: .1; }
   /* the dark panel behind these three is drawn on the canvas (see `panel` in the script), so the film grain lies over it */
-  .more { left: 34px; top: 502px; width: 12px; height: 12px; stroke-width: .17; }
+  .more { left: 34px; top: 475.3px; width: 12px; height: 12px; stroke-width: .17; }
 
   .feed { left: 34px; top: 530px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
   .feed li { height: 45px; }
