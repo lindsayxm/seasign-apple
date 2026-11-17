@@ -122,7 +122,7 @@
 <script>
 "use strict";
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
-const RING = { x: W / 2, y: 318, r: 84, band: 19 };   // r: the inner edge; the window inside it does not turn
+const RING = { x: W / 2, y: 322, r: 100, band: 21 };   // r: the inner edge; the window inside it does not turn
 const HZ = 486;                                        // the sea's horizon
 const JA = 28 * PI / 180;                              // the white arc meets the ring this far below its middle
 const JX = RING.r * Math.cos(JA), JY = RING.y + RING.r * Math.sin(JA);
@@ -176,7 +176,7 @@ const bits = {
   mottle: list(26, () => ({ u: rnd(), v: rnd(), w: .12 + rnd() * .3, h: .04 + rnd() * .08, dark: rnd() < .5 })),
   /* wiring: a spoke with a short arc at its end */
   wires: list(64, () => ({ a: rnd() * TAU, r0: 1.35 + rnd() * 1.5, len: .06 + rnd() * .5, da: (rnd() - .35) * .16, w: rnd() < .25 ? 1.6 : .7, rose: rnd() < .3, k: .6 + rnd() * .6 })),
-  plates: list(18, () => ({ a: rnd() * TAU, len: .1 + rnd() * .5, r: 1.34 + Math.floor(rnd() * 4) * .13, k: .7 + rnd() * .5 })),
+  plates: list(54, () => ({ a: rnd() * TAU, len: .08 + rnd() * rnd() * 1.1, r: 1.3 + Math.pow(rnd(), 1.4) * .6, w: .012 + rnd() * rnd() * .13, k: .5 + rnd() * .9, al: .25 + rnd() * .75, seed: rnd() * 99, line: rnd() < .3 })),
   blocks: list(30, () => ({ a: rnd() * TAU, len: .02 + rnd() * .1, r: .2 + rnd() * .6, on: rnd() })),
   spokes: list(11, () => ({ a: rnd() * TAU, r0: .25 + rnd() * .3, r1: .7 + rnd() * .28 })),
   beams: list(22, () => ({ a: rnd() * TAU, ph: rnd(), sp: .035 + rnd() * .07, len: 50 + rnd() * 150, w: .8 + rnd() * 1.3, k: rnd() })),
@@ -211,7 +211,7 @@ const pathAt = (u, t = 0, h = PATH_H) => [RING.x - JX * Math.cos(PI * u), JY - h
 
 function draw(t) {
   const { x, y, r, band } = RING, { body, glow: halo, arc: tint } = look;
-  const P = look.power * (.96 + .04 * Math.sin(t * 1.3)), spin = t * .045;        // canvas angles grow clockwise
+  const P = look.power * (.96 + .04 * Math.sin(t * 1.3)), spin = t * .009;         // canvas angles grow clockwise
   const [bx, by] = pathAt(state.turn);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
@@ -234,7 +234,18 @@ function draw(t) {
 
   /* ---- everything that turns with the ring ---- */
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
-  for (const p of bits.plates) arc(r * p.r, p.a + spin * p.k, p.a + spin * p.k + p.len, ICE, .15 * (.5 + .5 * P), r * .09);
+  for (const p of bits.plates) {                                                 // the outer ring: many overlapping pieces, each worn and uneven
+    const a0 = p.a + spin * p.k, n = Math.max(3, Math.ceil(p.len / .03)), da = p.len / n, wide = p.w * r;
+    const base = .36 * p.al * (.5 + .5 * P) * (.82 + .18 * Math.sin(t * .6 + p.seed));
+    arc(r * p.r, a0 + da, a0 + p.len - da, ICE, base * .3, wide * 2.6);              // its own soft light
+    for (let j = 0; j < n; j++) {
+      const h = hash(p.seed + j * 1.31), h2 = hash(p.seed * 3.7 + j * 2.17);
+      if (hash(p.seed * 1.9 + j * 7.7) < .1) continue;                             // gaps
+      const ends = Math.pow(Math.sin(PI * (j + .5) / n), .45);
+      arc(r * p.r + (h2 - .5) * 1.4, a0 + j * da, a0 + (j + 1) * da + .002, h > .93 ? "236,246,255" : ICE, base * ends * (.3 + .7 * h) * (h > .93 ? 2.2 : 1), wide * (.75 + .5 * h2));
+    }
+    if (p.line) arc(r * p.r + wide * .5 + 1, a0, a0 + p.len, SILVER, base * 1.6, .5, [1 + p.seed % 5, 1 + p.seed % 3]);
+  }
   for (const m of bits.mist) {                                                   // uneven haze, so the halo is not a clean disc
     const a = m.a + spin * m.k;
     glow(x + r * m.d * Math.cos(a), y + r * m.d * Math.sin(a), r * m.s, r * m.s, ICE, .1 * (.5 + .5 * P), .5);
@@ -265,7 +276,7 @@ function draw(t) {
   ctx.shadowColor = col(ICE, 1); ctx.shadowBlur = 10 * DPR * P;
   arc(r + band + 4, 0, TAU, ICE, .5 * P, 1);
   ctx.shadowBlur = 0;
-  arc(r + band + 9, spin * 1.2, spin * 1.2 + 4.4, ICE, .3 * P, 3.5, [14, 5]);
+  
   arc(r + band - 2, 0, TAU, SILVER, .5 * P, .5);
   arc(r + 4, 0, TAU, SILVER, .55 * P, 2.4, [.6, 1.5]);                             // the fine teeth on the inner edge
   arc(r + 1, 0, TAU, SILVER, .5 * P, .6);
@@ -338,7 +349,7 @@ function draw(t) {
   }
 
   /* the sun or the moon */
-  const R = 10.5, veil = state.rain ? .7 : state.clouds ? .85 : 1;
+  const R = 12, veil = state.rain ? .7 : state.clouds ? .85 : 1;
   glow(bx, by, R * 4.2, R * 4.2, halo, .55 * P * veil, .3);
   ctx.globalCompositeOperation = "source-over";
   if (state.phase == null) {
