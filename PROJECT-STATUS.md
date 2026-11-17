@@ -70,3 +70,25 @@ Entry format:
   - Test output: filter `xcodebuild` output with `^✘ Test |^\*\* TEST|^✔ Test run`; the `LocalStore` tests print CoreData "error" lines that are not failures.
   - The Mac's disk is nearly full; builds use the default DerivedData.
   - User decisions from this session: `memory/decisions/2026-11-16-user-decisions.md`.
+
+## 2026-11-16 (later) — calendar live check passed; six look-only design versions in `design-ideas/`, v6 being refined
+
+- Done:
+  - #6 closed: the user pasted a real Google secret iCal link in the Simulator against local `wrangler dev`; events loaded, and the link did not appear in the server log.
+  - #26–#33: `design-ideas/` created (rules in `design-ideas/README.md`, row added to `AGENTS.md`), with `v1-original/` (12 Simulator screenshots and a web page of the current look), `v2-halo/`, `v3-cyclo/`, `v4-cartography/`, `v5-hud/`. Each has an animated `index.html`, twelve stills and a README. The user's references are in `design-ideas/ref-img/<same name>/`.
+  - #34–#44: `v6-hud2/`, the version the user is refining: rotating portal ring, beams, swirling star dust, sun and moon on a low arc inside the ring, weather inside it, warm accents by day and cool at night, buttons in a column at the right.
+  - No file under `ios/` or `api/` changed. Working tree clean at the wrap-up commit.
+- In flight:
+  - #20 (in `todo`, 1 of 2 criteria): real-key provider smoke tests, on hold because the user has no Gemini key yet.
+  - v6 has no open task; the user is expected to bring more changes.
+- Next:
+  1. Continue v6 when the user returns. Read `memory/notes/2026-11-16-design-ideas.md` first: it lists what is settled, how stills are rendered, and the random-number pitfall.
+  2. When the user picks a design, create tasks to build it in `ios/`; nothing from `design-ideas/` is in the app yet.
+  3. #20 when the user has provider keys; #13 and #14 when the Apple Developer account is approved.
+- Notes:
+  - The agent cannot watch the mockup animations. Every motion change was checked by comparing still frames a few seconds apart, and speeds were set by number.
+  - v6's soft-light pass uses the canvas `filter` property; browsers without it show a sharper picture.
+  - Open questions for the user: should v6's beams follow the warm-by-day, cool-at-night rule; should v2–v4 get the app's real settings, list and saved symbols; move calendar links to the Keychain (lead recommends yes); hide titles of private events.
+  - Tasks #34 and later were closed by the lead without a separate reviewer (look-only mockups). #34's acceptance line was not saved as a checkbox, so it shows done with none ticked.
+  - The local API server started for the #6 check was stopped at wrap-up. The iPhone 17 simulator was last launched with a forced moonset scene; a normal relaunch restores the real sky.
+  - Still to correct: the `npx -y npm@11 install` row in the `AGENTS.md` CLI table overstates the problem.
