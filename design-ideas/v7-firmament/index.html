@@ -134,7 +134,7 @@
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
 const HZ = 376;                                        // the sea's horizon
 const PANEL = { x: 329, y: 302, w: 45, h: 149, r: 13 };  // behind the three buttons at the right
-const PATH = { x: 40 + 115, half: 115, top: 100 };     // left of centre, to leave room for the buttons: its left end is at x 40
+const PATH = { x: 52 + 114, half: 114, top: 100 };     // left of centre: its ends are placed so the large rising and setting sun or moon clears the left edge and the button panel
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
 
 /* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
@@ -218,6 +218,7 @@ function draw(t) {
   const x = W / 2, { body, glow: halo, arc: tint } = look;
   const P = look.power * (.96 + .04 * Math.sin(t * 1.3)), wheel = t * .0015;      // canvas angles grow clockwise: stars rise at the left and set at the right
   const [bx, by] = pathAt(state.turn), lowness = Math.pow(Math.max(0, 1 - (HZ - by) / PATH.top), 2);   // lowness: 1 when the sun or moon is on the water
+  const R = 12 * (1 + 2 * lowness);                                                // the sun and moon are much larger near the horizon: radius 12 high in the sky, 36 on the water
   const skyClip = () => { ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip(); };
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
@@ -264,7 +265,7 @@ function draw(t) {
   ctx.fillStyle = sea; ctx.fillRect(0, HZ, W, 120);
   glow(x, HZ, W * .75, 5, SILVER, .5 * P, .3);
   glow(bx, HZ + 30, 120, 60, tint, .2 * P, .4);
-  glow(bx, HZ + 16, 30, 52, halo, .55 * P * lowness, .4);                              // its reflection, strongest when it is on the water
+  glow(bx, HZ + 16, 18 + R * .7, 40 + R * .6, halo, .55 * P * lowness, .4);                              // its reflection, strongest when it is on the water
   for (const g of bits.glints) {
     const gy = HZ + 3 + g.y * 78, spread = 40 + g.y * 220, gx = bx + (g.x - .5) * 2 * spread;
     const a = Math.pow(.5 + .5 * Math.sin(t * 1.7 + g.ph), 3) * (1 - g.y * .7);
@@ -305,8 +306,7 @@ function draw(t) {
   for (const u of [0, 1]) glow(...pathAt(u), 13, 4, "255,255,255", .5 * P, .35);   // where the path meets the water
 
   /* ---- weather: gathered round the sun or moon, thinning out away from it ---- */
-  /* the sun and moon are larger near the horizon: radius 12 high in the sky, 22 on the water */
-  const R = 12 * (1 + .85 * lowness), veil =  state.rain ? .7 : state.clouds ? .85 : 1, NEAR = 96;
+  const veil =  state.rain ? .7 : state.clouds ? .85 : 1, NEAR = 96;
   skyClip();
   if (state.clouds) for (const c of bits.clouds) {
     const f = (c.x + t * c.sp) % 1, cx = bx + (f * 2.6 - 1.3) * NEAR, cy = by + c.y * NEAR + 14, edge = Math.pow(Math.sin(PI * f), .7);
@@ -325,7 +325,7 @@ function draw(t) {
   ctx.restore();
 
   /* ---- the sun or the moon; the horizon hides whatever part of it is below the water ---- */
-  glow(bx, by, R * 4.2, R * 4.2, halo, .55 * P * veil, .3);
+  glow(bx, by, R * (4.2 - 1.7 * lowness), R * (4.2 - 1.7 * lowness), halo, .55 * P * veil, .3);
   skyClip();
   ctx.globalCompositeOperation = "source-over";
   if (state.phase == null) {
