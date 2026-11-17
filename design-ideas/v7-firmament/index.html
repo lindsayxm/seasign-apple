@@ -134,7 +134,7 @@
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
 const HZ = 376;                                        // the sea's horizon
 const PANEL = { x: 329, y: 302, w: 45, h: 149, r: 13 };  // behind the three buttons at the right
-const PATH = { x: 52 + 114, half: 114, top: 100 };     // left of centre: its ends are placed so the large rising and setting sun or moon clears the left edge and the button panel
+const PATH = { x: 62 + 101, half: 101, top: 100 };     // left of centre and narrower than the screen: its ends are placed so the very large rising and setting sun or moon clears the left edge and the button panel
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
 
 /* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
@@ -218,7 +218,7 @@ function draw(t) {
   const x = W / 2, { body, glow: halo, arc: tint } = look;
   const P = look.power * (.96 + .04 * Math.sin(t * 1.3)), wheel = t * .0015;      // canvas angles grow clockwise: stars rise at the left and set at the right
   const [bx, by] = pathAt(state.turn), lowness = Math.pow(Math.max(0, 1 - (HZ - by) / PATH.top), 2);   // lowness: 1 when the sun or moon is on the water
-  const R = 12 * (1 + 2 * lowness);                                                // the sun and moon are much larger near the horizon: radius 12 high in the sky, 36 on the water
+  const R = 12 * (1 + 3.2 * lowness), GS = Math.min(170, (R * 2 + 2) * 3);         // the sun and moon are far larger near the horizon: radius 12 high in the sky, 50 on the water. GS: how much of the grain tile covers them, so the grain stays fine
   const skyClip = () => { ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip(); };
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
@@ -325,7 +325,7 @@ function draw(t) {
   ctx.restore();
 
   /* ---- the sun or the moon; the horizon hides whatever part of it is below the water ---- */
-  glow(bx, by, R * (4.2 - 1.7 * lowness), R * (4.2 - 1.7 * lowness), halo, .55 * P * veil, .3);
+  glow(bx, by, R * (4.2 - 2.2 * lowness), R * (4.2 - 2.2 * lowness), halo, .55 * P * veil, .3);
   skyClip();
   ctx.globalCompositeOperation = "source-over";
   if (state.phase == null) {
@@ -345,7 +345,7 @@ function draw(t) {
       else { ctx.globalCompositeOperation = "lighter"; glow(cx, cy, size, size, "255,236,170", .5 * veil * (.55 + .45 * Math.sin(t * 2.3 + k * 1.3)), .4); }
     }
     ctx.globalCompositeOperation = "soft-light"; ctx.globalAlpha = .55;
-    const go = Math.floor(t * 10); ctx.drawImage(grain, Math.floor(hash(go) * 90), Math.floor(hash(go + 4.2) * 90), 84, 84, bx - R - 1, by - R - 1, R * 2 + 2, R * 2 + 2);
+    const go = Math.floor(t * 10); ctx.drawImage(grain, Math.floor(hash(go) * (180 - GS)), Math.floor(hash(go + 4.2) * (180 - GS)), GS, GS, bx - R - 1, by - R - 1, R * 2 + 2, R * 2 + 2);
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
     ctx.globalCompositeOperation = "lighter";
     ctx.beginPath(); ctx.arc(bx, by, R + 3.5, t * .5, t * .5 + 4.2); ctx.lineWidth = .7; ctx.strokeStyle = col(halo, .8 * veil * (1 - lowness)); ctx.stroke();
@@ -407,7 +407,7 @@ function draw(t) {
     shade.addColorStop(0, "rgba(30,40,64,0)"); shade.addColorStop(.7, "rgba(30,40,64,.16)"); shade.addColorStop(1, "rgba(30,40,64,.45)");
     ctx.fillStyle = shade; ctx.fillRect(-R, -R, R * 2, R * 2);
     ctx.globalCompositeOperation = "multiply"; ctx.filter = "invert(1)";               // grain at two scales: fine, and a coarser blotch
-    ctx.globalAlpha = .34; ctx.drawImage(grain, 20, 30, 84, 84, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
+    ctx.globalAlpha = .34; ctx.drawImage(grain, Math.min(20, 180 - GS), Math.min(30, 180 - GS), GS, GS, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
     ctx.globalAlpha = .26; ctx.drawImage(grain, 96, 60, 22, 22, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
     ctx.filter = "none"; ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
     ctx.globalCompositeOperation = "lighter";
