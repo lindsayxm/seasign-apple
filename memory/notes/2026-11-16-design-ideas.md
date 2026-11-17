@@ -10,7 +10,8 @@ Look-only mockups of the Today screen. Nothing here is in the app; an idea is bu
 | `v4-cartography/` | off-white paper by day, charcoal at night, weather as a sign | tried |
 | `v5-hud/` | fixed dial; warm colours by day, aqua to white at night | tried |
 | `v6-hud2/` | rotating portal ring with beams and swirling dust | refined over many rounds; base for v7 |
-| `v7-firmament/` | v6 without the ring and beams: open sky of slowly wheeling stars, sun and moon on a tall arc that rises from and sets into the sea | started 2026-11-17; the one the user is refining |
+| `v7-firmament/` | v6 without the ring and beams: open sky of slowly wheeling stars, sun and moon on a tall arc that rises from and sets into the sea | the one the user is refining (see the 2026-11-17 section below) |
+| `v0-version-landing-page/` | index page: a thumbnail per version that opens it | made 2026-11-17 |
 
 How the mockups are made, so the next session can continue:
 
@@ -30,3 +31,23 @@ What the user has settled for v6 (see `design-ideas/v6-hud2/README.md` for the f
 - Buttons in one column at the right: settings above the horizon, list centred on it, saved below.
 
 Open in v6: the beams keep a teal core and yellow glow in every state (the user was asked whether they should follow the warm/cool rule and has not answered). v2, v3 and v4 draw the settings, list and saved symbols from memory; v1, v5 and v6 use the app's real ones.
+
+## 2026-11-17: v7-firmament and the landing page
+
+`v7-firmament/` is now the version the user is refining (tasks #45–#97); `v0-version-landing-page/` (#98) is an index page with a thumbnail per version. The full description of v7 is in `design-ideas/v7-firmament/README.md`; read it before changing anything.
+
+What the user has settled for v7:
+
+- No portal ring and no beams. Open sky of stars on one very slow wheel; horizon at y 376; everything below is placed from the horizon.
+- Sun and moon follow a low path (100 points high) left of centre. They are far larger at rise and set (about 100 points across) than high in the sky (24). The line of the path is currently switched off (`?arc` shows it); the user wanted to see the look without it and has not said whether it stays off.
+- Sun: solid edge, with a see-through, glowing, uneven dark orange line rippling outside it near the horizon. Moon: rough face with irregular craters and grain.
+- Sky gradients by day (blue), sunrise (yellow, peach, light blue) and sunset (orange, red, pink): the user called these "perfect"; do not change them.
+- Header: left-aligned with the clock (x 34). Date, condensed light day name as wide as the date, temperature only (no weather symbol, no condition word). Events in spaced Jost capitals at 11 points, 12-hour times, AM/PM/ALL in one aligned column. The date block's top and bottom are level with the events' text.
+- Article titles: serif (Iowan Old Style), sentence case, no numbers, left edge at x 34.
+- Buttons: flat colour per state (yellow-orange by day, #ffffcc at sunrise, #ffcdba at sunset, aqua at night) on a dark blue see-through panel with a top glow (dark pink at sunset) and bottom shadow. `∀` (all publications) is at the bottom right, centred under the column.
+- Header accents are yellow in mid-day, clouds, rain and snow; orange at sunrise and sunset; cool at night.
+- One to three gulls cross once a minute; the sequence starts from a random point on each page load.
+
+Tried and rejected by the user (do not repeat): signal-yellow and strong-blue buttons; a separate colour for the list button; drop shadows on the three right-hand buttons; the panel wholly above the horizon with a reversed gradient; a rippling edge on the sun itself; serif for calendar events.
+
+Working method that held up: positions and gaps were set by measuring rendered stills (pixel rows of the text), not by eye. `?nobtn` draws a frame without buttons for measuring what is behind them. The landing page's thumbnails are copies of each version's `02-mid-day.png` and `08-mid-night.png` and must be remade when stills change.

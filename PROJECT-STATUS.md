@@ -92,3 +92,26 @@ Entry format:
   - Tasks #34 and later were closed by the lead without a separate reviewer (look-only mockups). #34's acceptance line was not saved as a checkbox, so it shows done with none ticked.
   - The local API server started for the #6 check was stopped at wrap-up. The iPhone 17 simulator was last launched with a forced moonset scene; a normal relaunch restores the real sky.
   - Still to correct: the `npx -y npm@11 install` row in the `AGENTS.md` CLI table overstates the problem.
+
+## 2026-11-17 — `design-ideas/v7-firmament/` built and refined over many rounds; landing page of all versions added
+
+- Done:
+  - #45–#97: `design-ideas/v7-firmament/`, made from v6 without the portal ring and beams, then refined step by step with the user. Open sky of slow stars, horizon at y 376, sun and moon on a low path and far larger at rise and set, day, sunrise and sunset sky gradients, reworked header (left-aligned with the clock, temperature only, 12-hour event times), serif article titles without numbers, flat buttons on a see-through panel, `∀` button for all publications, gulls once a minute. Twelve stills re-rendered at each step.
+  - #98: `design-ideas/v0-version-landing-page/`: one page with a thumbnail per version (v1–v7) that opens it.
+  - `design-ideas/README.md` lists v7 and the landing page. No file under `ios/` or `api/` changed. Working tree clean at the wrap-up commit.
+- In flight:
+  - #20 (in `todo`, 1 of 2 criteria): real-key provider smoke tests, still on hold until the user has provider keys.
+  - v7 has no open task; the user is expected to bring more changes.
+- Next:
+  1. Continue v7 when the user returns. Read the 2026-11-17 section of `memory/notes/2026-11-16-design-ideas.md` and `design-ideas/v7-firmament/README.md` first: they list what is settled and what the user tried and rejected.
+  2. When the user picks a design, create tasks to build it in `ios/`; nothing from `design-ideas/` is in the app yet.
+  3. #20 when the user has provider keys; #13 and #14 when the Apple Developer account is approved.
+- Notes:
+  - The agent cannot watch the animations. Motion (stars, gulls, the sun's rippling line) was checked only by comparing frames at different times.
+  - In v7 the drawn line of the sun and moon's path is switched off by the user's request to see the look without it (`?arc` shows it). The user has not said whether it stays off.
+  - Open questions for the user: keep the path line off or bring it back; whether the fainter second ripple line round the sun stays; the 150 points now free below the last title (more titles or more spacing); the older ones (v6 beam colours, real symbols in v2–v4, calendar links to the Keychain, hiding private event titles).
+  - The landing page's thumbnails are copies of each version's mid-day and mid-night stills and must be remade when a version's stills change.
+  - The user added `left-justification.png` and `reading.png` to `design-ideas/v7-firmament/`; both were committed with the stills. `reading.png` has not been opened or used.
+  - The headless-Chrome helper scripts are in the session scratchpad and will not survive; the notes file says how to rewrite them.
+  - Tasks #45–#98 were closed by the lead without a separate reviewer (look-only mockups).
+  - Still to correct: the `npx -y npm@11 install` row in the `AGENTS.md` CLI table overstates the problem.
