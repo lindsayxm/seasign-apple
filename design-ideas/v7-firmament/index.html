@@ -357,22 +357,38 @@ function draw(t) {
     if (lit > .985) ctx.arc(0, 0, R, 0, TAU);
     else { ctx.arc(0, 0, R, -PI / 2, PI / 2); ctx.ellipse(0, 0, R * Math.abs(k), R, 0, PI / 2, PI * 1.5, lit < .5); }
     ctx.fillStyle = col(body, 1); ctx.fill();
-    /* the lit face: darker plains, small craters, shade toward the edge, and grain. None of it moves. */
-    ctx.clip(); const sx = state.phase > .5 ? -1 : 1;
-    for (let k = 0; k < 9; k++) {
+    /* the lit face: uneven darker plains, craters of irregular outline with soft edges, fine pitting, shade toward the edge, and grain. None of it moves. */
+    ctx.clip(); const sx = state.phase > .5 ? -1 : 1, u = R / 12;
+    for (let k = 0; k < 9; k++) {                                                    // plains: each a few overlapping soft patches, so none is a clean oval
       const ang = hash(k * 2.3 + 1) * TAU, rad = R * .75 * Math.sqrt(hash(k * 5.9 + 2)), size = R * (.22 + .34 * hash(k * 8.1 + 3));
-      glow(sx * rad * Math.cos(ang), rad * Math.sin(ang), size, size * (.6 + .5 * hash(k * 1.1)), "58,72,98", .36, .6);
+      for (let j = 0; j < 3; j++) {
+        const ox = (hash(k * 4.7 + j * 2.1) - .5) * size * 1.3, oy = (hash(k * 6.1 + j * 3.3) - .5) * size * 1.1, sz = size * (.55 + .5 * hash(k * 1.9 + j * 5.7));
+        glow(sx * (rad * Math.cos(ang) + ox), rad * Math.sin(ang) + oy, sz, sz * (.55 + .5 * hash(k * 1.1 + j)), "58,72,98", .2, .6);
+      }
     }
-    for (let k = 0; k < 14; k++) {
-      const ang = hash(k * 3.7 + 9) * TAU, rad = R * .9 * Math.sqrt(hash(k * 6.3 + 5)), cr = (.5 + hash(k * 4.4) * 1.1) * R / 12, cx = sx * rad * Math.cos(ang), cy = rad * Math.sin(ang);
-      ctx.fillStyle = col("46,58,84", .5); ctx.beginPath(); ctx.arc(cx, cy, cr, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx, cy, cr, .4, 2.4); ctx.lineWidth = .3; ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.stroke();
+    for (let k = 0; k < 17; k++) {                                                   // craters: lumpy outlines, each tilted and squashed differently, some with a broken pale rim
+      const ang = hash(k * 3.7 + 9) * TAU, rad = R * .9 * Math.sqrt(hash(k * 6.3 + 5)), cr = (.45 + hash(k * 4.4) * 1.25) * u, al = .2 + .3 * hash(k * 7.3);
+      ctx.save(); ctx.translate(sx * rad * Math.cos(ang), rad * Math.sin(ang)); ctx.rotate(hash(k * 2.9) * PI); ctx.scale(1, .55 + .45 * hash(k * 9.1));
+      const pt = j => { const q = j / 8 * TAU, rr = cr * (.62 + .7 * hash(k * 13.7 + (j % 8) * 4.1)); return [rr * Math.cos(q), rr * Math.sin(q)]; };
+      const mid = j => { const p0 = pt(j), p1 = pt(j + 1); return [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2]; };
+      ctx.beginPath(); ctx.moveTo(...mid(0));
+      for (let j = 1; j <= 8; j++) ctx.quadraticCurveTo(...pt(j), ...mid(j));
+      ctx.fillStyle = col("46,58,84", al); ctx.fill();
+      glow(0, 0, cr * 1.7, cr * 1.7, "46,58,84", al * .7, .55);
+      if (hash(k * 5.3) > .45) { const q0 = hash(k * 8.9) * TAU; ctx.beginPath(); ctx.arc(0, 0, cr * 1.02, q0, q0 + .8 + hash(k * 3.1) * 1.3); ctx.lineWidth = .28 * u; ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.stroke(); }
+      ctx.restore();
+    }
+    for (let k = 0; k < 70; k++) {                                                   // fine pitting and pale flecks
+      const ang = hash(k * 1.37 + 40) * TAU, rad = R * Math.sqrt(hash(k * 2.71 + 41)), sz = (.14 + .3 * hash(k * 3.9 + 42)) * u, dark = hash(k * 5.5 + 43) < .65;
+      ctx.fillStyle = dark ? col("40,52,78", .16 + .22 * hash(k * 6.7)) : `rgba(255,255,255,${.12 + .2 * hash(k * 6.7)})`;
+      ctx.beginPath(); ctx.ellipse(sx * rad * Math.cos(ang), rad * Math.sin(ang), sz, sz * (.5 + .5 * hash(k * 7.9)), hash(k * 9.3) * PI, 0, TAU); ctx.fill();
     }
     const shade = ctx.createRadialGradient(-sx * R * .2, -R * .25, R * .35, 0, 0, R);
     shade.addColorStop(0, "rgba(30,40,64,0)"); shade.addColorStop(.7, "rgba(30,40,64,.16)"); shade.addColorStop(1, "rgba(30,40,64,.45)");
     ctx.fillStyle = shade; ctx.fillRect(-R, -R, R * 2, R * 2);
-    ctx.globalCompositeOperation = "multiply"; ctx.globalAlpha = .2; ctx.filter = "invert(1)";
-    ctx.drawImage(grain, 20, 30, 84, 84, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
+    ctx.globalCompositeOperation = "multiply"; ctx.filter = "invert(1)";               // grain at two scales: fine, and a coarser blotch
+    ctx.globalAlpha = .34; ctx.drawImage(grain, 20, 30, 84, 84, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
+    ctx.globalAlpha = .26; ctx.drawImage(grain, 96, 60, 22, 22, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
     ctx.filter = "none"; ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
     ctx.globalCompositeOperation = "lighter";
     ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.lineWidth = .6; ctx.strokeStyle = col(SILVER, .55); ctx.stroke();
