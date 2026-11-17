@@ -55,6 +55,11 @@
   .feed { left: 44px; top: 530px; width: 322px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
   .feed li { display: grid; grid-template-columns: 28px 1fr; height: 45px; }
   .feed i { font-style: normal; font-size: 8.5px; letter-spacing: .04em; }
+  /* article titles and event titles: a humanist serif in sentence case (Iowan Old Style, then Charter; both ship with iOS and macOS) */
+  .feed span, .events span { font-family: "Iowan Old Style", "Charter", ui-serif, Georgia, serif; text-transform: none; letter-spacing: .01em; color: rgb(244, 242, 236); }
+  .feed span { font-size: 13.5px; line-height: 17.5px; }
+  .events span { font-size: 11.5px; line-height: 14px; }
+  .events li { align-items: baseline; }
   .home { left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
 
   nav { width: 250px; }
@@ -95,7 +100,7 @@
     <div class="now"><svg class="line"><use id="weather" href="#w-clear"/></svg><span>55°F</span></div>
 
     <ul class="events">
-      <li><time class="mono">18:45</time><span>Hanna's show</span></li>
+      <li><time class="mono">18:45</time><span>Hanna’s show</span></li>
       <li><time class="mono">20:15</time><span>Submit work hours for studio payroll</span></li>
       <li><time class="mono">TUE · ALL</time><span>Brush pets teeth</span></li>
     </ul>
@@ -107,8 +112,8 @@
 
     <ul class="feed">
       <li><i class="mono teal">01</i><span>A short explainer on how El Niño works [video]</span></li>
-      <li><i class="mono teal">02</i><span>It's getting too dry for even cactuses to survive</span></li>
-      <li><i class="mono teal">03</i><span>'Birdbrain' is a misnomer. Crows make decisions faster than we can</span></li>
+      <li><i class="mono teal">02</i><span>It’s getting too dry for even cactuses to survive</span></li>
+      <li><i class="mono teal">03</i><span>‘Birdbrain’ is a misnomer. Crows make decisions faster than we can</span></li>
       <li><i class="mono teal">04</i><span>What the Great Lakes remember about last winter</span></li>
       <li><i class="mono teal">05</i><span>The quiet return of the paper map</span></li>
       <li><i class="mono teal">06</i><span>Why lighthouse keepers kept such careful weather diaries</span></li>
