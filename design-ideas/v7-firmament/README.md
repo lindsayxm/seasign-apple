@@ -2,7 +2,7 @@
 
 Today as an open night-black sky over the sea. Built from `v6-hud2/` with the portal ring and its beams taken out. Look only; no app code. There is no reference image for this version.
 
-- The horizon is at the middle of the screen. The sun and moon travel one low glowing arc, the top segment of a circle whose centre is a little below it (100 points high and 230 wide), leaving the upper sky open. It rises out of the water at the left and sets into the water at the right, so the path crosses the sea's horizon at both ends. At sunrise, sunset, moon rise and moon set the sun or moon sits half in the water, with its light spilling down the sea below it.
+- The horizon is at the middle of the screen. The sun and moon travel one low glowing arc, the top segment of a circle whose centre is a little below it (100 points high and 230 wide), set left of centre to leave room for the buttons: about 41 points from the left edge and 122 from the right, leaving the upper sky open. It rises out of the water at the left and sets into the water at the right, so the path crosses the sea's horizon at both ends. At sunrise, sunset, moon rise and moon set the sun or moon sits half in the water, with its light spilling down the sea below it.
 - The arc keeps v6's light: it thickens and thins along its length, a pulse runs along it, and it is brightest near the sun or moon.
 - Stars and thin haze fill the whole sky. They sit on one wheel centred on the middle of the horizon and turn very slowly clockwise (about one turn in 70 minutes), so they rise at the left and set at the right like the sun. They twinkle; they leave no trails.
 - Clouds, rain and snow are gathered round the sun or moon and thin out away from it.

@@ -133,7 +133,7 @@
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
 const HZ = 426;                                        // the sea's horizon
 const PANEL = { x: 329, y: 352, w: 45, h: 149, r: 13 };  // behind the three buttons at the right
-const PATH = { x: W / 2, half: 115, top: 100 };       // the sun and moon's path: the top segment of a circle whose centre is below the horizon; half its width on the water, and its height
+const PATH = { x: W / 2 - 40.75, half: 115, top: 100 };   // left of centre, to leave room for the buttons: the gap from the screen edge to its left end was 81.5 and is now half that       // the sun and moon's path: the top segment of a circle whose centre is below the horizon; half its width on the water, and its height
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
 
 /* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
@@ -214,7 +214,7 @@ function glow(x, y, rx, ry, rgb, alpha, mid = .4) {
 const pathAt = u => { const q = PI - PATH.a0 - u * (PI - 2 * PATH.a0); return [PATH.x + PATH.r * Math.cos(q), HZ + PATH.r - PATH.top - PATH.r * Math.sin(q)]; };
 
 function draw(t) {
-  const x = PATH.x, { body, glow: halo, arc: tint } = look;
+  const x = W / 2, { body, glow: halo, arc: tint } = look;
   const P = look.power * (.96 + .04 * Math.sin(t * 1.3)), wheel = t * .0015;      // canvas angles grow clockwise: stars rise at the left and set at the right
   const [bx, by] = pathAt(state.turn), lowness = Math.pow(Math.max(0, 1 - (HZ - by) / PATH.top), 2);   // lowness: 1 when the sun or moon is on the water
   const skyClip = () => { ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip(); };
