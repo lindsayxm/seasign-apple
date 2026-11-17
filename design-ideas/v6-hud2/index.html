@@ -171,7 +171,7 @@ const rnd = prng(613), list = (n, f) => Array.from({ length: n }, f);
 const CLUMPS = list(9, () => rnd() * TAU);
 const bits = {
   /* dust thrown outward from the ring: each speck starts at the ring and drifts away */
-  dust: list(1500, () => ({ a: rnd() < .55 ? CLUMPS[Math.floor(rnd() * 9)] + (rnd() + rnd() + rnd() - 1.5) * .5 : rnd() * TAU, d: Math.pow(rnd(), 1.8), sp: .012 + rnd() * .02, s: .5 + rnd() * rnd() * 1.9, ph: rnd() * TAU, v: rnd() < .13, sw: 7 + rnd() * 5, off: (rnd() - .5) * .5 })),
+  dust: list(1500, () => ({ a: rnd() < .55 ? CLUMPS[Math.floor(rnd() * 9)] + (rnd() + rnd() + rnd() - 1.5) * .5 : rnd() * TAU, d: Math.pow(rnd(), 1.8), sp: .012 + rnd() * .02, s: .5 + rnd() * rnd() * 1.9, ph: rnd() * TAU, v: rnd() < .13 })),
   mist: list(28, () => ({ a: rnd() * TAU, d: 1.15 + rnd() * 1.4, s: .3 + rnd() * .55, k: .5 + rnd() * .8 })),
   mottle: list(26, () => ({ u: rnd(), v: rnd(), w: .12 + rnd() * .3, h: .04 + rnd() * .08, dark: rnd() < .5 })),
   /* wiring: a spoke with a short arc at its end */
@@ -259,6 +259,7 @@ function draw(t) {
     ctx.lineWidth = w.w * .7; ctx.strokeStyle = g; ctx.stroke();
   }
   /* stars: born at the ring's edge, they circle it clockwise, fast at first and slower as they work their way outward */
+  for (const d of bits.dust) if (d.sw == null) { d.sw = 7 + hash(d.ph * 5.1) * 5; d.off = (hash(d.ph * 9.7) - .5) * .5; }
   const dustAt = (d, time) => {
     const cyc = d.d + time * d.sp * .45, f = cyc % 1, n = Math.floor(cyc);
     const a = d.a + hash(d.ph + n * 3.3) * 1.2 + spin + d.sw * Math.log(1 + f * 5) / Math.log(6);
