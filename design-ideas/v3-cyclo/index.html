@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seasign v3 — cyclo</title>
+<style>
+  @font-face { font-family: "Jost"; font-weight: 400; src: url("fonts/Jost-400-Book.ttf") format("truetype"); }
+  @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
+
+  :root { --ink: 226, 233, 244; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #05070b; color: #c9d0db;
+    font-family: "Jost", "Avenir Next", "Helvetica Neue", sans-serif;
+    display: flex; align-items: center; justify-content: center; gap: 48px; flex-wrap: wrap; padding: 24px;
+  }
+  body.bare { display: block; padding: 0; background: #000; overflow: hidden; }
+
+  .phone {
+    position: relative; width: 393px; height: 852px; flex: none; border-radius: 46px; overflow: hidden; background: #000;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 0 0 9px #050506, 0 0 0 10px rgba(255,255,255,.10), 0 30px 90px rgba(0,0,0,.7);
+  }
+  body.bare .phone { border-radius: 0; box-shadow: none; }
+  canvas { position: absolute; inset: 0; width: 393px; height: 852px; display: block; }
+
+  /* ---------- text and icons over the scene ---------- */
+  .ui { position: absolute; inset: 0; color: rgb(var(--ink)); text-transform: uppercase; }
+  .clock { position: absolute; left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif;
+           text-transform: none; color: #fff; opacity: .92; }
+  .tick { position: absolute; height: 1px; width: 26px; background: rgba(var(--ink), .4); }
+
+  /* upper left: the three symbols, then the day */
+  .icons { position: absolute; left: 32px; top: 66px; display: grid; gap: 15px; }
+  .icons svg { width: 27px; height: 27px; fill: none; stroke: rgb(var(--ink)); stroke-width: 1; stroke-linecap: round; opacity: .92; }
+  .day { position: absolute; left: 34px; top: 216px; font-size: 8.5px; letter-spacing: .34em; line-height: 17px; opacity: .85; }
+  .day b { display: block; font-weight: 500; font-size: 10px; color: #fff; }
+
+  /* upper right: the next three events */
+  .events { position: absolute; left: 252px; top: 66px; width: 118px; margin: 0; padding: 0; list-style: none;
+            font-size: 8px; letter-spacing: .3em; line-height: 15px; }
+  .events li { margin-bottom: 13px; }
+  .events time { display: block; opacity: .55; }
+
+  /* below the horizon: article titles */
+  .feed { position: absolute; left: 34px; top: 506px; width: 330px; margin: 0; padding: 0; list-style: none;
+          font-size: 9px; letter-spacing: .26em; line-height: 15px; }
+  .feed li { display: grid; grid-template-columns: 30px 1fr; height: 52px; text-shadow: 0 0 6px rgba(0,0,0,.8); }
+  .feed i { font-style: normal; opacity: .45; }
+
+  .more { position: absolute; left: 34px; top: 806px; font-size: 17px; letter-spacing: -.02em; }
+  .home { position: absolute; left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
+
+  /* ---------- the picker beside the phone ---------- */
+  nav { width: 250px; }
+  nav h1 { font-size: 13px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase; margin: 0 0 6px; color: #fff; }
+  nav p { font-size: 13px; line-height: 1.5; color: #8d939c; margin: 0 0 18px; }
+  nav button {
+    display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 1px solid #262b34;
+    color: #9aa0a9; font: 400 12px "Jost", sans-serif; letter-spacing: .22em; text-transform: uppercase; padding: 9px 14px; cursor: pointer;
+  }
+  nav button:hover { color: #fff; }
+  nav button[aria-pressed="true"] { color: #fff; border-left-color: #fff; }
+  nav button:focus-visible { outline: 1px solid #fff; outline-offset: -1px; }
+  body.bare nav { display: none; }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <canvas id="scene" width="393" height="852"></canvas>
+  <div class="ui">
+    <div class="clock">6:23</div>
+
+    <div class="icons" aria-hidden="true">
+      <!-- settings -->
+      <svg viewBox="0 0 26 26"><path d="M4 9h18M4 17h18M16 5.5v7M10 13.5v7"/></svg>
+      <!-- do / get list -->
+      <svg viewBox="0 0 26 26"><circle cx="13" cy="13" r="7.5"/><path d="M3 10.5h20M3 15.5h20"/></svg>
+      <!-- saved -->
+      <svg viewBox="0 0 26 26"><path d="M13 3.5v19M4.8 8.2l16.4 9.6M21.2 8.2L4.8 17.8"/></svg>
+    </div>
+    <div class="tick" style="left:34px; top:201px"></div>
+    <div class="day"><b>Mon</b>Nov 16<br>55°F</div>
+
+    <ul class="events">
+      <li><time>6:45PM</time>Hanna's show</li>
+      <li><time>8:15PM</time>Submit work hours for St…</li>
+      <li><time>Tue all day</time>Brush pets teeth</li>
+    </ul>
+
+    <ul class="feed">
+      <li><i>01</i><span>A short explainer on how El Niño works [video]</span></li>
+      <li><i>02</i><span>It's getting too dry for even cactuses to survive</span></li>
+      <li><i>03</i><span>'Birdbrain' is a misnomer. Crows make decisions faster than we can</span></li>
+      <li><i>04</i><span>What the Great Lakes remember about last winter</span></li>
+      <li><i>05</i><span>The quiet return of the paper map</span></li>
+    </ul>
+    <div class="more">»</div>
+    <div class="home"></div>
+  </div>
+</div>
+
+<nav id="nav" aria-label="Scene state">
+  <h1>Seasign v3 · Cyclo</h1>
+  <p>A small sun or moon travels a drawn arc: up on the left, down on the right. Pick a state; arrow keys step through them.</p>
+</nav>
+
+<script>
+"use strict";
+const W = 393, H = 852, HZ = 450;              // HZ: the flat water horizon
+const TAU = Math.PI * 2;
+const ARC = { cx: W / 2, rx: 106, ry: 212 };   // the path the sun and moon travel, left to right
+const LINE = "214,226,244";                    // the drawn geometry
+
+/* ---------- looks ---------- */
+const SKY = {
+  sunrise: { sky: [[0,"#0b1322"],[.5,"#232e46"],[.8,"#63566a"],[1,"#d19a80"]],
+             water: [[0,"#9a766c"],[.1,"#383650"],[.4,"#141a2b"],[1,"#060912"]], body: "255,228,176", glow: "255,170,120", air: "255,206,180" },
+  sunset:  { sky: [[0,"#0c1220"],[.5,"#2a2a42"],[.8,"#774848"],[1,"#dc7c42"]],
+             water: [[0,"#a35c33"],[.1,"#3b2a36"],[.4,"#15172a"],[1,"#06080f"]], body: "255,216,150", glow: "255,128,56", air: "255,180,140" },
+  day:     { sky: [[0,"#12264a"],[.55,"#2c5680"],[1,"#86aec8"]],
+             water: [[0,"#7ba3bc"],[.12,"#2f5578"],[.5,"#122844"],[1,"#060e1c"]], body: "255,236,170", glow: "255,214,120", air: "214,232,250" },
+  cloudy:  { sky: [[0,"#131b28"],[.6,"#384453"],[1,"#7c8995"]],
+             water: [[0,"#737f8a"],[.12,"#333d49"],[.5,"#151b24"],[1,"#06090e"]], body: "255,234,176", glow: "250,214,130", air: "206,218,232" },
+  rain:    { sky: [[0,"#0a1019"],[.6,"#25303d"],[1,"#55626f"]],
+             water: [[0,"#505c68"],[.12,"#242d38"],[.5,"#0e131a"],[1,"#04060a"]], body: "255,232,176", glow: "244,208,130", air: "180,200,224" },
+  snow:    { sky: [[0,"#161e2a"],[.6,"#45536a"],[1,"#a4b1be"]],
+             water: [[0,"#93a0ad"],[.12,"#3c4857"],[.5,"#161d28"],[1,"#070a10"]], body: "255,236,184", glow: "255,218,140", air: "226,236,248" },
+  night:   { sky: [[0,"#04070d"],[.55,"#0a111e"],[1,"#1c2839"]],
+             water: [[0,"#1a2533"],[.1,"#0c121c"],[1,"#020408"]], body: "255,255,255", glow: "180,204,255", air: "170,190,224", night: true },
+};
+/* `turn`: how far along the arc, 0 = on the horizon at the left, .5 = the top, 1 = on the horizon at the right */
+const STATES = [
+  { id: "sunrise",     label: "Sunrise",     look: "sunrise", turn: .075 },
+  { id: "mid-day",     label: "Mid-day",     look: "day",     turn: .5 },
+  { id: "sunset",      label: "Sunset",      look: "sunset",  turn: .925 },
+  { id: "clouds",      label: "Clouds",      look: "cloudy",  turn: .5, clouds: 1 },
+  { id: "rain",        label: "Rain",        look: "rain",    turn: .5, clouds: 1.2, rain: true },
+  { id: "snow",        label: "Snow",        look: "snow",    turn: .5, clouds: 1, snow: true },
+  { id: "moon-rise",   label: "Moon rise",   look: "night",   turn: .075, phase: .5 },
+  { id: "mid-night",   label: "Mid-night",   look: "night",   turn: .5,   phase: .5 },
+  { id: "moon-waxing", label: "Waxing moon", look: "night",   turn: .38,  phase: .25 },
+  { id: "moon-waning", label: "Waning moon", look: "night",   turn: .62,  phase: .75 },
+  { id: "moon-full",   label: "Full moon",   look: "night",   turn: .5,   phase: .5 },
+  { id: "moon-set",    label: "Moon set",    look: "night",   turn: .925, phase: .5 },
+];
+const PHASES = [.1, .25, .38, .5, .62, .75, .9];   // the column of small moons at the right
+
+/* ---------- helpers ---------- */
+function prng(seed) {                          // mulberry32: the same picture every time
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+const DPR = Math.min(3, window.devicePixelRatio || 1);
+canvas.width = W * DPR; canvas.height = H * DPR;
+
+function gradient(y0, y1, stops) {
+  const g = ctx.createLinearGradient(0, y0, 0, y1);
+  for (const [p, c] of stops) g.addColorStop(p, c);
+  return g;
+}
+function blob(x, y, rx, ry, rgb, alpha, mid = .45) {               // a soft ellipse of light
+  ctx.save(); ctx.translate(x, y); ctx.scale(rx, ry);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  g.addColorStop(0, `rgba(${rgb},${alpha})`); g.addColorStop(mid, `rgba(${rgb},${alpha * .35})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
+}
+function streak(y, cx, half, height, rgb, alpha) {                 // a horizontal line of light, brightest at cx
+  const g = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
+  g.addColorStop(0, `rgba(${rgb},0)`); g.addColorStop(.5, `rgba(${rgb},${alpha})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(cx - half, y - height / 2, half * 2, height);
+}
+function circle(x, y, r, alpha, width = .7, dash) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.setLineDash(dash || []);
+  ctx.lineWidth = width; ctx.strokeStyle = `rgba(${LINE},${alpha})`; ctx.stroke(); ctx.setLineDash([]);
+}
+function line(x0, y0, x1, y1, alpha, width = .7) {
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = width; ctx.strokeStyle = `rgba(${LINE},${alpha})`; ctx.stroke();
+}
+/* A moon of radius R at (x, y): the whole disc faintly, the lit part bright. */
+function moon(x, y, R, phase, alpha) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fillStyle = `rgba(150,170,205,${.2 * alpha})`; ctx.fill();
+  ctx.lineWidth = .6; ctx.strokeStyle = `rgba(${LINE},${.55 * alpha})`; ctx.stroke();
+  const c = Math.cos(TAU * phase), k = (1 - c) / 2;                  // k: lit fraction
+  ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+  if (k > .985) { ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fill(); }
+  else if (k > .015) {
+    if (phase > .5) ctx.scale(-1, 1);                                // waning: lit on the left
+    ctx.beginPath(); ctx.arc(0, 0, R, -Math.PI / 2, Math.PI / 2);    // the lit limb, on the right
+    ctx.ellipse(0, 0, R * Math.abs(c), R, 0, Math.PI / 2, Math.PI * 1.5, k < .5);   // back along the terminator
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+let state, look, body, bits;
+
+function makeBits() {
+  const rnd = prng(97), list = (n, f) => Array.from({ length: n }, f);
+  return {
+    stars: list(230, () => ({ x: rnd() * W, y: rnd() * (HZ - 8), s: .3 + Math.pow(rnd(), 3) * 1.3, ph: rnd() * TAU, sp: .5 + rnd() * 2 })),
+    dashes: list(70, () => ({ x: rnd() * W, v: Math.pow(rnd(), 1.3), len: 8 + rnd() * 30, ph: rnd() * TAU, sp: .4 + rnd() * 1.2 })),
+    column: list(46, () => ({ v: Math.pow(rnd(), 1.25), ph: rnd() * TAU, sp: .8 + rnd() * 2.2, k: .4 + rnd() * .6 })),
+    clouds: list(8, () => ({ x: rnd() * (W + 300), y: 250 + rnd() * 185, sp: 1.5 + rnd() * 3.5,
+              puffs: list(8, () => ({ dx: (rnd() - .5) * 150, dy: (rnd() - .5) * 26, rx: 34 + rnd() * 60, ry: 9 + rnd() * 17, a: .3 + rnd() * .5 })) })),
+    high: list(5, () => ({ x: rnd() * (W + 300), y: 150 + rnd() * 120, sp: 1 + rnd() * 2,
+              puffs: list(7, () => ({ dx: (rnd() - .5) * 190, dy: (rnd() - .5) * 30, rx: 50 + rnd() * 70, ry: 12 + rnd() * 18, a: .3 + rnd() * .4 })) })),
+    rain: list(120, () => ({ x: rnd() * (W + 60), y: rnd() * H, len: 12 + rnd() * 12, sp: .8 + rnd() * .5 })),
+    ripples: list(14, () => ({ x: rnd() * W, v: rnd(), ph: rnd(), sp: .35 + rnd() * .4 })),
+    snow: list(120, () => ({ x: rnd() * W, y: rnd() * H, s: .6 + Math.pow(rnd(), 2.5) * 2.2, ph: rnd() * TAU, sp: .25 + rnd() * .5, a: .4 + rnd() * .55 })),
+  };
+}
+
+function draw(t) {
+  const { x: bx, y: by } = body, night = look.night, veil = state.clouds || 0;
+  const low = 1 - Math.min(1, (HZ - by) / 110);                       // 1 when the light is on the horizon
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+
+  /* ---- sky ---- */
+  ctx.fillStyle = gradient(0, HZ, look.sky); ctx.fillRect(0, 0, W, HZ);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
+  ctx.globalCompositeOperation = "lighter";
+  if (night) {
+    blob(W * .72, 250, 190, 120, "70,96,150", .16, .5); blob(W * .2, 330, 150, 90, "60,84,136", .12, .5);   // faint mist of the night sky
+    for (const s of bits.stars) {
+      const tw = (.4 + .6 * Math.pow(.5 + .5 * Math.sin(t * s.sp + s.ph), 2)) * ((s.y < 205 && (s.x < 120 || s.x > 240)) ? .45 : 1);
+      ctx.fillStyle = `rgba(226,236,255,${.9 * tw})`; ctx.beginPath(); ctx.arc(s.x, s.y, s.s, 0, TAU); ctx.fill();
+    }
+  }
+  /* light gathering at the horizon under a low sun or moon */
+  blob(W / 2, HZ, W * .9, 60, look.glow, night ? .1 : .16, .4);
+  if (low > 0) { blob(bx, HZ, 170, 80, look.glow, (night ? .3 : .5) * low, .4); blob(bx, HZ, 60, 22, look.body, .5 * low, .5); }
+
+  /* clouds: soft masses low in the sky, lit from behind; more and higher when the weather calls for them */
+  const cloudSets = veil ? [[bits.clouds, .22 * veil], [bits.high, .2 * veil]] : [[bits.clouds.slice(0, 3), night ? .07 : .1]];
+  for (const [set, strength] of cloudSets) for (const c of set) {
+    const x = ((c.x + t * c.sp) % (W + 300)) - 150;
+    for (const p of c.puffs) {
+      blob(x + p.dx, c.y + p.dy, p.rx, p.ry, look.air, p.a * strength, .55);
+      if (veil) { ctx.globalCompositeOperation = "source-over"; blob(x + p.dx, c.y + p.dy + p.ry * .6, p.rx * .9, p.ry * .7, "10,14,22", p.a * .22 * veil, .6); ctx.globalCompositeOperation = "lighter"; }
+    }
+  }
+
+  /* ---- the drawn geometry ---- */
+  ctx.globalCompositeOperation = "source-over";
+  const a = Math.PI + state.turn * Math.PI;                           // the light's angle on the path
+  ctx.lineWidth = .8;
+  ctx.beginPath(); ctx.ellipse(ARC.cx, HZ, ARC.rx, ARC.ry, 0, Math.PI, a); ctx.strokeStyle = `rgba(${LINE},.6)`; ctx.stroke();        // travelled
+  ctx.beginPath(); ctx.ellipse(ARC.cx, HZ, ARC.rx, ARC.ry, 0, a, TAU); ctx.setLineDash([1.5, 5]); ctx.strokeStyle = `rgba(${LINE},.42)`; ctx.stroke(); ctx.setLineDash([]);
+  for (let i = 0; i <= 12; i++) {                                     // hour marks along the path
+    const q = Math.PI + i * Math.PI / 12, n = i % 3 === 0 ? 6 : 3;
+    const px = ARC.cx + ARC.rx * Math.cos(q), py = HZ + ARC.ry * Math.sin(q);
+    const nx = Math.cos(q) * ARC.ry, ny = Math.sin(q) * ARC.rx, m = Math.hypot(nx, ny);
+    line(px, py, px + nx / m * n, py + ny / m * n, i % 3 === 0 ? .6 : .35);
+  }
+  for (const ex of [ARC.cx - ARC.rx, ARC.cx + ARC.rx]) { ctx.beginPath(); ctx.arc(ex, HZ, 2, 0, TAU); ctx.fillStyle = `rgba(${LINE},.75)`; ctx.fill(); }
+  /* rings and an axis centred on the light */
+  const pulse = 1 + .03 * Math.sin(t * .8);
+  circle(bx, by, 124, .14); circle(bx, by, 78 * pulse, .2); circle(bx, by, 40, .12, .7, [1, 4]);
+  for (const s of [-1, 1]) { line(bx + s * 118, by, bx + s * 130, by, .45); line(bx + s * 74, by, bx + s * 82, by, .4); }
+  line(bx, Math.max(40, by - 150), bx, by - 24, .35); line(bx, by + 24, bx, HZ, .5);
+  for (const [dy, r] of [[-166, 1.2], [-176, 1.8], [-186, 1.2]]) if (by + dy > 44) { ctx.beginPath(); ctx.arc(bx, by + dy, r, 0, TAU); ctx.fillStyle = `rgba(${LINE},.7)`; ctx.fill(); }
+  circle(bx, by, 19 + Math.sin(t * 1.1) * .8, .4); circle(bx, by, 11, .85, .8);
+
+  /* ---- the sun or moon itself: small ---- */
+  ctx.globalCompositeOperation = "lighter";
+  const shine = (1 - veil * .3) * (.92 + .08 * Math.sin(t * 2.1));
+  blob(bx, by, 64, 64, look.glow, .34 * shine, .3); blob(bx, by, 22, 22, look.body, .6 * shine, .4);
+  ctx.globalCompositeOperation = "source-over";
+  if (state.phase != null) moon(bx, by, 6.5, state.phase, 1);
+  else { ctx.beginPath(); ctx.arc(bx, by, 4.6, 0, TAU); ctx.fillStyle = `rgb(${look.body})`; ctx.fill(); blob(bx, by, 9, 9, "255,255,255", .9, .5); }
+  /* a column of small moons: where this one is in the cycle */
+  if (night) PHASES.forEach((p, i) => {
+    const y = 250 + i * 24, here = Math.abs(p - state.phase) < .01;
+    moon(356, y, 4.2, p, here ? 1 : .5);
+    if (here) { circle(356, y, 8.5, .8); line(338, y, 344, y, .7); }
+  });
+  ctx.restore();
+
+  /* ---- water: flat, dark, with the light drawn straight down it ---- */
+  ctx.fillStyle = gradient(HZ, H, look.water); ctx.fillRect(0, HZ, W, H - HZ);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, HZ, W, H - HZ); ctx.clip();
+  ctx.globalCompositeOperation = "lighter";
+  for (const d of bits.dashes) {
+    const y = HZ + 4 + d.v * (H - HZ - 8), al = (.04 + .08 * (1 - d.v)) * Math.max(0, Math.sin(t * d.sp + d.ph));
+    ctx.fillStyle = `rgba(${look.air},${al})`; ctx.fillRect(d.x + Math.sin(t * .3 + d.ph) * 6, y, d.len * (1 + d.v), .7 + d.v * .4);
+  }
+  const reach = (H - HZ) * (.55 + .4 * low), power = (.55 + .45 * low) * (1 - veil * .4);
+  const core = ctx.createLinearGradient(0, HZ, 0, HZ + reach);
+  core.addColorStop(0, `rgba(${look.body},${.95 * power})`); core.addColorStop(.5, `rgba(${look.body},${.4 * power})`); core.addColorStop(1, `rgba(${look.body},0)`);
+  ctx.fillStyle = core; ctx.fillRect(bx - .9, HZ, 1.8, reach);
+  blob(bx, HZ + 6, 34, 90 + 60 * low, look.glow, .3 * power, .35);
+  blob(bx, HZ + 2, 9, 60 + 50 * low, look.body, .5 * power, .4);
+  for (const s of bits.column) {                                      // the light broken by the surface
+    const tw = Math.pow(Math.max(0, Math.sin(t * s.sp + s.ph)), 2);
+    const y = HZ + 5 + s.v * reach, half = (3 + s.v * 30) * s.k, al = power * (1 - s.v * .8) * tw;
+    ctx.fillStyle = `rgba(${look.body},${.6 * al})`; ctx.fillRect(bx - half, y, half * 2, .9);
+    ctx.fillStyle = `rgba(${look.glow},${.22 * al})`; ctx.fillRect(bx - half * 1.8, y - .8, half * 3.6, 2.6);
+  }
+  if (state.rain) for (const p of bits.ripples) {
+    const q = (t * p.sp + p.ph) % 1, y = HZ + 14 + p.v * (H - HZ - 30), rx = 3 + q * (10 + p.v * 22);
+    ctx.beginPath(); ctx.ellipse(p.x, y, rx, rx * .26, 0, 0, TAU); ctx.lineWidth = .7; ctx.strokeStyle = `rgba(${look.air},${.4 * (1 - q)})`; ctx.stroke();
+  }
+  /* a veil so the article titles read; the horizon stays clear */
+  ctx.globalCompositeOperation = "source-over";
+  const shade = ctx.createLinearGradient(0, HZ, 0, H);
+  shade.addColorStop(0, "rgba(4,7,13,0)"); shade.addColorStop(.06, "rgba(4,7,13,.1)"); shade.addColorStop(.15, "rgba(4,7,13,.46)");
+  shade.addColorStop(.75, "rgba(4,7,13,.5)"); shade.addColorStop(1, "rgba(4,7,13,.3)");
+  ctx.fillStyle = shade; ctx.fillRect(0, HZ, W, H - HZ);
+  /* small marks in the corner, as on a chart */
+  for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) { ctx.fillStyle = `rgba(${LINE},.3)`; ctx.fillRect(312 + i * 9, 792 + j * 9, 1, 1); }
+  ctx.restore();
+
+  /* the horizon line */
+  ctx.globalCompositeOperation = "lighter";
+  streak(HZ, W / 2, W * .7, .8, LINE, .5);
+  streak(HZ, bx, 150 + 120 * low, 1.2, look.body, (.35 + .6 * low) * (1 - veil * .3));
+
+  /* ---- weather in front ---- */
+  if (state.rain) {
+    ctx.beginPath();
+    for (const p of bits.rain) { const y = (p.y + t * 700 * p.sp) % (H + 30) - 30, x = p.x - y * .14; ctx.moveTo(x, y); ctx.lineTo(x - p.len * .14, y + p.len); }
+    ctx.lineWidth = .7; ctx.strokeStyle = `rgba(${look.air},.36)`; ctx.stroke();
+  }
+  if (state.snow) for (const f of bits.snow) {
+    const y = (f.y + t * 30 * f.sp * (1 + f.s * .3)) % (H + 20) - 10, x = f.x + Math.sin(t * .6 + f.ph) * 8;
+    blob(x, y, f.s * 1.9, f.s * 1.9, "255,255,255", f.a, .35);
+  }
+
+  ctx.globalCompositeOperation = "source-over";
+  const v = ctx.createRadialGradient(W / 2, H * .5, H * .3, W / 2, H * .5, H * .78);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,.5)");
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+
+/* ---------- choosing a state ---------- */
+const params = new URLSearchParams(location.search);
+const still = params.has("still");
+if (params.has("bare")) document.body.classList.add("bare");
+
+function show(id) {
+  state = STATES.find(s => s.id === id) || STATES[0];
+  look = SKY[state.look];
+  const a = Math.PI + state.turn * Math.PI;
+  body = { x: ARC.cx + ARC.rx * Math.cos(a), y: HZ + ARC.ry * Math.sin(a) };
+  bits = makeBits();
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
+  if (still) draw(7.3); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
+}
+const nav = document.getElementById("nav");
+for (const s of STATES) {
+  const b = document.createElement("button");
+  b.textContent = s.label; b.dataset.id = s.id; b.onclick = () => show(s.id); nav.appendChild(b);
+}
+addEventListener("keydown", e => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  show(STATES[(STATES.indexOf(state) + step + STATES.length) % STATES.length].id);
+});
+
+((document.fonts && document.fonts.ready) || Promise.resolve()).then(() => {
+  show(params.get("state") || "moon-rise");
+  if (still) { document.title = "ready"; return; }
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const loop = ms => { draw(calm ? 7.3 : ms / 1000); if (!calm) requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
