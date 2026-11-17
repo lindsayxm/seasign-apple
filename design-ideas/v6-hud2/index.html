@@ -186,6 +186,9 @@ const bits = {
   snow: list(38, () => ({ x: rnd(), y: rnd(), sp: .03 + rnd() * .04, r: .6 + rnd() * .9, ph: rnd() * TAU })),
   glints: list(110, () => ({ x: rnd(), y: Math.pow(rnd(), 1.6), ph: rnd() * TAU, s: .5 + rnd() * 1.2, v: rnd() < .08 })),
 };
+/* the lit pieces riding in the dark band of the ring (own random source, so nothing else changes) */
+const crnd = prng(909);
+const cells = list(64, () => ({ a: crnd() * TAU, len: .015 + crnd() * crnd() * .2, lane: crnd(), w: 1.2 + crnd() * crnd() * 4.5, k: crnd(), rate: .22 + crnd() * .6, ph: crnd() * TAU, hot: crnd() < .42, seed: crnd() * 99 }));
 let state, look;
 const hash = n => { const v = Math.sin(n * 127.1) * 43758.5453; return v - Math.floor(v); };
 /* a second canvas to blur the picture into, for the soft light round everything bright; and a tile of film grain */
@@ -292,11 +295,23 @@ function draw(t) {
   ctx.shadowBlur = 0;
   
   arc(r + band - 2, 0, TAU, SILVER, .5 * P, .5);
-  arc(r + 4, 0, TAU, SILVER, .55 * P, 2.4, [.6, 1.5]);                             // the fine teeth on the inner edge
+  for (let k = 0; k < 90; k++) {                                                  // the fine teeth on the inner edge: light travels round them unevenly
+    const q0 = k / 90 * TAU + spin, wave = .5 + .5 * Math.sin(k * .21 - t * .35) * Math.sin(k * .067 + t * .13 + 1);
+    arc(r + 4, q0, q0 + TAU / 90, SILVER, (.18 + .62 * wave) * (.7 + .3 * hash(k * 1.7 + Math.floor(t * 9) * .31)) * P, 2.4, [.6, 1.5]);
+  }
   arc(r + 1, 0, TAU, SILVER, .5 * P, .6);
-  for (const b of bits.blocks) {
-    const a = b.a + spin;
-    arc(r + 7 + b.r * (band - 9), a, a + b.len, b.on > .6 ? "255,255,255" : ICE, (b.on > .6 ? .95 : .4) * (.5 + .5 * P), b.on > .8 ? 4.5 : 2.2);
+  const tickC = Math.floor(t * 11);
+  for (const c of cells) {                                                        // each piece swells into view and sinks away as it travels
+    const beat = Math.sin(t * c.rate + c.ph), vis = Math.pow(Math.max(0, beat * .5 + .5), 1.3) * (.8 + .2 * Math.sin(t * c.rate * 3.1 + c.ph * 2));
+    if (vis < .02) continue;
+    const a0 = c.a + t * (.006 + c.k * .028), rr = r + 7 + c.lane * (band - 10), rgb = c.hot ? "255,255,255" : ICE;
+    const lum = vis * (c.hot ? 1.15 : .8) * (.55 + .45 * P), n = Math.max(2, Math.ceil(c.len / .012)), da = c.len / n;
+    arc(rr, a0 - da, a0 + c.len + da, rgb, lum * .12, c.w * 3.4);                    // soft light spilling round it
+    arc(rr, a0, a0 + c.len, rgb, lum * .22, c.w * 1.9);
+    for (let m = 0; m < n; m++) {                                                 // the piece itself, uneven along its length
+      const h = hash(c.seed + m * 1.9), fl = .78 + .22 * hash(c.seed * 2.3 + m * 3.3 + tickC * .17), ends = Math.pow(Math.sin(PI * (m + .5) / n), .5);
+      arc(rr + (h - .5) * .5, a0 + m * da, a0 + (m + 1) * da + .001, rgb, lum * ends * (.45 + .55 * h) * fl, c.w * (.8 + .3 * h));
+    }
   }
 
   /* ---- inside the window: this part stays level ---- */
