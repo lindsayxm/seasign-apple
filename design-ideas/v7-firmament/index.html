@@ -133,6 +133,7 @@
 "use strict";
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
 const HZ = 376;                                        // the sea's horizon
+const SHOW_ARC = new URLSearchParams(location.search).has("arc");   // the drawn line of the sun and moon's path: off unless ?arc is in the address
 const PANEL = { x: 329, y: 302, w: 45, h: 149, r: 13 };  // behind the three buttons at the right
 const PATH = { x: 62 + 101, half: 101, top: 100 };     // left of centre and narrower than the screen: its ends are placed so the very large rising and setting sun or moon clears the left edge and the button panel
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
@@ -288,22 +289,25 @@ function draw(t) {
   }
   ctx.restore();
 
-  /* ---- the path the sun and moon travel: a thin arc whose light runs along it and thickens and thins.
-          It meets the horizon at both ends and carries on, fainter, under the water ---- */
-  const N = 120; ctx.lineCap = "round";
-  for (let i = 0; i < N; i++) {
-    const u0 = i / N * 2, u1 = (i + 1) / N * 2, k = .5 + .5 * Math.sin(u0 * 14 - t * 1.6) * Math.sin(u0 * 5 + t * .5);
-    const p0 = pathAt(u0), p1 = pathAt(u1), depth = (p0[1] + p1[1]) / 2 - HZ;
-    const under = depth > 0 ? 0 : 1; if (under <= 0) continue;
-    const near = depth > 0 ? 0 : Math.exp(-Math.pow((u0 - state.turn) * 5, 2));
-    ctx.beginPath(); ctx.moveTo(...p0); ctx.lineTo(...p1);
-    ctx.lineWidth = .5 + 1.5 * k + 1.2 * near; ctx.strokeStyle = col(halo, (.22 + .5 * k + .3 * near) * (.55 + .45 * P) * under); ctx.stroke();
+  /* ---- the path the sun and moon travel: a thin arc whose light runs along it and thickens and thins, a pulse running along it,
+          and a glint where each end meets the water. Switched off for now (SHOW_ARC, or add ?arc to the address to see it):
+          the sun and moon still follow the path, it is just not drawn ---- */
+  if (SHOW_ARC) {
+    const N = 120; ctx.lineCap = "round";
+    for (let i = 0; i < N; i++) {
+      const u0 = i / N * 2, u1 = (i + 1) / N * 2, k = .5 + .5 * Math.sin(u0 * 14 - t * 1.6) * Math.sin(u0 * 5 + t * .5);
+      const p0 = pathAt(u0), p1 = pathAt(u1), depth = (p0[1] + p1[1]) / 2 - HZ;
+      const under = depth > 0 ? 0 : 1; if (under <= 0) continue;
+      const near = depth > 0 ? 0 : Math.exp(-Math.pow((u0 - state.turn) * 5, 2));
+      ctx.beginPath(); ctx.moveTo(...p0); ctx.lineTo(...p1);
+      ctx.lineWidth = .5 + 1.5 * k + 1.2 * near; ctx.strokeStyle = col(halo, (.22 + .5 * k + .3 * near) * (.55 + .45 * P) * under); ctx.stroke();
+    }
+    ctx.lineCap = "butt";
+    skyClip();
+    glow(...pathAt((t * .035) % 1), 9, 9, halo, .5, .3);                             // a pulse of light running along it
+    ctx.restore();
+    for (const u of [0, 1]) glow(...pathAt(u), 13, 4, "255,255,255", .5 * P, .35);   // where the path meets the water
   }
-  ctx.lineCap = "butt";
-  skyClip();
-  glow(...pathAt((t * .035) % 1), 9, 9, halo, .5, .3);                             // a pulse of light running along it
-  ctx.restore();
-  for (const u of [0, 1]) glow(...pathAt(u), 13, 4, "255,255,255", .5 * P, .35);   // where the path meets the water
 
   /* ---- weather: gathered round the sun or moon, thinning out away from it ---- */
   const veil =  state.rain ? .7 : state.clouds ? .85 : 1, NEAR = 96;
@@ -497,7 +501,7 @@ function show(id) {
   for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
   document.getElementById("clock").textContent = state.time.replace(/^0/, "");
   for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
-  if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
+  if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : "") + (params.has("arc") ? "&arc" : ""));
 }
 const nav = document.getElementById("nav");
 for (const s of STATES) {
