@@ -49,14 +49,14 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* one column at the right: saved below the horizon, list centred on it (y 376), settings the same step above; the ∀ button is at the left edge, its bottom level with the bottom of saved */
+  /* one column at the right: saved below the horizon, list centred on it (y 376), settings the same step above; the ∀ button is in the lower left corner, under the last article title */
   .icons { right: 30px; top: 315px; display: flex; flex-direction: column; gap: 26.5px; }
   /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
   .icons svg, svg.more { stroke: rgb(var(--btn)); }
   body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
   .icons svg { width: 23px; height: 23px; stroke-width: .1; }
   /* the dark panel behind these three is drawn on the canvas (see `panel` in the script), so the film grain lies over it */
-  .more { left: 34px; top: 425.3px; width: 12px; height: 12px; stroke-width: .17; filter: drop-shadow(0 1px 2.5px rgba(0,0,0,.75)) drop-shadow(0 0 6px rgba(0,0,0,.5)); }   /* a soft dark shadow round it; it has no panel */
+  .more { left: 34px; top: 766px; width: 12px; height: 12px; stroke-width: .17; filter: drop-shadow(0 1px 2.5px rgba(0,0,0,.75)) drop-shadow(0 0 6px rgba(0,0,0,.5)); }   /* a soft dark shadow round it; it has no panel */
 
   .feed { left: 34px; top: 480px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
   .feed li { height: 45px; }
@@ -134,7 +134,7 @@
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
 const HZ = 376;                                        // the sea's horizon
 const PANEL = { x: 329, y: 302, w: 45, h: 149, r: 13 };  // behind the three buttons at the right
-const PATH = { x: 40 + 115, half: 115, top: 100 };     // left of centre, to leave room for the buttons: its left end is at x 40, directly above the ∀ button
+const PATH = { x: 40 + 115, half: 115, top: 100 };     // left of centre, to leave room for the buttons: its left end is at x 40
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
 
 /* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
