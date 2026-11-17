@@ -389,9 +389,10 @@ function draw(t) {
   /* ---- the panel behind the three buttons: deep blue at the top, near black at the bottom, a little over 40% see-through.
           A soft glow sits over its top edge and a soft shadow under its bottom edge. Drawn before the grain, so the grain covers it too ---- */
   if (!document.body.classList.contains("nobtn")) {
+    const dusk = state.look === "sunset";                                           // at sunset the glow over the top edge is dark pink, not blue
     const p = PANEL, shape = dx => { ctx.beginPath(); ctx.roundRect(p.x + dx, p.y, p.w, p.h, p.r); };
     ctx.globalCompositeOperation = "source-over";
-    for (const [top, rgba, blur, off] of [[p.y, "rgba(128,176,250,.6)", 11, -2], [p.y + p.h - 28, "rgba(0,0,0,.8)", 9, 4]]) {
+    for (const [top, rgba, blur, off] of [[p.y, dusk ? "rgba(206,76,120,.7)" : "rgba(128,176,250,.6)", 11, -2], [p.y + p.h - 28, "rgba(0,0,0,.8)", 9, 4]]) {
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.roundRect(p.x, p.y, p.w, p.h, p.r); ctx.clip("evenodd");   // outside the panel only
       ctx.shadowColor = rgba; ctx.shadowBlur = blur * DPR; ctx.shadowOffsetX = 2000 * DPR; ctx.shadowOffsetY = off * DPR;
       ctx.beginPath(); ctx.roundRect(p.x - 2000, top, p.w, 28, p.r); ctx.fillStyle = "#000"; ctx.fill(); ctx.restore();   // the caster is off screen; only its light or shade lands here
@@ -400,7 +401,7 @@ function draw(t) {
     pg.addColorStop(0, "rgba(30,54,108,.58)"); pg.addColorStop(.45, "rgba(12,24,58,.58)"); pg.addColorStop(1, "rgba(2,5,14,.58)");
     shape(0); ctx.fillStyle = pg; ctx.fill();
     ctx.save(); shape(0); ctx.clip(); ctx.beginPath(); ctx.roundRect(p.x + .5, p.y + .5, p.w - 1, p.h, p.r);   // a faint lit rim along the top
-    const rim = ctx.createLinearGradient(0, p.y, 0, p.y + 22); rim.addColorStop(0, "rgba(170,206,255,.5)"); rim.addColorStop(1, "rgba(170,206,255,0)");
+    const rim = ctx.createLinearGradient(0, p.y, 0, p.y + 22); rim.addColorStop(0, dusk ? "rgba(240,140,170,.5)" : "rgba(170,206,255,.5)"); rim.addColorStop(1, dusk ? "rgba(240,140,170,0)" : "rgba(170,206,255,0)");
     ctx.lineWidth = 1; ctx.strokeStyle = rim; ctx.stroke(); ctx.restore();
     ctx.globalCompositeOperation = "lighter";
   }
