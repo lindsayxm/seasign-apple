@@ -8,7 +8,8 @@
   @font-face { font-family: "Jost"; font-weight: 400; src: url("fonts/Jost-400-Book.ttf") format("truetype"); }
   @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
 
-  :root { --amber: 255, 170, 48; --teal: 62, 176, 182; }
+  /* --amber: buttons and main highlights; --teal: times and numbers; --hi: the day name. All three are warm by day and cool at night (set per state below). */
+  :root { --amber: 255, 170, 48; --teal: 255, 122, 60; --hi: 255, 214, 160; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
@@ -32,7 +33,7 @@
 
   /* upper left: date, day, time, temperature */
   .date { left: 28px; top: 58px; font-size: 9px; letter-spacing: .26em; }
-  .day  { left: 27px; top: 69px; font-size: 40px; line-height: 46px; letter-spacing: .12em; font-weight: 500; color: rgb(255, 214, 160);
+  .day  { left: 27px; top: 69px; font-size: 40px; line-height: 46px; letter-spacing: .12em; font-weight: 500; color: rgb(var(--hi));
           text-shadow: 0 0 14px rgba(var(--amber), .85), 0 0 3px rgba(var(--amber), .6); }
   .now  { left: 28px; top: 122px; display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
   .now svg { width: 14px; height: 14px; }
@@ -445,6 +446,9 @@ if (params.has("bare")) document.body.classList.add("bare");
 function show(id) {
   state = STATES.find(s => s.id === id) || STATES[0];
   look = LOOK[state.look];
+  const tones = look.night ? { amber: "120,226,234", teal: "104,164,222", hi: "218,246,252" }      // cool: aqua, blue, ice
+                           : { amber: "255,170,48",  teal: "255,122,60",  hi: "255,214,160" };     // warm: amber, orange, peach
+  for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
   document.getElementById("weather").setAttribute("href", "#w-" + state.sign);
   document.getElementById("weather-word").textContent = state.word;
   document.getElementById("time").textContent = state.time;
