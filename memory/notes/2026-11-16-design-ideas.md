@@ -9,7 +9,8 @@ Look-only mockups of the Today screen. Nothing here is in the app; an idea is bu
 | `v3-cyclo/` | navy sky, small sun/moon on a drawn arc, symbols upper left | tried |
 | `v4-cartography/` | off-white paper by day, charcoal at night, weather as a sign | tried |
 | `v5-hud/` | fixed dial; warm colours by day, aqua to white at night | tried |
-| `v6-hud2/` | rotating portal ring with beams and swirling dust | the one the user is refining |
+| `v6-hud2/` | rotating portal ring with beams and swirling dust | refined over many rounds; base for v7 |
+| `v7-firmament/` | v6 without the ring and beams: open sky of slowly wheeling stars, sun and moon on a tall arc that rises from and sets into the sea | started 2026-11-17; the one the user is refining |
 
 How the mockups are made, so the next session can continue:
 
