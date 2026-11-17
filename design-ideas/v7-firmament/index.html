@@ -35,10 +35,9 @@
   /* upper left: date, day, weather sign, temperature, condition */
   .date { left: 34px; top: 72.7px; font-size: 9px; letter-spacing: .26em; }
   /* the day name: a light condensed face (Avenir Next Condensed, which ships with iOS and macOS), sized by script to be exactly as wide as the date above it */
-  .day  { left: 34px; top: 100.7px; font-family: "Avenir Next Condensed", "Jost", sans-serif; font-size: 28px; line-height: 30px; letter-spacing: .03em; font-weight: 400; color: rgb(var(--hi));
+  .day  { left: 34px; top: 102.2px; font-family: "Avenir Next Condensed", "Jost", sans-serif; font-size: 28px; line-height: 30px; letter-spacing: .03em; font-weight: 400; color: rgb(var(--hi));
           white-space: nowrap; text-shadow: 0 0 10px rgba(var(--amber), .7), 0 0 2px rgba(var(--amber), .5); }
-  .now  { left: 34px; top: 145.4px; display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
-  .now svg { width: 14px; height: 14px; }
+  .now  { left: 34px; top: 145.8px; display: flex; align-items: center; height: 14px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
 
   /* upper right: the next three events */
   .events { left: 96px; top: 64px; width: 281px; margin: 0; padding: 8px 8px 2px 8px; list-style: none; font-size: 11px; letter-spacing: .13em; line-height: 16px;
@@ -98,7 +97,7 @@
 
     <div class="date"><span class="amber" id="date">Nov 16</span></div>
     <div class="day"><span id="day">Mon</span></div>
-    <div class="now"><svg class="line"><use id="weather" href="#w-clear"/></svg><span>55°F</span></div>
+    <div class="now"><span>55°F</span></div>
 
     <ul class="events">
       <li><time class="mono">6:45 PM</time><span>Hanna’s show</span></li>
@@ -431,7 +430,6 @@ function show(id) {
   /* buttons: flat colour, no shadow or glow. Day: warm yellow-orange. Sunrise: light yellow (#ffffcc). Sunset: pale peach (#ffcdba). Black night: bright aqua. */
   tones.btn = look.night ? "140,240,248" : state.look === "sunset" ? "255,205,186" : state.look === "sunrise" ? "255,255,204" : "255,196,56";
   for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
-  document.getElementById("weather").setAttribute("href", "#w-" + state.sign);
   document.getElementById("clock").textContent = state.time.replace(/^0/, "");
   for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
   if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
@@ -452,7 +450,7 @@ addEventListener("keydown", e => {
   const dateEl = document.getElementById("date"), dayEl = document.getElementById("day"), wide = (el, gap) => el.getBoundingClientRect().width - gap;
   const want = wide(dateEl, 9 * .26), got = wide(dayEl, 28 * .03);
   if (got > 0) { const size = 28 * want / got; dayEl.parentNode.style.fontSize = size + "px"; dayEl.parentNode.style.lineHeight = size * 1.08 + "px";
-    document.querySelector(".now").style.top = 109.4 + size * 1.08 + 7 + "px"; }   // these offsets put the block's top and bottom level with the events' text (date top with the first event's text top, temperature bottom with the last event's text bottom: y 75.7 to 151.7), with equal gaps above and below the day name; measured on a still
+    document.querySelector(".now").style.top = 109.8 + size * 1.08 + 7 + "px"; }   // these offsets put the block's top and bottom level with the events' text (date top with the first event's text top, temperature bottom with the last event's text bottom: y 75.7 to 151.7), with equal gaps above and below the day name; measured on a still
   show(params.get("state") || "mid-day");
   if (still) { document.title = "ready"; return; }
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
