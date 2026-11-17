@@ -168,15 +168,18 @@ const DPR = Math.min(3, window.devicePixelRatio || 1);
 canvas.width = W * DPR; canvas.height = H * DPR;
 
 const rnd = prng(613), list = (n, f) => Array.from({ length: n }, f);
+const CLUMPS = list(9, () => rnd() * TAU);
 const bits = {
   /* dust thrown outward from the ring: each speck starts at the ring and drifts away */
-  dust: list(1100, () => ({ a: rnd() * TAU, d: Math.pow(rnd(), 1.8), sp: .012 + rnd() * .02, s: .5 + rnd() * rnd() * 1.9, ph: rnd() * TAU, v: rnd() < .09 })),
+  dust: list(1500, () => ({ a: rnd() < .55 ? CLUMPS[Math.floor(rnd() * 9)] + (rnd() + rnd() + rnd() - 1.5) * .5 : rnd() * TAU, d: Math.pow(rnd(), 1.8), sp: .012 + rnd() * .02, s: .5 + rnd() * rnd() * 1.9, ph: rnd() * TAU, v: rnd() < .13 })),
+  mist: list(28, () => ({ a: rnd() * TAU, d: 1.15 + rnd() * 1.4, s: .3 + rnd() * .55, k: .5 + rnd() * .8 })),
+  mottle: list(26, () => ({ u: rnd(), v: rnd(), w: .12 + rnd() * .3, h: .04 + rnd() * .08, dark: rnd() < .5 })),
   /* wiring: a spoke with a short arc at its end */
   wires: list(64, () => ({ a: rnd() * TAU, r0: 1.35 + rnd() * 1.5, len: .06 + rnd() * .5, da: (rnd() - .35) * .16, w: rnd() < .25 ? 1.6 : .7, rose: rnd() < .3, k: .6 + rnd() * .6 })),
   plates: list(18, () => ({ a: rnd() * TAU, len: .1 + rnd() * .5, r: 1.34 + Math.floor(rnd() * 4) * .13, k: .7 + rnd() * .5 })),
   blocks: list(30, () => ({ a: rnd() * TAU, len: .02 + rnd() * .1, r: .2 + rnd() * .6, on: rnd() })),
   spokes: list(11, () => ({ a: rnd() * TAU, r0: .25 + rnd() * .3, r1: .7 + rnd() * .28 })),
-  beams: list(15, () => ({ a: rnd() * TAU, ph: rnd(), sp: .05 + rnd() * .05, len: 60 + rnd() * 100 })),
+  beams: list(22, () => ({ a: rnd() * TAU, ph: rnd(), sp: .035 + rnd() * .07, len: 50 + rnd() * 150, w: .8 + rnd() * 1.3, k: rnd() })),
   inner: list(46, () => ({ a: rnd() * TAU, d: Math.sqrt(rnd()), s: .5 + rnd() * .8, ph: rnd() * TAU })),
   clouds: list(9, () => ({ x: rnd(), y: -.62 + rnd() * .75, w: .35 + rnd() * .45, h: .07 + rnd() * .08, sp: .006 + rnd() * .012 })),
   rain: list(40, () => ({ x: rnd(), y: rnd(), sp: .5 + rnd() * .4 })),
@@ -184,6 +187,13 @@ const bits = {
   glints: list(110, () => ({ x: rnd(), y: Math.pow(rnd(), 1.6), ph: rnd() * TAU, s: .5 + rnd() * 1.2, v: rnd() < .08 })),
 };
 let state, look;
+const hash = n => { const v = Math.sin(n * 127.1) * 43758.5453; return v - Math.floor(v); };
+/* a second canvas to blur the picture into, for the soft light round everything bright; and a tile of film grain */
+const soft = document.createElement("canvas"); soft.width = W; soft.height = H; const sctx = soft.getContext("2d");
+const grain = document.createElement("canvas"); grain.width = grain.height = 180;
+{ const g = grain.getContext("2d"), im = g.createImageData(180, 180), gr = prng(77);
+  for (let i = 0; i < im.data.length; i += 4) { const v = gr() * gr() * 255; im.data[i] = v; im.data[i + 1] = v; im.data[i + 2] = v * 1.08; im.data[i + 3] = 255; }
+  g.putImageData(im, 0, 0); }
 const col = (rgb, a) => `rgba(${rgb},${Math.max(0, a)})`;
 
 function arc(r, a0, a1, rgb, alpha, width = 1, dash) {
@@ -209,7 +219,7 @@ function draw(t) {
 
   /* ---- the light the ring gives off ---- */
   glow(x, y, r * 3.4, r * 3.4, "70,96,120", .5 * (.5 + .5 * P), .5);
-  glow(x, y, r * 2.0, r * 2.0, ICE, .5 * (.5 + .5 * P), .66);
+  glow(x, y, r * 2.0, r * 2.0, ICE, .36 * (.5 + .5 * P), .66);
   /* the sea: a hazy plane under the horizon, lit from the middle */
   const sea = ctx.createLinearGradient(0, HZ, 0, HZ + 120);
   sea.addColorStop(0, col("120,140,160", .34)); sea.addColorStop(.25, col("90,108,128", .16)); sea.addColorStop(1, col("60,70,90", 0));
@@ -225,18 +235,25 @@ function draw(t) {
   /* ---- everything that turns with the ring ---- */
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
   for (const p of bits.plates) arc(r * p.r, p.a + spin * p.k, p.a + spin * p.k + p.len, ICE, .15 * (.5 + .5 * P), r * .09);
+  for (const m of bits.mist) {                                                   // uneven haze, so the halo is not a clean disc
+    const a = m.a + spin * m.k;
+    glow(x + r * m.d * Math.cos(a), y + r * m.d * Math.sin(a), r * m.s, r * m.s, ICE, .1 * (.5 + .5 * P), .5);
+  }
   for (const w of bits.wires) {
     const a = w.a + spin * w.k, r0 = r * w.r0, r1 = r * (w.r0 + w.len), fade = Math.max(0, 1 - (w.r0 - 1.3) / 1.9);
-    ctx.beginPath(); ctx.moveTo(x + r0 * Math.cos(a), y + r0 * Math.sin(a)); ctx.lineTo(x + r1 * Math.cos(a), y + r1 * Math.sin(a));
-    ctx.arc(x, y, r1, a, a + w.da, w.da < 0);
-    ctx.lineWidth = w.w; ctx.strokeStyle = col(w.rose ? ROSE : SILVER, (.25 + .5 * fade) * (.55 + .45 * P)); ctx.stroke();
+    const x0 = x + r0 * Math.cos(a), y0 = y + r0 * Math.sin(a), x1 = x + r1 * Math.cos(a), y1 = y + r1 * Math.sin(a);
+    const al = (.12 + .4 * fade) * (.55 + .45 * P) * (.6 + .4 * Math.sin(t * .8 + w.a * 9)), g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, col(w.rose ? ROSE : SILVER, 0)); g.addColorStop(.6, col(w.rose ? ROSE : SILVER, al)); g.addColorStop(1, col(w.rose ? ROSE : SILVER, al));
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.arc(x, y, r1, a, a + w.da, w.da < 0);
+    ctx.lineWidth = w.w * .7; ctx.strokeStyle = g; ctx.stroke();
   }
   for (const d of bits.dust) {                                                   // stars, drifting outward as they turn
     const f = (d.d + t * d.sp) % 1, rad = r * (1.24 + f * 3.4), a = d.a + spin * (1.3 - f * .6);
     const px = x + rad * Math.cos(a), py = y + rad * Math.sin(a);
     if (py > HZ - 2) continue;
     const tw = .55 + .45 * Math.sin(t * 1.4 + d.ph), al = Math.min(1, f * 12) * (1 - f) * (1 - f * .6) * tw * (look.night ? 1.25 : .95);
-    ctx.fillStyle = col(d.v ? VIOLET : SILVER, al); ctx.fillRect(px - d.s / 2, py - d.s / 2, d.s, d.s);
+    if (d.s > 1.45) glow(px, py, d.s * 1.8, d.s * 1.8, d.v ? VIOLET : "236,244,255", al, .22);
+    else { ctx.fillStyle = col(d.v ? VIOLET : SILVER, al); ctx.beginPath(); ctx.arc(px, py, d.s * .55, 0, TAU); ctx.fill(); }
   }
 
   ctx.restore();
@@ -282,6 +299,11 @@ function draw(t) {
   const fill = ctx.createLinearGradient(0, JY - LIMB_H - 2, 0, y + r);
   fill.addColorStop(0, col(tint, .78 * P)); fill.addColorStop(.3, col(tint, .36 * P)); fill.addColorStop(1, col(tint, .05));
   ctx.fillStyle = fill; ctx.fill();
+  for (const m of bits.mottle) {                                                  // the band is uneven, like cloud seen from above
+    const u = (m.u + t * .004) % 1, [px, ly] = pathAt(u, t, LIMB_H), py = ly + 5 + m.v * r * .55;
+    if (m.dark) { ctx.globalCompositeOperation = "source-over"; glow(px, py, m.w * r, m.h * r, "2,3,6", .42, .6); ctx.globalCompositeOperation = "lighter"; }
+    else glow(px, py, m.w * r, m.h * r, tint, .2 * P, .6);
+  }
   const foot = pathAt(state.turn, t, LIMB_H);
   glow(bx, foot[1] + 4, r * .6, r * .3, halo, .75 * P, .45);                       // the sun or moon lights the band below it
   ctx.shadowColor = col(tint, 1); ctx.shadowBlur = 7 * DPR;
@@ -340,26 +362,47 @@ function draw(t) {
   ctx.restore();
   ctx.globalCompositeOperation = "lighter";
 
-  /* ---- beams: shot outward from the ring, and gone past the edge of the screen ---- */
+  /* ---- beams: shot outward from the ring, and gone past the edge of the screen. No two are alike: each firing
+          picks a new direction, start, length, width and brightness, and the light along it is uneven ---- */
   ctx.lineCap = "round"; ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
-  for (const b of bits.beams) {
-    const f = (b.ph + t * b.sp) % 1, a = b.a + spin * .5, head = r * .9 + Math.pow(f, 1.6) * 640, len = b.len * (.5 + f * 1.6);
-    const tail = Math.max(r * .9, head - len), al = Math.min(1, f * 8);
-    const x0 = x + tail * Math.cos(a), y0 = y + tail * Math.sin(a), x1 = x + head * Math.cos(a), y1 = y + head * Math.sin(a);
-    const g = ctx.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, col(TEAL, 0)); g.addColorStop(.5, col(TEAL, al)); g.addColorStop(1, col("120,244,248", al));
-    ctx.shadowColor = col(GOLD, 1); ctx.shadowBlur = 6 * DPR;
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = 2.6; ctx.strokeStyle = col(GOLD, .14 * al); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = 1.5; ctx.strokeStyle = g; ctx.stroke();
-  }
+  bits.beams.forEach((b, i) => {
+    const cyc = b.ph + t * b.sp, f = cyc % 1, n = Math.floor(cyc);
+    const h1 = hash(i * 7.3 + n * 1.7), h2 = hash(i * 3.1 + n * 5.9), h3 = hash(i * 11.7 + n * 2.3);
+    const a = b.a + (h1 - .5) * .9 + spin * .5, skew = (h2 - .5) * .24, start = r * (.5 + h3 * .7);
+    const head = start + Math.pow(f, 1.5) * (520 + h2 * 260), len = b.len * (.35 + h3) * (.5 + f * 1.8), tail = Math.max(start, head - len);
+    const ox = x + start * Math.cos(a), oy = y + start * Math.sin(a), dx = Math.cos(a + skew), dy = Math.sin(a + skew);
+    const at = d => [ox + (d - start) * dx, oy + (d - start) * dy];
+    const al = Math.min(1, f * 7) * (.55 + .45 * b.k) * (.78 + .22 * Math.sin(t * (9 + h1 * 8) + i)), w = b.w * (.7 + h3 * .8);
+    const [x0, y0] = at(tail), [x1, y1] = at(head);
+    for (const [ww, aa] of [[w * 10, .05], [w * 5.5, .09], [w * 3, .1]]) {     // warm light round the beam
+      const g = ctx.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, col(GOLD, 0)); g.addColorStop(.55, col(GOLD, aa * al)); g.addColorStop(1, col(GOLD, aa * al * .7));
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = ww; ctx.strokeStyle = g; ctx.stroke();
+    }
+    const S = 16, tick = Math.floor(t * 14);
+    for (let k = 0; k < S; k++) {                                                 // the core, in uneven pieces
+      const u0 = k / S, u1 = (k + 1) / S, nz = .4 + .6 * hash(i * 13.1 + k * 4.7 + tick * .37), ramp = Math.pow(u1, .8);
+      ctx.beginPath(); ctx.moveTo(...at(tail + (head - tail) * u0)); ctx.lineTo(...at(tail + (head - tail) * u1));
+      ctx.lineWidth = w * (.6 + .7 * nz * ramp); ctx.strokeStyle = col(k > S - 3 ? "176,250,248" : TEAL, al * ramp * nz); ctx.stroke();
+    }
+    glow(x1, y1, 4 + w * 4, 4 + w * 4, "200,255,246", .45 * al, .3);
+    for (let k = 0; k < 7; k++) {                                                 // sparks shed along it
+      const u = hash(i * 2.9 + k * 8.3 + n), [px, py] = at(tail + (head - tail) * u), off = (hash(k * 5.1 + i + tick * .11) - .5) * (6 + w * 6);
+      ctx.fillStyle = col(k % 2 ? GOLD : "190,250,246", .7 * al * hash(k + i * 1.9 + tick * .07)); ctx.beginPath(); ctx.arc(px - dy * off, py + dx * off, .35 + hash(k + i) * .5, 0, TAU); ctx.fill();
+    }
+  });
   ctx.restore(); ctx.lineCap = "butt";
 
-  /* ---- the picture is cut into upright panels that sit a little out of line, as in the reference ---- */
-  ctx.globalCompositeOperation = "source-over";
-  for (const [sx, sw, dy] of [[0, 49, -13], [338, 55, 15]]) {
-    ctx.drawImage(canvas, sx * DPR, 150 * DPR, sw * DPR, 420 * DPR, sx, 150 + dy, sw, 420);
-    ctx.fillStyle = "rgba(0,0,0,.7)"; ctx.fillRect(sx === 0 ? sx + sw - .5 : sx - .5, 150, 1, 420);
+  /* ---- soft light round everything bright, then film grain ---- */
+  if ("filter" in sctx) {
+    for (const [px, a] of [[4, .26], [16, .24]]) {
+      sctx.globalCompositeOperation = "copy"; sctx.filter = `blur(${px}px)`; sctx.drawImage(canvas, 0, 0, W, H);
+      ctx.globalAlpha = a; ctx.drawImage(soft, 0, 0, W, H); ctx.globalAlpha = 1;
+    }
   }
+  const gx = Math.floor(hash(Math.floor(t * 24)) * 180), gy = Math.floor(hash(Math.floor(t * 24) + 9.1) * 180);
+  ctx.globalAlpha = .11;
+  for (let yy = -gy; yy < HZ + 110; yy += 180) for (let xx = -gx; xx < W; xx += 180) ctx.drawImage(grain, xx, yy, 180, 180);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
   /* dark behind the words */
   const top = ctx.createLinearGradient(0, 0, 0, 200); top.addColorStop(0, "rgba(0,0,0,1)"); top.addColorStop(.7, "rgba(0,0,0,.8)"); top.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = top; ctx.fillRect(0, 0, W, 200);
