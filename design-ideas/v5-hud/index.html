@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seasign v5 — HUD</title>
+<style>
+  @font-face { font-family: "Jost"; font-weight: 400; src: url("fonts/Jost-400-Book.ttf") format("truetype"); }
+  @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
+
+  :root { --c: 70, 224, 204; --hi: 255, 255, 255; }        /* --c: the state's colour; --hi: its brightest tone */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #060707; color: #b9c2c2; font-family: "Jost", "Avenir Next", "Helvetica Neue", sans-serif;
+    display: flex; align-items: center; justify-content: center; gap: 48px; flex-wrap: wrap; padding: 24px;
+  }
+  body.bare { display: block; padding: 0; background: #000; overflow: hidden; }
+  .phone {
+    position: relative; width: 393px; height: 852px; flex: none; border-radius: 46px; overflow: hidden; background: #000;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 0 0 9px #050506, 0 0 0 10px rgba(255,255,255,.10), 0 30px 90px rgba(0,0,0,.7);
+  }
+  body.bare .phone { border-radius: 0; box-shadow: none; }
+  canvas { position: absolute; inset: 0; width: 393px; height: 852px; display: block; }
+
+  .ui { position: absolute; inset: 0; color: rgb(236, 240, 240); text-transform: uppercase; }
+  .ui > * { position: absolute; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .tint { color: rgb(var(--c)); }
+  .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; text-transform: none; color: #fff; }
+
+  /* upper left: the day */
+  .date { left: 30px; top: 60px; font-size: 9px; letter-spacing: .26em; }
+  .day  { left: 29px; top: 72px; font-size: 40px; line-height: 46px; letter-spacing: .12em; font-weight: 500; color: rgb(var(--hi));
+          text-shadow: 0 0 18px rgba(var(--c), .7); }
+  .now  { left: 30px; top: 126px; display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; }
+  .now svg { width: 15px; height: 15px; }
+  .bracket { left: 22px; top: 54px; width: 6px; height: 92px; border: 1px solid rgba(var(--c), .7); border-right: 0; }
+
+  /* upper right: the next three events */
+  .events { left: 190px; top: 60px; width: 178px; margin: 0; padding: 0; list-style: none; font-size: 8.5px; letter-spacing: .14em; line-height: 13.5px; }
+  .events li { display: grid; grid-template-columns: 62px 1fr; margin-bottom: 8px; padding-left: 8px; border-left: 1px solid rgba(var(--c), .55); }
+  .events time { color: rgb(var(--c)); font-size: 8px; letter-spacing: .06em; }
+
+  /* under the dial: the three symbols, then the article titles */
+  svg.line { fill: none; stroke: rgb(var(--c)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+  .icons { left: 30px; top: 506px; display: flex; gap: 26px; }
+  .icons svg { width: 19px; height: 19px; filter: drop-shadow(0 0 5px rgba(var(--c), .8)); }
+  .label { left: 176px; top: 510px; right: 30px; font-size: 7.5px; letter-spacing: .14em; text-align: right; opacity: .75; }
+  .rule { left: 30px; right: 30px; top: 540px; height: 1px; background: linear-gradient(90deg, rgba(var(--c), .9), rgba(var(--c), .25) 30%, rgba(var(--c), .25) 70%, rgba(var(--c), .9)); }
+
+  .feed { left: 30px; top: 558px; width: 334px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
+  .feed li { display: grid; grid-template-columns: 30px 1fr; height: 49px; }
+  .feed i { font-style: normal; font-size: 8.5px; letter-spacing: .04em; }
+  .more { left: 30px; top: 812px; width: 13px; height: 13px; }
+  .home { left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
+
+  nav { width: 250px; }
+  nav h1 { font-size: 13px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase; margin: 0 0 6px; color: #fff; }
+  nav p { font-size: 13px; line-height: 1.5; color: #8a9292; margin: 0 0 18px; }
+  nav button {
+    display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 1px solid #252b2b;
+    color: #98a1a1; font: 400 12px "Jost", sans-serif; letter-spacing: .22em; text-transform: uppercase; padding: 9px 14px; cursor: pointer;
+  }
+  nav button:hover { color: #fff; }
+  nav button[aria-pressed="true"] { color: #fff; border-left-color: #fff; }
+  nav button:focus-visible { outline: 1px solid #fff; outline-offset: -1px; }
+  body.bare nav { display: none; }
+</style>
+</head>
+<body>
+
+<!-- The app's three symbols and » as it draws them (ios/Seasign/Design/Icons.swift), and small weather marks in the same manner. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-settings" viewBox="0 0 1 1"><path d="M.5 0V1M.02 .31H.98L.02 .69H.98"/></symbol>
+  <symbol id="i-list" viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".29"/><path d="M0 .5H1M.821 .117A.5 .5 0 0 1 .821 .883M.179 .883A.5 .5 0 0 1 .179 .117"/></symbol>
+  <symbol id="i-saved" viewBox="0 0 1 1"><path d="M.5 0V1M0 .5H1M.08 .08L.92 .92M.92 .08L.08 .92"/></symbol>
+  <symbol id="i-more" viewBox="0 0 1 1"><path d="M.02 .1L.42 .5L.02 .9M.52 .1L.92 .5L.52 .9"/></symbol>
+  <symbol id="w-clear" viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".27"/><path d="M.5 0V1M.1 .9H.9"/></symbol>
+  <symbol id="w-clouds" viewBox="0 0 1 1"><path d="M0 .62H1M.14 .62A.24 .24 0 0 1 .62 .62M.5 .44A.18 .18 0 0 1 .86 .62M.2 .86H.8"/></symbol>
+  <symbol id="w-rain" viewBox="0 0 1 1"><path d="M0 .28H1M.36 .1L.18 .95M.6 .28L.48 .85M.84 .28L.76 .66"/></symbol>
+  <symbol id="w-snow" viewBox="0 0 1 1"><path d="M0 .26H1M.5 .08V.44M.12 .52L.32 .72M.32 .52L.12 .72M.42 .76L.62 .96M.62 .76L.42 .96M.72 .5L.9 .68M.9 .5L.72 .68"/></symbol>
+  <symbol id="w-night" viewBox="0 0 1 1"><path d="M.64 .16A.36 .36 0 1 0 .64 .84A.44 .44 0 0 1 .64 .16ZM0 .5H.4M.86 .04V.3M.73 .17H.99"/></symbol>
+</svg>
+
+<div class="phone" id="phone">
+  <canvas id="scene" width="393" height="852"></canvas>
+  <div class="ui">
+    <div class="clock">6:23</div>
+
+    <div class="bracket"></div>
+    <div class="date"><span class="tint">Nov 16</span> &nbsp;/&nbsp; 2026</div>
+    <div class="day">Mon</div>
+    <div class="now"><svg class="line"><use id="weather" href="#w-clear"/></svg><span>55°F</span><span class="tint" id="weather-word">Clear</span></div>
+
+    <ul class="events">
+      <li><time class="mono">18:45</time><span>Hanna's show</span></li>
+      <li><time class="mono">20:15</time><span>Submit work hours for St…</span></li>
+      <li><time class="mono">TUE · ALL</time><span>Brush pets teeth</span></li>
+    </ul>
+
+    <div class="icons" aria-hidden="true">
+      <svg class="line"><use href="#i-settings"/></svg><svg class="line"><use href="#i-list"/></svg><svg class="line"><use href="#i-saved"/></svg>
+    </div>
+    <div class="label mono"><span class="tint" id="phase-word">Sun</span> &nbsp;<span id="readout"></span></div>
+    <div class="rule"></div>
+
+    <ul class="feed">
+      <li><i class="mono tint">01</i><span>A short explainer on how El Niño works [video]</span></li>
+      <li><i class="mono tint">02</i><span>It's getting too dry for even cactuses to survive</span></li>
+      <li><i class="mono tint">03</i><span>'Birdbrain' is a misnomer. Crows make decisions faster than we can</span></li>
+      <li><i class="mono tint">04</i><span>What the Great Lakes remember about last winter</span></li>
+      <li><i class="mono tint">05</i><span>The quiet return of the paper map</span></li>
+    </ul>
+    <svg class="line more"><use href="#i-more"/></svg>
+    <div class="home"></div>
+  </div>
+</div>
+
+<nav id="nav" aria-label="Scene state">
+  <h1>Seasign v5 · HUD</h1>
+  <p>One dial that never moves. Its colour and brightness carry the time: reds, oranges and yellows by day, deep aqua to white at night. Pick a state; arrow keys step through them.</p>
+</nav>
+
+<script>
+"use strict";
+const W = 393, H = 852, TAU = Math.PI * 2;
+const DIAL = { x: W / 2, y: 328, r: 132 };       // the circle: always here, always this size
+
+/* c: the main colour; hi: the brightest tone; deep: the darkest; power: overall brightness, 0 to 1 */
+const LOOK = {
+  sunrise:  { c: "255,92,58",   hi: "255,176,96",  deep: "120,18,14",  power: .72 },
+  day:      { c: "255,196,60",  hi: "255,246,196", deep: "150,70,10",  power: 1 },
+  sunset:   { c: "255,122,36",  hi: "255,84,64",   deep: "130,24,20",  power: .8 },
+  cloudy:   { c: "236,160,72",  hi: "255,214,150", deep: "110,56,16",  power: .58 },
+  rain:     { c: "224,112,60",  hi: "250,176,120", deep: "96,34,16",   power: .46 },
+  snow:     { c: "255,214,128", hi: "255,244,214", deep: "120,80,30",  power: .7 },
+  dusk:     { c: "24,150,156",  hi: "150,236,228", deep: "4,52,62",    power: .6,  night: true },
+  night:    { c: "40,206,196",  hi: "255,255,255", deep: "4,64,72",    power: .85, night: true },
+  full:     { c: "120,236,226", hi: "255,255,255", deep: "6,78,84",    power: 1,   night: true },
+};
+/* `turn`: how far through the day or night, 0 to 1; it sets where the marker sits on the rim (left, over the top, to the right) */
+const STATES = [
+  { id: "sunrise",     label: "Sunrise",     look: "sunrise", turn: .04, sign: "clear",  word: "Clear",  read: "RISE 06:41 · SET 16:31" },
+  { id: "mid-day",     label: "Mid-day",     look: "day",     turn: .5,  sign: "clear",  word: "Clear",  read: "ALT 29° · UV 2" },
+  { id: "sunset",      label: "Sunset",      look: "sunset",  turn: .96, sign: "clear",  word: "Clear",  read: "SET 16:31 · RISE 06:42" },
+  { id: "clouds",      label: "Clouds",      look: "cloudy",  turn: .5,  sign: "clouds", word: "Clouds", read: "CLOUD 88% · WIND 9" , clouds: true },
+  { id: "rain",        label: "Rain",        look: "rain",    turn: .5,  sign: "rain",   word: "Rain",   read: "RAIN 0.2 IN · WIND 12", clouds: true, rain: true },
+  { id: "snow",        label: "Snow",        look: "snow",    turn: .5,  sign: "snow",   word: "Snow",   read: "SNOW 1.4 IN · WIND 6", clouds: true, snow: true },
+  { id: "moon-rise",   label: "Moon rise",   look: "dusk",    turn: .04, sign: "night",  word: "Clear",  read: "RISE 17:12 · 100%", phase: .5 },
+  { id: "mid-night",   label: "Mid-night",   look: "night",   turn: .5,  sign: "night",  word: "Clear",  read: "ALT 61° · 100%", phase: .5 },
+  { id: "moon-waxing", label: "Waxing moon", look: "night",   turn: .38, sign: "night",  word: "Clear",  read: "WAXING · 50%", phase: .25 },
+  { id: "moon-waning", label: "Waning moon", look: "night",   turn: .62, sign: "night",  word: "Clear",  read: "WANING · 50%", phase: .75 },
+  { id: "moon-full",   label: "Full moon",   look: "full",    turn: .5,  sign: "night",  word: "Clear",  read: "FULL · 100%", phase: .5 },
+  { id: "moon-set",    label: "Moon set",    look: "dusk",    turn: .96, sign: "night",  word: "Clear",  read: "SET 07:03 · 100%", phase: .5 },
+];
+
+function prng(seed) {
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+const DPR = Math.min(3, window.devicePixelRatio || 1);
+canvas.width = W * DPR; canvas.height = H * DPR;
+
+const rnd = prng(311), list = (n, f) => Array.from({ length: n }, f);
+const bits = {
+  specks: list(70, () => ({ a: rnd() * TAU, d: Math.sqrt(rnd()), s: .5 + rnd() * .9, ph: rnd() * TAU })),
+  rain: list(46, () => ({ x: rnd(), y: rnd(), sp: .5 + rnd() * .4 })),
+  snow: list(40, () => ({ x: rnd(), y: rnd(), sp: .03 + rnd() * .04, r: .8 + rnd() * 1.3, ph: rnd() * TAU })),
+  bars: list(7, () => ({ y: -.75 + rnd() * 1.5, x: -1 + rnd() * 1.2, w: .5 + rnd() * .9, h: .05 + rnd() * .07, sp: .01 + rnd() * .02 })),
+  blocks: list(26, () => ({ a: rnd() * TAU, len: .03 + rnd() * .12, r: rnd() < .5 ? 1.085 : 1.2, on: rnd() })),
+};
+let state, look;
+const col = (rgb, a) => `rgba(${rgb},${a})`;
+
+function arc(r, a0, a1, rgb, alpha, width = 1, dash) {
+  ctx.beginPath(); ctx.arc(DIAL.x, DIAL.y, r, a0, a1); ctx.setLineDash(dash || []); ctx.lineWidth = width; ctx.strokeStyle = col(rgb, alpha); ctx.stroke(); ctx.setLineDash([]);
+}
+function glow(x, y, rx, ry, rgb, alpha, mid = .4) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(rx, ry);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  g.addColorStop(0, col(rgb, alpha)); g.addColorStop(mid, col(rgb, alpha * .35)); g.addColorStop(1, col(rgb, 0));
+  ctx.fillStyle = g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
+}
+function tag(text, x, y, rgb, alpha, angle = 0, align = "left") {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(angle); ctx.font = "6.5px ui-monospace, 'SF Mono', Menlo, monospace"; ctx.textAlign = align;
+  ctx.fillStyle = col(rgb, alpha); ctx.fillText(text, 0, 0); ctx.restore();
+}
+
+function draw(t) {
+  const { x, y, r } = DIAL, { c, hi, deep } = look, P = look.power * (.97 + .03 * Math.sin(t * 1.4));
+  const at = Math.PI + state.turn * Math.PI;                         // where the marker sits on the rim
+  const mx = x + r * Math.cos(at), my = y + r * Math.sin(at);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "butt";
+
+  /* light behind the dial: stronger the brighter the hour */
+  glow(x, y, r * 1.75, r * 1.75, deep, .5 * P, .55);
+  glow(mx, my, r * 1.25, r * 1.25, c, .3 * P, .35);
+
+  /* ---- inside the circle ---- */
+  ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.clip();
+  const body = ctx.createRadialGradient(mx, my, 0, x, y, r * 1.5);    // lit from where the marker is
+  body.addColorStop(0, col(c, .5 * P)); body.addColorStop(.35, col(deep, .55 * P)); body.addColorStop(1, col(deep, .06));
+  ctx.fillStyle = body; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  if (state.phase != null) {                                          // the moon's phase, as the lit part of the disc
+    const k = Math.cos(TAU * state.phase), lit = (1 - k) / 2;
+    ctx.save(); ctx.translate(x, y); if (state.phase > .5) ctx.scale(-1, 1);
+    ctx.beginPath();
+    if (lit > .985) ctx.arc(0, 0, r, 0, TAU);
+    else { ctx.arc(0, 0, r, -Math.PI / 2, Math.PI / 2); ctx.ellipse(0, 0, r * Math.abs(k), r, 0, Math.PI / 2, Math.PI * 1.5, lit < .5); }
+    const g = ctx.createLinearGradient(-r, 0, r, 0); g.addColorStop(0, col(c, .05)); g.addColorStop(1, col(hi, .34 * P));
+    ctx.fillStyle = g; ctx.fill(); ctx.restore();
+  }
+  /* a fine grid, and the hour's sweep turning slowly */
+  ctx.beginPath();
+  for (let i = -5; i <= 5; i++) { ctx.moveTo(x + i * r / 5, y - r); ctx.lineTo(x + i * r / 5, y + r); ctx.moveTo(x - r, y + i * r / 5); ctx.lineTo(x + r, y + i * r / 5); }
+  ctx.lineWidth = .4; ctx.strokeStyle = col(c, .1 * P); ctx.stroke();
+  const sweep = t * .12;
+  const wedge = ctx.createConicGradient(sweep, x, y);
+  wedge.addColorStop(0, col(c, 0)); wedge.addColorStop(.86, col(c, 0)); wedge.addColorStop(.995, col(c, .2 * P)); wedge.addColorStop(1, col(c, 0));
+  ctx.fillStyle = wedge; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  /* weather, shown as marks inside the instrument */
+  if (state.clouds) for (const b of bits.bars) {
+    const bx = x + ((b.x + t * b.sp + 2.2) % 2.2 - 1.1) * r;
+    ctx.fillStyle = col(hi, .1 * (.6 + P)); ctx.fillRect(bx, y + b.y * r, b.w * r, b.h * r);
+    ctx.fillStyle = col(hi, .5 * P); ctx.fillRect(bx, y + b.y * r, b.w * r, .6);
+  }
+  if (state.rain) {
+    ctx.beginPath();
+    for (const p of bits.rain) { const f = (p.y + t * p.sp) % 1, px = x - r + p.x * r * 2.2 - f * 26, py = y - r + f * r * 2; ctx.moveTo(px, py); ctx.lineTo(px - 3.4, py + 11); }
+    ctx.lineWidth = .9; ctx.strokeStyle = col(hi, .75 * (.5 + P)); ctx.stroke();
+  }
+  if (state.snow) for (const f of bits.snow) {
+    const fy = y - r + ((f.y + t * f.sp) % 1) * r * 2, fx = x - r + f.x * r * 2 + Math.sin(t * .6 + f.ph) * 5;
+    ctx.fillStyle = col(hi, .85); ctx.fillRect(fx - f.r, fy - .4, f.r * 2, .8); ctx.fillRect(fx - .4, fy - f.r, .8, f.r * 2);
+  }
+  if (look.night) for (const s of bits.specks) {                      // stars, as points on the scope
+    ctx.fillStyle = col(hi, (.3 + .5 * Math.pow(.5 + .5 * Math.sin(t * .9 + s.ph), 2)) * P);
+    ctx.fillRect(x + Math.cos(s.a) * s.d * r * .96 - s.s / 2, y + Math.sin(s.a) * s.d * r * .96 - s.s / 2, s.s, s.s);
+  }
+  /* an orbit across the face, and chords to the marker */
+  ctx.save(); ctx.translate(x, y); ctx.rotate(-.32);
+  ctx.beginPath(); ctx.ellipse(0, 6, r * .86, r * .3, 0, 0, TAU); ctx.lineWidth = .7; ctx.strokeStyle = col(c, .5 * P); ctx.stroke();
+  const oa = t * .25; ctx.fillStyle = col(hi, .95); ctx.beginPath(); ctx.arc(Math.cos(oa) * r * .86, 6 + Math.sin(oa) * r * .3, 1.8, 0, TAU); ctx.fill();
+  ctx.restore();
+  ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(x, y); ctx.moveTo(mx, my); ctx.lineTo(x + r * Math.cos(at + 2.2), y + r * Math.sin(at + 2.2));
+  ctx.lineWidth = .5; ctx.strokeStyle = col(c, .4 * P); ctx.stroke();
+  arc(r * .62, 0, TAU, c, .28 * P, .6, [1, 4]); arc(r * .3, 0, TAU, c, .4 * P, .6);
+  ctx.restore();
+
+  /* ---- the rim and the rings outside it ---- */
+  ctx.shadowColor = col(c, 1); ctx.shadowBlur = 12 * DPR * P;
+  arc(r, 0, TAU, c, .85 * P, 1.2);
+  arc(r - 4, Math.PI, at, hi, .95 * P, 3.2);                          // how much of the day or night has passed
+  ctx.shadowBlur = 0;
+  arc(r - 4, at, TAU, c, .22 * P, 3.2, [2, 3]);
+  for (let i = 0; i < 72; i++) {                                      // degree marks
+    const q = i / 72 * TAU, long = i % 6 === 0, r0 = r + 5, r1 = r + (long ? 12 : 8);
+    ctx.beginPath(); ctx.moveTo(x + r0 * Math.cos(q), y + r0 * Math.sin(q)); ctx.lineTo(x + r1 * Math.cos(q), y + r1 * Math.sin(q));
+    ctx.lineWidth = long ? .9 : .5; ctx.strokeStyle = col(c, (long ? .8 : .45) * P); ctx.stroke();
+  }
+  arc(r + 17, 0, TAU, c, .22 * P, .5);
+  const spin = t * .05;
+  arc(r + 23, spin + .3, spin + 1.9, c, .7 * P, 2.4); arc(r + 23, spin + 2.3, spin + 2.6, hi, .9 * P, 2.4); arc(r + 23, spin + 3.6, spin + 5.4, c, .32 * P, 2.4, [6, 3]);
+  arc(r + 30, -spin * 1.6 + 1, -spin * 1.6 + 3.4, c, .45 * P, .7); arc(r + 30, -spin * 1.6 + 4.2, -spin * 1.6 + 6.1, c, .3 * P, .7, [1, 3]);
+  for (const b of bits.blocks) arc(r * b.r, b.a + spin * (b.r > 1.1 ? -1 : 1), b.a + b.len + spin * (b.r > 1.1 ? -1 : 1), b.on > .7 ? hi : c, (b.on > .7 ? .8 : .35) * P, b.r > 1.1 ? 5 : 1.6);
+  /* cross-hairs that stop short of the rim */
+  for (const q of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+    ctx.beginPath(); ctx.moveTo(x + (r + 34) * Math.cos(q), y + (r + 34) * Math.sin(q)); ctx.lineTo(x + (r + 46) * Math.cos(q), y + (r + 46) * Math.sin(q));
+    ctx.lineWidth = .8; ctx.strokeStyle = col(hi, .8 * P); ctx.stroke();
+  }
+  /* readings set round the dial, as on an instrument */
+  tag("W", x - r - 52, y + 2.5, c, .9, 0, "right"); tag("E", x + r + 52, y + 2.5, c, .9); tag("ZENITH", x, y - r - 36, c, .8, 0, "center");
+  [["ZIP 60611", 2.42], ["41.89 N", 2.62], ["87.62 W", 2.82]].forEach(([text, q]) => {
+    const ex = x + (r + 38) * Math.cos(q), ey = y + (r + 38) * Math.sin(q);
+    ctx.beginPath(); ctx.moveTo(x + (r + 14) * Math.cos(q), y + (r + 14) * Math.sin(q)); ctx.lineTo(ex, ey); ctx.lineWidth = .5; ctx.strokeStyle = col(c, .6 * P); ctx.stroke();
+    ctx.strokeStyle = col("255,120,60", .8); ctx.strokeRect(ex - 2.5, ey - 2.5, 5, 5);
+    tag(text, ex - 5 * Math.cos(q - Math.PI), ey + 9, hi, .8, 0, "left");
+  });
+
+  /* ---- the marker: where the sun or moon is in its day ---- */
+  const beat = 1 + .12 * Math.sin(t * 2.2);
+  glow(mx, my, 34 * beat, 34 * beat, c, .7 * P, .3);
+  ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(mx, my, 13, 0, TAU); ctx.fill();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.beginPath(); ctx.arc(mx, my, 13, 0, TAU); ctx.lineWidth = .8; ctx.strokeStyle = col(c, .9); ctx.stroke();
+  for (const [a0, a1] of [[-.9, .9], [Math.PI - .9, Math.PI + .9]]) { ctx.beginPath(); ctx.arc(mx, my, 9, a0 + t * .4, a1 + t * .4); ctx.lineWidth = 2.2; ctx.strokeStyle = col(hi, .95); ctx.stroke(); }
+  ctx.fillStyle = col(hi, 1); ctx.beginPath(); ctx.arc(mx, my, 3.4, 0, TAU); ctx.fill();
+  glow(mx, my, 9, 9, "255,255,255", .8 * P, .4);
+}
+
+/* ---------- choosing a state ---------- */
+const params = new URLSearchParams(location.search);
+const still = params.has("still");
+if (params.has("bare")) document.body.classList.add("bare");
+
+function show(id) {
+  state = STATES.find(s => s.id === id) || STATES[0];
+  look = LOOK[state.look];
+  const phone = document.getElementById("phone");
+  phone.style.setProperty("--c", look.c); phone.style.setProperty("--hi", look.hi);
+  document.getElementById("weather").setAttribute("href", "#w-" + state.sign);
+  document.getElementById("weather-word").textContent = state.word;
+  document.getElementById("phase-word").textContent = look.night ? "Moon" : "Sun";
+  document.getElementById("readout").textContent = state.read;
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
+  if (still) draw(7.3); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
+}
+const nav = document.getElementById("nav");
+for (const s of STATES) {
+  const b = document.createElement("button");
+  b.textContent = s.label; b.dataset.id = s.id; b.onclick = () => show(s.id); nav.appendChild(b);
+}
+addEventListener("keydown", e => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  show(STATES[(STATES.indexOf(state) + step + STATES.length) % STATES.length].id);
+});
+((document.fonts && document.fonts.ready) || Promise.resolve()).then(() => {
+  show(params.get("state") || "mid-night");
+  if (still) { document.title = "ready"; return; }
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const loop = ms => { draw(calm ? 7.3 : ms / 1000); if (!calm) requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
