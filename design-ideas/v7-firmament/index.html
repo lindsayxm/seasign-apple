@@ -133,6 +133,7 @@
 "use strict";
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
 const HZ = 376;                                        // the sea's horizon
+const GULL_SEED = new URLSearchParams(location.search).has("still") ? 0 : Math.floor(Math.random() * 9000);   // a new starting point for the gulls each time the page opens (fixed for stills)
 const SHOW_ARC = new URLSearchParams(location.search).has("arc");   // the drawn line of the sun and moon's path: off unless ?arc is in the address
 const PANEL = { x: 329, y: 302, w: 45, h: 149, r: 13 };  // behind the three buttons at the right
 const PATH = { x: 62 + 101, half: 101, top: 100 };     // left of centre and narrower than the screen: its ends are placed so the very large rising and setting sun or moon clears the left edge and the button panel
@@ -431,7 +432,7 @@ function draw(t) {
   /* ---- gulls: once a minute a small flock crosses the sky. Every crossing is made up afresh from its number: direction, height, climb,
           bend, how many birds, and each bird's place, size and wing beat. They are flat silhouettes, dark by day and dim grey-blue at night ---- */
   {
-    const EVERY = 60, LASTS = 16, tt = t - 3, n = Math.floor(tt / EVERY), f = tt - n * EVERY;
+    const EVERY = 60, LASTS = 16, tt = t - 3, turn = Math.floor(tt / EVERY), f = tt - turn * EVERY, n = turn + GULL_SEED;
     if (tt >= 0 && f < LASTS) {
       const h = k => hash(n * 17.3 + k * 3.91 + 5), dir = h(1) < .5 ? 1 : -1, count = 1 + Math.floor(h(2) * 3), p = f / LASTS;
       const y0 = HZ - 40 - h(3) * 80, climb = (h(4) - .5) * 50, bend = (h(5) - .5) * 40,   // kept in the lower, lighter sky, where a dark shape shows
