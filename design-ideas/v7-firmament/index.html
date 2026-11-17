@@ -53,6 +53,10 @@
   .icons svg, svg.more { stroke: rgb(var(--btn)); }
   body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
   .icons svg { width: 23px; height: 23px; stroke-width: .1; }
+  /* a rounded dark blue panel behind the three buttons, 75% see-through: lighter at the top, to show against the sky, and very dark at the bottom, to melt into the sea */
+  .icons { isolation: isolate; }
+  .icons::before { content: ""; position: absolute; inset: -13px -11px; border-radius: 13px; z-index: -1; opacity: .25;
+                   background: linear-gradient(to bottom, rgb(64, 98, 168) 0%, rgb(30, 52, 104) 45%, rgb(4, 8, 22) 100%); }
   .more { left: 44px; top: 470px; width: 12px; height: 12px; stroke-width: .17; }
 
   .feed { left: 44px; top: 530px; width: 322px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }

@@ -1,0 +1,26 @@
+---
+id: 62
+title: design-ideas/v7-firmament: translucent dark blue rounded panel behind the button column, lighter at the top, very dark at the bottom
+status: in-progress
+owner: lead
+depends_on: []
+created: 2026-11-17T16:31:32Z
+updated: 2026-11-17T16:31:32Z
+---
+
+## Goal
+
+
+## Acceptance criteria
+
+
+## Relevant files
+
+
+## What's been tried
+
+
+## Log
+
+- 2026-11-17T16:31:32Z [lead] created (todo)
+- 2026-11-17T16:31:32Z [lead] status: todo → in-progress — claimed by lead
