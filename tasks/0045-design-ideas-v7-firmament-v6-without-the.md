@@ -5,7 +5,7 @@ status: in-progress
 owner: lead
 depends_on: []
 created: 2026-11-17T15:11:36Z
-updated: 2026-11-17T15:11:41Z
+updated: 2026-11-17T15:16:49Z
 ---
 
 ## Goal
@@ -24,3 +24,4 @@ updated: 2026-11-17T15:11:41Z
 
 - 2026-11-17T15:11:36Z [lead] created (todo)
 - 2026-11-17T15:11:41Z [lead] status: todo → in-progress — claimed by lead
+- 2026-11-17T15:16:49Z [lead] Built from v6; stills rendered and checked (all twelve, plus a frame 120 s later for star motion). No beams code left (grep).
