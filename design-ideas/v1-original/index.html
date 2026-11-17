@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seasign v1 — original</title>
+<style>
+  @font-face { font-family: "Jost"; font-weight: 400; src: url("fonts/Jost-400-Book.ttf") format("truetype"); }
+  @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
+  @font-face { font-family: "PT Sans Narrow"; font-weight: 700; src: url("fonts/PTSansNarrow-Bold.ttf") format("truetype"); }
+
+  /* The app's palette (ios/Seasign/Design/Palette.swift). Sizes are the app's, in mockup points times --s. */
+  :root { --charcoal: #302f2c; --rule: #676663; --dim: #a9a8a4; --s: 1.0229px; }   /* 402 / 393 */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #141413; color: #c9c8c4; font-family: "Jost", "Avenir Next", "Helvetica Neue", sans-serif;
+    display: flex; align-items: center; justify-content: center; gap: 48px; flex-wrap: wrap; padding: 24px;
+  }
+  body.bare { display: block; padding: 0; background: #000; overflow: hidden; }
+
+  .phone {
+    position: relative; width: 402px; height: 874px; flex: none; border-radius: 48px; overflow: hidden; background: var(--charcoal);
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 0 0 9px #050506, 0 0 0 10px rgba(255,255,255,.10), 0 30px 90px rgba(0,0,0,.7);
+  }
+  body.bare .phone { border-radius: 0; box-shadow: none; }
+  canvas { position: absolute; inset: 0; width: 402px; height: 874px; display: block; }
+
+  .ui { position: absolute; inset: 0; color: #fff; text-transform: uppercase; font-weight: 500; }
+  .ui > * { position: absolute; }
+  .clock { left: 55px; top: 21px; font: 600 17px -apple-system, "Helvetica Neue", sans-serif; text-transform: none; }
+  .battery { left: 339px; top: 26px; width: 26px; height: 13px; border-radius: 4.5px; background: #fff; }
+  .battery::after { content: ""; position: absolute; left: 27.5px; top: 4.5px; width: 2px; height: 4.5px; border-radius: 0 1.5px 1.5px 0; background: #fff; }
+
+  .month { left: calc(61 * var(--s)); top: calc(54 * var(--s)); font-size: calc(10.5 * var(--s)); letter-spacing: .1em; color: var(--dim); line-height: calc(16 * var(--s)); }
+  .date  { left: calc(102 * var(--s)); top: calc(54 * var(--s)); font-size: calc(11.5 * var(--s)); letter-spacing: .03em; line-height: calc(16 * var(--s)); }
+  .day   { left: calc(57.8 * var(--s)); top: calc(65 * var(--s)); font: 700 calc(69.7 * var(--s)) / calc(80 * var(--s)) "PT Sans Narrow", "Arial Narrow", sans-serif; text-transform: none; }
+  .temp  { left: calc(64 * var(--s)); top: calc(152.5 * var(--s)); font-size: calc(14 * var(--s)); letter-spacing: .05em; line-height: calc(18 * var(--s)); }
+  .rule-v { left: calc(175.5 * var(--s)); top: calc(67 * var(--s)); width: 1px; height: calc(99 * var(--s)); background: var(--rule); }
+  .rule-h { left: calc(48 * var(--s)); top: calc(193 * var(--s)); width: calc(297 * var(--s)); height: 1px; background: var(--rule); }
+
+  .events { left: calc(189.5 * var(--s)); top: calc(71 * var(--s)); width: calc(172 * var(--s)); margin: 0; padding: 0; list-style: none;
+            font-size: calc(8.9 * var(--s)); letter-spacing: .09em; line-height: calc(16.2 * var(--s)); }
+  .events li { font-weight: 400; white-space: nowrap; display: grid; grid-template-columns: calc(68 * var(--s)) 1fr; margin-bottom: calc(7 * var(--s)); }
+
+  .icons { left: calc(333 * var(--s) - 22px); top: calc(217 * var(--s) - 22px); }
+  .icons svg { position: absolute; left: 12px; width: 20px; height: 20px; fill: none; stroke: var(--rule); stroke-width: .087; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+
+  .feed { left: calc(35 * var(--s)); top: calc(442.9px + 57 * var(--s)); width: calc(326 * var(--s)); margin: 0; padding: 0; list-style: none;
+          color: var(--charcoal); font-weight: 400; font-size: calc(10.6 * var(--s)); letter-spacing: .17em; line-height: calc(14.6 * var(--s)); }
+  .feed li { height: calc(57.4 * var(--s)); padding-right: 6px; }
+  .more { left: calc(35 * var(--s)); top: calc(874px - 29 * var(--s) - 6.5px); width: 13.3px; height: 13.3px; fill: none; stroke: var(--charcoal);
+          stroke-width: .115; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+  .home { left: 129px; top: 860px; width: 144px; height: 5px; border-radius: 3px; background: rgba(48,47,44,.75); }
+
+  nav { width: 250px; }
+  nav h1 { font-size: 13px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase; margin: 0 0 6px; color: #fff; }
+  nav p { font-size: 13px; line-height: 1.5; color: #8d8c88; margin: 0 0 18px; }
+  nav button {
+    display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 1px solid #33322f;
+    color: #a09f9b; font: 400 12px "Jost", sans-serif; letter-spacing: .22em; text-transform: uppercase; padding: 9px 14px; cursor: pointer;
+  }
+  nav button:hover { color: #fff; }
+  nav button[aria-pressed="true"] { color: #fff; border-left-color: #fc6860; }
+  nav button:focus-visible { outline: 1px solid #fff; outline-offset: -1px; }
+  body.bare nav { display: none; }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <canvas id="scene" width="402" height="874"></canvas>
+  <div class="ui">
+    <div class="clock">6:23</div><div class="battery"></div>
+    <div class="month">Nov</div><div class="date">16</div>
+    <div class="day">Mon</div>
+    <div class="temp">55°F</div>
+    <div class="rule-v"></div>
+    <ul class="events" id="events"></ul>
+    <div class="rule-h"></div>
+    <!-- the app's own icon paths (ios/Seasign/Design/Icons.swift), in a unit square -->
+    <div class="icons" aria-hidden="true">
+      <svg viewBox="0 0 1 1" style="top:12px"><path d="M.5 0V1M.02 .31H.98L.02 .69H.98"/></svg>
+      <svg viewBox="0 0 1 1" style="top:calc(12px + 44 * var(--s))"><circle cx=".5" cy=".5" r=".29"/><path d="M0 .5H1M.821 .117A.5 .5 0 0 1 .821 .883M.179 .883A.5 .5 0 0 1 .179 .117"/></svg>
+      <svg viewBox="0 0 1 1" style="top:calc(12px + 89 * var(--s))"><path d="M.5 0V1M0 .5H1M.08 .08L.92 .92M.92 .08L.08 .92"/></svg>
+    </div>
+    <ul class="feed">
+      <li>A short explainer on how El Niño works [video]</li>
+      <li>It's getting too dry for even cactuses to survive</li>
+      <li>'Birdbrain' is a misnomer. Crows make decisions faster than we can</li>
+      <li>What the Great Lakes remember about last winter</li>
+      <li>The quiet return of the paper map</li>
+    </ul>
+    <svg class="more" viewBox="0 0 1 1"><path d="M.02 .1L.42 .5L.02 .9M.52 .1L.92 .5L.52 .9"/></svg>
+    <div class="home"></div>
+  </div>
+</div>
+
+<nav id="nav" aria-label="Scene state">
+  <h1>Seasign v1 · Original</h1>
+  <p>The app as it is built today, redrawn for the browser. The PNG files in this folder are screenshots of the real app. Pick a state; arrow keys step through them.</p>
+</nav>
+
+<script>
+"use strict";
+/* A redrawing of ios/Seasign/Scene/SceneRenderer.swift. The app's screen is 402 x 874 points (iPhone 17). */
+const W = 402, H = 874, S = W / 393, HZ = H * .507;
+const TAU = Math.PI * 2;
+const C = { charcoal: "48,47,44", sun: "#fc6860", sunRGB: "252,104,96", day: "#b5dce6", night: "#93bcc9", shadow: "#41403c" };
+
+/* x, y: centre of the disc; r: its radius. Positions measured from the app's screenshots. */
+const SUN_LOW = 138, SUN_HIGH = 29.5 * S, MOON = 24 * S, TOP = 244;
+const STATES = [
+  { id: "sunrise",     label: "Sunrise",     sun:  { x: 162, y: HZ + 6, r: SUN_LOW } },
+  { id: "mid-day",     label: "Mid-day",     sun:  { x: 201, y: TOP, r: SUN_HIGH } },
+  { id: "sunset",      label: "Sunset",      sun:  { x: 241, y: HZ + 6, r: SUN_LOW } },
+  { id: "clouds",      label: "Clouds",      sun:  { x: 201, y: TOP, r: SUN_HIGH }, clouds: true },
+  { id: "rain",        label: "Rain",        sun:  { x: 201, y: TOP, r: SUN_HIGH }, clouds: true, rain: true },
+  { id: "snow",        label: "Snow",        sun:  { x: 201, y: TOP, r: SUN_HIGH }, clouds: true, snow: true },
+  { id: "moon-rise",   label: "Moon rise",   moon: { x: 161, y: HZ - 8, r: MOON }, phase: .5 },
+  { id: "mid-night",   label: "Mid-night",   moon: { x: 201, y: TOP, r: MOON }, phase: .5 },
+  { id: "moon-waxing", label: "Waxing moon", moon: { x: 201, y: TOP, r: MOON }, phase: .25 },
+  { id: "moon-waning", label: "Waning moon", moon: { x: 201, y: TOP, r: MOON }, phase: .75 },
+  { id: "moon-full",   label: "Full moon",   moon: { x: 201, y: TOP, r: MOON }, phase: .5 },
+  { id: "moon-set",    label: "Moon set",    moon: { x: 241, y: HZ - 8, r: MOON }, phase: .5 },
+];
+const EVENTS = [["6:45PM", "Hanna's show"], ["8:15PM", "Submit work<br>hours for St…"], ["Tue all day", "Brush<br>pets teeth"]]   // broken where the app breaks them;
+/* The app's cloud shapes: a wide pill with one taller bump, in mockup pixels (1179 wide, horizon at 1296). */
+const CLOUDS = [
+  [[-60, 650, 723, 812], [99, 423, 666]], [[560, 1250, 340, 458], [560, 942, 267]], [[5, 403, 233, 288], [92, 278, 201]],
+  [[-60, 517, 1029, 1136], [-60, 265, 963]], [[130, 895, 402, 521], [375, 652, 327]], [[847, 1250, 840, 908], [955, 1250, 798]],
+  [[927, 1250, 435, 512], [1062, 1250, 387]],
+];
+
+function prng(seed) {
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+const DPR = Math.min(3, window.devicePixelRatio || 1);
+canvas.width = W * DPR; canvas.height = H * DPR;
+
+const rnd = prng(0x57A1), list = (n, f) => Array.from({ length: n }, f);
+const bits = {
+  stars: list(84, (_, i) => ({ x: rnd() * W, y: rnd() * (HZ - 6), big: rnd() > .8, side: .7 + rnd() * .5, base: .35 + rnd() * .55, i })),
+  rain: list(110, () => ({ x: rnd(), y: rnd(), sp: .75 + rnd() * .4 })),
+  snow: list(95, (_, i) => ({ x: rnd(), y: rnd(), sp: .035 + rnd() * .035, r: (.9 + rnd() * 1.2) * S, i })),
+};
+let state;
+
+function draw(t) {
+  const night = !!state.moon, body = state.sun || state.moon;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  /* sky */
+  ctx.fillStyle = `rgb(${C.charcoal})`; ctx.fillRect(0, 0, W, HZ);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
+  if (night) {
+    const step = Math.floor(t / 3);                                    // stars change brightness in steps
+    for (const s of bits.stars) {
+      const side = (s.big ? 1.9 : s.side) * S;
+      ctx.fillStyle = `rgba(255,255,255,${s.base * (.8 + .2 * Math.sin(step * 2.1 + s.i * 2.3))})`;
+      if (s.big) { ctx.beginPath(); ctx.arc(s.x, s.y, side / 2, 0, TAU); ctx.fill(); } else ctx.fillRect(s.x - side / 2, s.y - side / 2, side, side);
+    }
+    ctx.fillStyle = C.shadow; ctx.beginPath(); ctx.arc(body.x, body.y, body.r, 0, TAU); ctx.fill();
+    const c = Math.cos(TAU * state.phase), k = (1 - c) / 2;
+    ctx.fillStyle = "#fff"; ctx.save(); ctx.translate(body.x, body.y);
+    if (k > .985) { ctx.beginPath(); ctx.arc(0, 0, body.r, 0, TAU); ctx.fill(); }
+    else { if (state.phase > .5) ctx.scale(-1, 1);
+      ctx.beginPath(); ctx.arc(0, 0, body.r, -Math.PI / 2, Math.PI / 2); ctx.ellipse(0, 0, body.r * Math.abs(c), body.r, 0, Math.PI / 2, Math.PI * 1.5, k < .5); ctx.fill(); }
+    ctx.restore();
+  } else {
+    ctx.fillStyle = C.sun; ctx.beginPath(); ctx.arc(body.x, body.y, body.r, 0, TAU); ctx.fill();
+  }
+  if (state.clouds) CLOUDS.forEach(([b, m], i) => {
+    const u = W / 1179, v = HZ / 1296, off = Math.sin(t / 9 + i * 1.3) * 6 * S;
+    const base = { x: b[0] * u + off, y: b[2] * v, w: (b[1] - b[0]) * u, h: (b[3] - b[2]) * v };
+    const bump = { x: m[0] * u + off, y: m[2] * v, w: (m[1] - m[0]) * u };
+    const r = Math.min(bump.w / 2, Math.max(0, base.y - bump.y));
+    ctx.beginPath(); ctx.roundRect(base.x, base.y, base.w, base.h, base.h / 2);
+    ctx.roundRect(bump.x, bump.y, bump.w, base.y + base.h / 2 - bump.y, [r, r, 0, 0]);
+    ctx.fillStyle = `rgba(${C.charcoal},.44)`; ctx.fill("nonzero"); ctx.fillStyle = "rgba(255,255,255,.06)"; ctx.fill("nonzero");
+  });
+  ctx.restore();
+
+  /* water, and a soft reflection centred on the waterline */
+  ctx.fillStyle = night ? C.night : C.day; ctx.fillRect(0, HZ, W, H - HZ);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, HZ, W, H - HZ); ctx.clip();
+  const low = body.r > 100, lit = (1 - Math.cos(TAU * (state.phase ?? .5))) / 2;
+  const strength = night ? .55 * Math.max(.25, lit) : (low ? .96 : .56);
+  const R = body.r * 1.06, blur = Math.max(4, body.r * .24) * 2;
+  const g = ctx.createRadialGradient(body.x, HZ, Math.max(0, R - blur), body.x, HZ, R + blur);
+  const rgb = night ? "255,255,255" : C.sunRGB;
+  g.addColorStop(0, `rgba(${rgb},${strength})`); g.addColorStop(.5, `rgba(${rgb},${strength * .5})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(0, HZ, W, R + blur);
+  ctx.restore();
+
+  /* rain and snow */
+  if (state.rain) {
+    const slant = -2.5 * S, len = 10 * S;
+    for (const over of ["sky", "water"]) {
+      ctx.beginPath();
+      for (const p of bits.rain) {
+        const fall = (p.y + t * p.sp) % 1, y = fall * (H + len) - len, x = p.x * (W + 30 * S) + slant * fall * 8;
+        if (over === "sky" ? y + len < HZ : y > HZ) { ctx.moveTo(x, y); ctx.lineTo(x + slant, y + len); }
+      }
+      ctx.lineWidth = 1.1 * S; ctx.lineCap = "round"; ctx.strokeStyle = over === "sky" ? "rgba(255,255,255,.3)" : `rgba(${C.charcoal},.16)`; ctx.stroke();
+    }
+  }
+  if (state.snow) for (const f of bits.snow) {
+    const y = ((f.y + t * f.sp) % 1) * (H + 8) - 4, x = f.x * W + Math.sin(t * .7 + f.i) * 5 * S;
+    ctx.fillStyle = `rgba(255,255,255,${y < HZ ? .75 : .9})`; ctx.beginPath(); ctx.arc(x, y, f.r, 0, TAU); ctx.fill();
+  }
+}
+
+const params = new URLSearchParams(location.search);
+const still = params.has("still");
+if (params.has("bare")) document.body.classList.add("bare");
+
+function show(id) {
+  state = STATES.find(s => s.id === id) || STATES[0];
+  /* at night the app's debug clock is past the two timed sample events, so only the third shows */
+  document.getElementById("events").innerHTML = (state.moon ? EVENTS.slice(2) : EVENTS).map(([a, b]) => `<li><span>${a}</span><span>${b}</span></li>`).join("");
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
+  if (still) draw(7.3); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
+}
+const nav = document.getElementById("nav");
+for (const s of STATES) {
+  const b = document.createElement("button");
+  b.textContent = s.label; b.dataset.id = s.id; b.onclick = () => show(s.id); nav.appendChild(b);
+}
+addEventListener("keydown", e => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  show(STATES[(STATES.indexOf(state) + step + STATES.length) % STATES.length].id);
+});
+((document.fonts && document.fonts.ready) || Promise.resolve()).then(() => {
+  show(params.get("state") || "mid-day");
+  if (still) { document.title = "ready"; return; }
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const loop = ms => { draw(calm ? 7.3 : ms / 1000); if (!calm) requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
