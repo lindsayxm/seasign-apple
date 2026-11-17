@@ -35,9 +35,9 @@
   /* upper left: date, day, weather sign, temperature, condition */
   .date { left: 34px; top: 58px; font-size: 9px; letter-spacing: .26em; }
   /* the day name: a light condensed face (Avenir Next Condensed, which ships with iOS and macOS), sized by script to be exactly as wide as the date above it */
-  .day  { left: 34px; top: 70px; font-family: "Avenir Next Condensed", "Jost", sans-serif; font-size: 28px; line-height: 30px; letter-spacing: .03em; font-weight: 400; color: rgb(var(--hi));
+  .day  { left: 34px; top: 77.3px; font-family: "Avenir Next Condensed", "Jost", sans-serif; font-size: 28px; line-height: 30px; letter-spacing: .03em; font-weight: 400; color: rgb(var(--hi));
           white-space: nowrap; text-shadow: 0 0 10px rgba(var(--amber), .7), 0 0 2px rgba(var(--amber), .5); }
-  .now  { left: 34px; top: 106px; display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
+  .now  { left: 34px; top: 113px; display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
   .now svg { width: 14px; height: 14px; }
 
   /* upper right: the next three events */
@@ -453,7 +453,7 @@ addEventListener("keydown", e => {
   const dateEl = document.getElementById("date"), dayEl = document.getElementById("day"), wide = (el, gap) => el.getBoundingClientRect().width - gap;
   const want = wide(dateEl, 9 * .26), got = wide(dayEl, 28 * .03);
   if (got > 0) { const size = 28 * want / got; dayEl.parentNode.style.fontSize = size + "px"; dayEl.parentNode.style.lineHeight = size * 1.08 + "px";
-    document.querySelector(".now").style.top = 70 + size * 1.08 + 7 + "px"; }
+    document.querySelector(".now").style.top = 77.3 + size * 1.08 + 7 + "px"; }   // 77.3: the day name sits as far below the date as the weather row sits below it (12 points each, measured on a still)
   show(params.get("state") || "mid-day");
   if (still) { document.title = "ready"; return; }
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
