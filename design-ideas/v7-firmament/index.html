@@ -219,7 +219,8 @@ function draw(t) {
 
   /* ---- by day the sky is blue: lightest on the horizon, falling quickly to near black above the top of the path, so the words at the top stay on dark ---- */
   if (!look.night) {
-    const k = (.45 + .55 * look.power) * .5, grey = state.rain ? .55 : state.clouds ? .25 : 0;              // duller and greyer under cloud
+    const warm = state.look === "sunrise" || state.look === "sunset";
+    const k = (.45 + .55 * look.power) * (warm ? .16 : .5), grey = state.rain ? .55 : state.clouds ? .25 : 0;              // duller and greyer under cloud
     const blue = (r, g, b, a) => col([r, g, b].map(v => Math.round(v + ((r + g + b) / 3 - v) * grey)).join(","), a * k);
     const sky = ctx.createLinearGradient(0, HZ, 0, HZ - 290);
     sky.addColorStop(0, blue(70, 128, 214, .8)); sky.addColorStop(.1, blue(56, 110, 200, .68)); sky.addColorStop(.26, blue(40, 84, 160, .5));
@@ -228,6 +229,16 @@ function draw(t) {
     const wet = ctx.createLinearGradient(0, HZ, 0, HZ + 96);                                          // and the sea takes some of that blue
     wet.addColorStop(0, blue(64, 112, 176, .42)); wet.addColorStop(1, blue(20, 40, 90, 0));
     ctx.fillStyle = wet; ctx.fillRect(0, HZ, W, 96);
+    if (warm) {                                                                                       // sunrise and sunset: orange on the horizon, red and pink above it, strongest on the sun's side
+      const band = ctx.createLinearGradient(0, HZ, 0, HZ - 190);
+      band.addColorStop(0, col("255,134,40", .3)); band.addColorStop(.16, col("250,92,44", .26)); band.addColorStop(.4, col("232,60,84", .17));
+      band.addColorStop(.7, col("200,84,130", .07)); band.addColorStop(1, col("120,70,150", 0));
+      ctx.fillStyle = band; ctx.fillRect(0, HZ - 190, W, 190);
+      glow(bx, HZ, 250, 70, "255,124,30", .2, .45);
+      glow(bx, HZ - 34, 290, 130, "244,62,56", .15, .5);
+      glow(bx + (bx < x ? 70 : -70), HZ - 86, 300, 120, "236,90,150", .1, .55);
+      glow(bx, HZ + 22, 230, 56, "255,120,76", .1, .45);
+    }
   }
   /* ---- light in the sky: a wide haze round the sun or moon, and a low one along the horizon ---- */
   glow(bx, by, 210, 210, "70,96,120", .46 * (.5 + .5 * P), .5);
