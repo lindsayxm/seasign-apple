@@ -466,6 +466,7 @@ function show(id) {
   look = LOOK[state.look];
   const tones = look.night ? { amber: "120,226,234", teal: "104,164,222", hi: "218,246,252" }      // cool: aqua, blue, ice
                            : { amber: "255,170,48",  teal: "255,122,60",  hi: "255,214,160" };     // warm: amber, orange, peach
+  if (state.id === "mid-day") Object.assign(tones, { amber: "255,212,64", teal: "255,190,44", hi: "255,240,176" });   // mid-day: the date, day name and event times are yellow, not orange
   /* buttons: flat colour, no shadow or glow. Day: warm yellow-orange. Sunrise: light yellow (#ffffcc). Sunset: pale peach (#ffcdba). Black night: bright aqua. */
   tones.btn = look.night ? "140,240,248" : state.look === "sunset" ? "255,205,186" : state.look === "sunrise" ? "255,255,204" : "255,196,56";
   for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
