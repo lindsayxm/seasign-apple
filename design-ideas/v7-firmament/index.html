@@ -33,11 +33,11 @@
   .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; text-transform: none; color: #fff; }
 
   /* upper left: date, day, weather sign, temperature, condition */
-  .date { left: 34px; top: 59px; font-size: 9px; letter-spacing: .26em; }
+  .date { left: 34px; top: 62px; font-size: 9px; letter-spacing: .26em; }
   /* the day name: a light condensed face (Avenir Next Condensed, which ships with iOS and macOS), sized by script to be exactly as wide as the date above it */
-  .day  { left: 34px; top: 83.15px; font-family: "Avenir Next Condensed", "Jost", sans-serif; font-size: 28px; line-height: 30px; letter-spacing: .03em; font-weight: 400; color: rgb(var(--hi));
+  .day  { left: 34px; top: 83.65px; font-family: "Avenir Next Condensed", "Jost", sans-serif; font-size: 28px; line-height: 30px; letter-spacing: .03em; font-weight: 400; color: rgb(var(--hi));
           white-space: nowrap; text-shadow: 0 0 10px rgba(var(--amber), .7), 0 0 2px rgba(var(--amber), .5); }
-  .now  { left: 34px; top: 124px; display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
+  .now  { left: 34px; top: 121.7px; display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
   .now svg { width: 14px; height: 14px; }
 
   /* upper right: the next three events */
@@ -453,7 +453,7 @@ addEventListener("keydown", e => {
   const dateEl = document.getElementById("date"), dayEl = document.getElementById("day"), wide = (el, gap) => el.getBoundingClientRect().width - gap;
   const want = wide(dateEl, 9 * .26), got = wide(dayEl, 28 * .03);
   if (got > 0) { const size = 28 * want / got; dayEl.parentNode.style.fontSize = size + "px"; dayEl.parentNode.style.lineHeight = size * 1.08 + "px";
-    document.querySelector(".now").style.top = 88 + size * 1.08 + 7 + "px"; }   // these offsets put the block's top and bottom level with the events block (y 62 to 132), with equal gaps above and below the day name; measured on a still
+    document.querySelector(".now").style.top = 85.7 + size * 1.08 + 7 + "px"; }   // these offsets put the block's top and bottom level with the events' text (date top with the first event's text top, temperature bottom with the last event's text bottom: y 65 to 128), with equal gaps above and below the day name; measured on a still
   show(params.get("state") || "mid-day");
   if (still) { document.title = "ready"; return; }
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
