@@ -9,7 +9,7 @@
   @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
 
   /* --amber: buttons and main highlights; --teal: times and numbers; --hi: the day name. All three are warm by day and cool at night (set per state below). */
-  :root { --btn: 255, 196, 56; --amber: 255, 170, 48; --teal: 255, 122, 60; --hi: 255, 214, 160; }
+  :root { --btn: 255, 220, 40; --btnall: 255, 220, 40; --amber: 255, 170, 48; --teal: 255, 122, 60; --hi: 255, 214, 160; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
@@ -50,8 +50,10 @@
   /* one column at the right: saved stays put, list sits centred on the horizon (y 426), settings the same step above */
   .icons { right: 30px; top: 365px; display: flex; flex-direction: column; gap: 26.5px; }
   /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
-  .icons svg, svg.more { stroke: rgb(var(--btn)); filter: drop-shadow(0 0 1.5px rgba(0,0,0,.95)) drop-shadow(0 0 4px rgba(0,0,0,.6)) drop-shadow(0 0 5px rgba(var(--btn), .55)); }
-  .icons svg { width: 23px; height: 23px; stroke-width: .1; }
+  .icons svg { stroke: rgb(var(--btn)); }
+  svg.more { stroke: rgb(var(--btnall)); }
+  body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
+  .icons svg { width: 23px; height: 23px; stroke-width: .11; }
   .more { left: 44px; top: 470px; width: 12px; height: 12px; stroke-width: .17; }
 
   .feed { left: 44px; top: 530px; width: 322px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
@@ -399,14 +401,17 @@ function draw(t) {
 const params = new URLSearchParams(location.search);
 const still = params.has("still"), T0 = parseFloat(params.get("t")) || 19;
 if (params.has("bare")) document.body.classList.add("bare");
+if (params.has("nobtn")) document.body.classList.add("nobtn");
 
 function show(id) {
   state = STATES.find(s => s.id === id) || STATES[0];
   look = LOOK[state.look];
   const tones = look.night ? { amber: "120,226,234", teal: "104,164,222", hi: "218,246,252" }      // cool: aqua, blue, ice
                            : { amber: "255,170,48",  teal: "255,122,60",  hi: "255,214,160" };     // warm: amber, orange, peach
-  /* buttons: the opposite of the sky behind them. Blue day sky: warm yellow. Orange and pink sunrise or sunset: pale ice blue. Black night: bright aqua. */
-  tones.btn = look.night ? "140,240,248" : state.look === "sunrise" || state.look === "sunset" ? "206,246,255" : "255,196,56";
+  /* buttons: flat colour, no shadow or glow, picked by measuring what is behind each button in every state (render with ?nobtn).
+     Signal yellow is furthest from the blue day sky, the black night sky and the sea; at sunrise and sunset the sky itself is yellow, orange and pink, so a strong blue is used there. */
+  tones.btn = state.look === "sunrise" || state.look === "sunset" ? "48,96,255" : "255,220,40";
+  tones.btnall = state.look === "sunrise" ? "48,96,255" : "255,220,40";   // the all-publications button is on the far side from the setting sun, on dark water, so it stays yellow at sunset
   for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
   document.getElementById("weather").setAttribute("href", "#w-" + state.sign);
   document.getElementById("clock").textContent = state.time.replace(/^0/, "");
