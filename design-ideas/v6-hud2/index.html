@@ -31,13 +31,12 @@
   .teal { color: rgb(var(--teal)); }
   .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; text-transform: none; color: #fff; }
 
-  /* upper left: date, day, time, temperature */
+  /* upper left: date, day, weather sign, temperature, condition */
   .date { left: 28px; top: 58px; font-size: 9px; letter-spacing: .26em; }
   .day  { left: 27px; top: 69px; font-size: 40px; line-height: 46px; letter-spacing: .12em; font-weight: 500; color: rgb(var(--hi));
           text-shadow: 0 0 14px rgba(var(--amber), .85), 0 0 3px rgba(var(--amber), .6); }
   .now  { left: 28px; top: 122px; display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
   .now svg { width: 14px; height: 14px; }
-  .now time { font-size: 10px; letter-spacing: .08em; }
 
   /* upper right: the next three events */
   .events { left: 204px; top: 54px; width: 173px; margin: 0; padding: 8px 8px 2px 8px; list-style: none; font-size: 8.5px; letter-spacing: .14em; line-height: 13.5px;
@@ -91,7 +90,7 @@
 
     <div class="date"><span class="amber">Nov 16</span> &nbsp;/&nbsp; 2026</div>
     <div class="day">Mon</div>
-    <div class="now"><time class="mono teal" id="time">11:36</time><svg class="line"><use id="weather" href="#w-clear"/></svg><span>55°F</span><span class="amber" id="weather-word">Clear</span></div>
+    <div class="now"><svg class="line"><use id="weather" href="#w-clear"/></svg><span>55°F</span><span class="amber" id="weather-word">Clear</span></div>
 
     <ul class="events">
       <li><time class="mono">18:45</time><span>Hanna's show</span></li>
@@ -451,7 +450,6 @@ function show(id) {
   for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
   document.getElementById("weather").setAttribute("href", "#w-" + state.sign);
   document.getElementById("weather-word").textContent = state.word;
-  document.getElementById("time").textContent = state.time;
   document.getElementById("clock").textContent = state.time.replace(/^0/, "");
   for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
   if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
