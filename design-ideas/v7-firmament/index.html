@@ -55,7 +55,7 @@
   body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
   .icons svg { width: 23px; height: 23px; stroke-width: .1; }
   /* the dark panel behind these three is drawn on the canvas (see `panel` in the script), so the film grain lies over it */
-  .more { left: 34px; top: 475.3px; width: 12px; height: 12px; stroke-width: .17; }
+  .more { left: 34px; top: 475.3px; width: 12px; height: 12px; stroke-width: .17; filter: drop-shadow(0 1px 2.5px rgba(0,0,0,.75)) drop-shadow(0 0 6px rgba(0,0,0,.5)); }   /* a soft dark shadow round it; it has no panel */
 
   .feed { left: 34px; top: 530px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
   .feed li { height: 45px; }
