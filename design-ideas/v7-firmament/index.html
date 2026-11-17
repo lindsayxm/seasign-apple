@@ -54,7 +54,7 @@
   body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
   .icons svg { width: 23px; height: 23px; stroke-width: .1; }
   /* the dark panel behind these three is drawn on the canvas (see `panel` in the script), so the film grain lies over it */
-  .more { left: 44px; top: 470px; width: 12px; height: 12px; stroke-width: .17; }
+  .more { left: 44px; top: 502px; width: 12px; height: 12px; stroke-width: .17; }
 
   .feed { left: 44px; top: 530px; width: 322px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
   .feed li { display: grid; grid-template-columns: 28px 1fr; height: 45px; }
@@ -133,7 +133,7 @@
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
 const HZ = 426;                                        // the sea's horizon
 const PANEL = { x: 329, y: 352, w: 45, h: 149, r: 13 };  // behind the three buttons at the right
-const PATH = { x: W / 2 - 40.75, half: 115, top: 100 };   // left of centre, to leave room for the buttons: the gap from the screen edge to its left end was 81.5 and is now half that       // the sun and moon's path: the top segment of a circle whose centre is below the horizon; half its width on the water, and its height
+const PATH = { x: 50 + 115, half: 115, top: 100 };     // left of centre, to leave room for the buttons: its left end is at x 50, directly above the ∀ button
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
 
 /* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
