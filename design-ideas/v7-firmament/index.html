@@ -407,8 +407,8 @@ function show(id) {
   look = LOOK[state.look];
   const tones = look.night ? { amber: "120,226,234", teal: "104,164,222", hi: "218,246,252" }      // cool: aqua, blue, ice
                            : { amber: "255,170,48",  teal: "255,122,60",  hi: "255,214,160" };     // warm: amber, orange, peach
-  /* buttons: flat colour, no shadow or glow. Day, sunrise included: warm yellow-orange. Sunset: pale ice blue. Black night: bright aqua. */
-  tones.btn = look.night ? "140,240,248" : state.look === "sunset" ? "206,246,255" : "255,196,56";
+  /* buttons: flat colour, no shadow or glow. Day: warm yellow-orange. Sunrise: a stronger, slightly darker orange. Sunset: pale ice blue. Black night: bright aqua. */
+  tones.btn = look.night ? "140,240,248" : state.look === "sunset" ? "206,246,255" : state.look === "sunrise" ? "250,126,16" : "255,196,56";
   for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
   document.getElementById("weather").setAttribute("href", "#w-" + state.sign);
   document.getElementById("clock").textContent = state.time.replace(/^0/, "");
