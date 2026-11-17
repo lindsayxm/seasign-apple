@@ -49,14 +49,14 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* one column at the right: saved below the horizon, list centred on it (y 376), settings the same step above; the ∀ button is in the lower left corner, under the last article title */
+  /* one column at the right: saved below the horizon, list centred on it (y 376), settings the same step above; the ∀ button is in the lower right corner, centred under the column */
   .icons { right: 30px; top: 315px; display: flex; flex-direction: column; gap: 26.5px; }
   /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
   .icons svg, svg.more { stroke: rgb(var(--btn)); }
   body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
   .icons svg { width: 23px; height: 23px; stroke-width: .1; }
   /* the dark panel behind these three is drawn on the canvas (see `panel` in the script), so the film grain lies over it */
-  .more { left: 34px; top: 766px; width: 12px; height: 12px; stroke-width: .17; filter: drop-shadow(0 1px 2.5px rgba(0,0,0,.75)) drop-shadow(0 0 6px rgba(0,0,0,.5)); }   /* a soft dark shadow round it; it has no panel */
+  .more { left: 345.5px; top: 766px; width: 12px; height: 12px; stroke-width: .17; filter: drop-shadow(0 1px 2.5px rgba(0,0,0,.75)) drop-shadow(0 0 6px rgba(0,0,0,.5)); }   /* a soft dark shadow round it; it has no panel */
 
   .feed { left: 34px; top: 480px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
   .feed li { height: 45px; }
@@ -305,7 +305,8 @@ function draw(t) {
   for (const u of [0, 1]) glow(...pathAt(u), 13, 4, "255,255,255", .5 * P, .35);   // where the path meets the water
 
   /* ---- weather: gathered round the sun or moon, thinning out away from it ---- */
-  const R = 12, veil = state.rain ? .7 : state.clouds ? .85 : 1, NEAR = 96;
+  /* the sun and moon are larger near the horizon: radius 12 high in the sky, 22 on the water */
+  const R = 12 * (1 + .85 * lowness), veil =  state.rain ? .7 : state.clouds ? .85 : 1, NEAR = 96;
   skyClip();
   if (state.clouds) for (const c of bits.clouds) {
     const f = (c.x + t * c.sp) % 1, cx = bx + (f * 2.6 - 1.3) * NEAR, cy = by + c.y * NEAR + 14, edge = Math.pow(Math.sin(PI * f), .7);
@@ -344,7 +345,7 @@ function draw(t) {
       else { ctx.globalCompositeOperation = "lighter"; glow(cx, cy, size, size, "255,236,170", .5 * veil * (.55 + .45 * Math.sin(t * 2.3 + k * 1.3)), .4); }
     }
     ctx.globalCompositeOperation = "soft-light"; ctx.globalAlpha = .55;
-    const go = Math.floor(t * 10); ctx.drawImage(grain, Math.floor(hash(go) * 90), Math.floor(hash(go + 4.2) * 90), 84, 84, bx - R - 1, by - R - 1, 28, 28);
+    const go = Math.floor(t * 10); ctx.drawImage(grain, Math.floor(hash(go) * 90), Math.floor(hash(go + 4.2) * 90), 84, 84, bx - R - 1, by - R - 1, R * 2 + 2, R * 2 + 2);
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
     ctx.globalCompositeOperation = "lighter";
     ctx.beginPath(); ctx.arc(bx, by, R + 3.5, t * .5, t * .5 + 4.2); ctx.lineWidth = .7; ctx.strokeStyle = col(halo, .8 * veil); ctx.stroke();
@@ -363,7 +364,7 @@ function draw(t) {
       glow(sx * rad * Math.cos(ang), rad * Math.sin(ang), size, size * (.6 + .5 * hash(k * 1.1)), "58,72,98", .36, .6);
     }
     for (let k = 0; k < 14; k++) {
-      const ang = hash(k * 3.7 + 9) * TAU, rad = R * .9 * Math.sqrt(hash(k * 6.3 + 5)), cr = .5 + hash(k * 4.4) * 1.1, cx = sx * rad * Math.cos(ang), cy = rad * Math.sin(ang);
+      const ang = hash(k * 3.7 + 9) * TAU, rad = R * .9 * Math.sqrt(hash(k * 6.3 + 5)), cr = (.5 + hash(k * 4.4) * 1.1) * R / 12, cx = sx * rad * Math.cos(ang), cy = rad * Math.sin(ang);
       ctx.fillStyle = col("46,58,84", .5); ctx.beginPath(); ctx.arc(cx, cy, cr, 0, TAU); ctx.fill();
       ctx.beginPath(); ctx.arc(cx, cy, cr, .4, 2.4); ctx.lineWidth = .3; ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.stroke();
     }
@@ -371,7 +372,7 @@ function draw(t) {
     shade.addColorStop(0, "rgba(30,40,64,0)"); shade.addColorStop(.7, "rgba(30,40,64,.16)"); shade.addColorStop(1, "rgba(30,40,64,.45)");
     ctx.fillStyle = shade; ctx.fillRect(-R, -R, R * 2, R * 2);
     ctx.globalCompositeOperation = "multiply"; ctx.globalAlpha = .2; ctx.filter = "invert(1)";
-    ctx.drawImage(grain, 20, 30, 84, 84, -R - 1, -R - 1, 28, 28);
+    ctx.drawImage(grain, 20, 30, 84, 84, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
     ctx.filter = "none"; ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
     ctx.globalCompositeOperation = "lighter";
     ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.lineWidth = .6; ctx.strokeStyle = col(SILVER, .55); ctx.stroke();
