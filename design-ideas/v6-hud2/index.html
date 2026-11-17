@@ -46,7 +46,8 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  .icons { right: 30px; top: 524px; display: flex; gap: 36px; }
+  /* one column at the right: saved stays put, list sits centred on the horizon (y 486), settings the same step above */
+  .icons { right: 30px; top: 425px; display: flex; flex-direction: column; gap: 26.5px; }
   .icons svg { width: 23px; height: 23px; filter: drop-shadow(0 0 5px rgba(var(--amber), .7)); }
   .more { left: 44px; top: 530px; width: 12px; height: 12px; }
 
