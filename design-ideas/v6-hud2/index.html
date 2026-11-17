@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seasign v6 — HUD 2</title>
+<style>
+  @font-face { font-family: "Jost"; font-weight: 400; src: url("fonts/Jost-400-Book.ttf") format("truetype"); }
+  @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
+
+  :root { --amber: 255, 170, 48; --teal: 62, 176, 182; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #060707; color: #b9c2c2; font-family: "Jost", "Avenir Next", "Helvetica Neue", sans-serif;
+    display: flex; align-items: center; justify-content: center; gap: 48px; flex-wrap: wrap; padding: 24px;
+  }
+  body.bare { display: block; padding: 0; background: #000; overflow: hidden; }
+  .phone {
+    position: relative; width: 393px; height: 852px; flex: none; border-radius: 46px; overflow: hidden; background: #000;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 0 0 9px #050506, 0 0 0 10px rgba(255,255,255,.10), 0 30px 90px rgba(0,0,0,.7);
+  }
+  body.bare .phone { border-radius: 0; box-shadow: none; }
+  canvas { position: absolute; inset: 0; width: 393px; height: 852px; display: block; }
+
+  .ui { position: absolute; inset: 0; color: rgb(238, 240, 240); text-transform: uppercase; }
+  .ui > * { position: absolute; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .amber { color: rgb(var(--amber)); }
+  .teal { color: rgb(var(--teal)); }
+  .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; text-transform: none; color: #fff; }
+
+  /* upper left: date, day, time, temperature */
+  .date { left: 28px; top: 58px; font-size: 9px; letter-spacing: .26em; }
+  .day  { left: 27px; top: 69px; font-size: 40px; line-height: 46px; letter-spacing: .12em; font-weight: 500; color: rgb(255, 214, 160);
+          text-shadow: 0 0 14px rgba(var(--amber), .85), 0 0 3px rgba(var(--amber), .6); }
+  .now  { left: 28px; top: 122px; display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
+  .now svg { width: 14px; height: 14px; }
+  .now time { font-size: 10px; letter-spacing: .08em; }
+
+  /* upper right: the next three events */
+  .events { left: 204px; top: 54px; width: 173px; margin: 0; padding: 8px 8px 2px 8px; list-style: none; font-size: 8.5px; letter-spacing: .14em; line-height: 13.5px;
+            background: rgba(0, 0, 0, .55); }
+  .events li { display: grid; grid-template-columns: 54px 1fr; margin-bottom: 8px; padding-left: 7px; border-left: 1px solid rgba(var(--teal), .6); }
+  .events time { color: rgb(var(--teal)); font-size: 8px; letter-spacing: .04em; }
+
+  /* below the horizon: the three symbols, then the article titles in the lower sea */
+  svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+  .icons { right: 30px; top: 524px; display: flex; gap: 36px; }
+  .icons svg { width: 23px; height: 23px; filter: drop-shadow(0 0 5px rgba(var(--amber), .7)); }
+  .more { left: 44px; top: 530px; width: 12px; height: 12px; }
+
+  .feed { left: 44px; top: 590px; width: 322px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
+  .feed li { display: grid; grid-template-columns: 28px 1fr; height: 45px; }
+  .feed i { font-style: normal; font-size: 8.5px; letter-spacing: .04em; }
+  .home { left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
+
+  nav { width: 250px; }
+  nav h1 { font-size: 13px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase; margin: 0 0 6px; color: #fff; }
+  nav p { font-size: 13px; line-height: 1.5; color: #8a9292; margin: 0 0 18px; }
+  nav button {
+    display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 1px solid #252b2b;
+    color: #98a1a1; font: 400 12px "Jost", sans-serif; letter-spacing: .22em; text-transform: uppercase; padding: 9px 14px; cursor: pointer;
+  }
+  nav button:hover { color: #fff; }
+  nav button[aria-pressed="true"] { color: #fff; border-left-color: #fff; }
+  nav button:focus-visible { outline: 1px solid #fff; outline-offset: -1px; }
+  body.bare nav { display: none; }
+</style>
+</head>
+<body>
+
+<!-- The app's three symbols and » as it draws them (ios/Seasign/Design/Icons.swift), and small weather marks in the same manner. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-settings" viewBox="0 0 1 1"><path d="M.5 0V1M.02 .31H.98L.02 .69H.98"/></symbol>
+  <symbol id="i-list" viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".29"/><path d="M0 .5H1M.821 .117A.5 .5 0 0 1 .821 .883M.179 .883A.5 .5 0 0 1 .179 .117"/></symbol>
+  <symbol id="i-saved" viewBox="0 0 1 1"><path d="M.5 0V1M0 .5H1M.08 .08L.92 .92M.92 .08L.08 .92"/></symbol>
+  <symbol id="i-more" viewBox="0 0 1 1"><path d="M.02 .1L.42 .5L.02 .9M.52 .1L.92 .5L.52 .9"/></symbol>
+  <symbol id="w-clear" viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".27"/><path d="M.5 0V1M.1 .9H.9"/></symbol>
+  <symbol id="w-clouds" viewBox="0 0 1 1"><path d="M0 .62H1M.14 .62A.24 .24 0 0 1 .62 .62M.5 .44A.18 .18 0 0 1 .86 .62M.2 .86H.8"/></symbol>
+  <symbol id="w-rain" viewBox="0 0 1 1"><path d="M0 .28H1M.36 .1L.18 .95M.6 .28L.48 .85M.84 .28L.76 .66"/></symbol>
+  <symbol id="w-snow" viewBox="0 0 1 1"><path d="M0 .26H1M.5 .08V.44M.12 .52L.32 .72M.32 .52L.12 .72M.42 .76L.62 .96M.62 .76L.42 .96M.72 .5L.9 .68M.9 .5L.72 .68"/></symbol>
+  <symbol id="w-night" viewBox="0 0 1 1"><path d="M.64 .16A.36 .36 0 1 0 .64 .84A.44 .44 0 0 1 .64 .16ZM0 .5H.4M.86 .04V.3M.73 .17H.99"/></symbol>
+</svg>
+
+<div class="phone" id="phone">
+  <canvas id="scene" width="393" height="852"></canvas>
+  <div class="ui">
+    <div class="clock" id="clock">6:23</div>
+
+    <div class="date"><span class="amber">Nov 16</span> &nbsp;/&nbsp; 2026</div>
+    <div class="day">Mon</div>
+    <div class="now"><time class="mono teal" id="time">11:36</time><svg class="line"><use id="weather" href="#w-clear"/></svg><span>55°F</span><span class="amber" id="weather-word">Clear</span></div>
+
+    <ul class="events">
+      <li><time class="mono">18:45</time><span>Hanna's show</span></li>
+      <li><time class="mono">20:15</time><span>Submit work hours for St…</span></li>
+      <li><time class="mono">TUE · ALL</time><span>Brush pets teeth</span></li>
+    </ul>
+
+    <svg class="line more"><use href="#i-more"/></svg>
+    <div class="icons" aria-hidden="true">
+      <svg class="line"><use href="#i-settings"/></svg><svg class="line"><use href="#i-list"/></svg><svg class="line"><use href="#i-saved"/></svg>
+    </div>
+
+    <ul class="feed">
+      <li><i class="mono teal">01</i><span>A short explainer on how El Niño works [video]</span></li>
+      <li><i class="mono teal">02</i><span>It's getting too dry for even cactuses to survive</span></li>
+      <li><i class="mono teal">03</i><span>'Birdbrain' is a misnomer. Crows make decisions faster than we can</span></li>
+      <li><i class="mono teal">04</i><span>What the Great Lakes remember about last winter</span></li>
+      <li><i class="mono teal">05</i><span>The quiet return of the paper map</span></li>
+    </ul>
+    <div class="home"></div>
+  </div>
+</div>
+
+<nav id="nav" aria-label="Scene state">
+  <h1>Seasign v6 · HUD 2</h1>
+  <p>A ring that turns slowly clockwise, throwing stars and beams of light outward. Inside it the sun or moon crosses a low arc from left to right above a band of white light, with the weather around it. Pick a state; arrow keys step through them.</p>
+</nav>
+
+<script>
+"use strict";
+const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
+const RING = { x: W / 2, y: 318, r: 84, band: 19 };   // r: the inner edge; the window inside it does not turn
+const HZ = 486;                                        // the sea's horizon
+const JA = 28 * PI / 180;                              // the white arc meets the ring this far below its middle
+const JX = RING.r * Math.cos(JA), JY = RING.y + RING.r * Math.sin(JA);
+const PATH_H = RING.r * .40, LIMB_H = RING.r * .13;    // how high the sun's path and the white arc rise between the two meeting points
+
+/* body: the sun or moon's colour; glow: the light round it; arc: the white arc's tint; power: brightness of the arc and the ring */
+const LOOK = {
+  sunrise: { body: "255,96,40",   glow: "255,150,40",  arc: "255,196,150", power: .75 },
+  day:     { body: "255,128,24",  glow: "255,214,60",  arc: "255,250,232", power: 1 },
+  sunset:  { body: "255,84,36",   glow: "255,128,36",  arc: "255,180,140", power: .8 },
+  cloudy:  { body: "255,140,50",  glow: "255,206,96",  arc: "226,230,232", power: .62 },
+  rain:    { body: "236,130,70",  glow: "220,170,110", arc: "190,204,214", power: .48 },
+  snow:    { body: "255,170,90",  glow: "255,226,170", arc: "244,248,255", power: .8 },
+  dusk:    { body: "236,242,255", glow: "150,190,236", arc: "170,196,230", power: .55, night: true },
+  night:   { body: "244,248,255", glow: "170,206,246", arc: "206,226,250", power: .8,  night: true },
+  full:    { body: "255,255,255", glow: "200,226,255", arc: "236,244,255", power: 1,   night: true },
+};
+/* `turn`: how far along the path, 0 (rising, left) to 1 (setting, right) */
+const STATES = [
+  { id: "sunrise",     label: "Sunrise",     look: "sunrise", turn: .03, time: "06:41", sign: "clear",  word: "Clear" },
+  { id: "mid-day",     label: "Mid-day",     look: "day",     turn: .5,  time: "11:36", sign: "clear",  word: "Clear" },
+  { id: "sunset",      label: "Sunset",      look: "sunset",  turn: .97, time: "16:31", sign: "clear",  word: "Clear" },
+  { id: "clouds",      label: "Clouds",      look: "cloudy",  turn: .42, time: "10:50", sign: "clouds", word: "Clouds", clouds: .8 },
+  { id: "rain",        label: "Rain",        look: "rain",    turn: .58, time: "12:25", sign: "rain",   word: "Rain",   clouds: 1, rain: true },
+  { id: "snow",        label: "Snow",        look: "snow",    turn: .5,  time: "11:36", sign: "snow",   word: "Snow",   clouds: .6, snow: true },
+  { id: "moon-rise",   label: "Moon rise",   look: "dusk",    turn: .03, time: "17:12", sign: "night",  word: "Clear",  phase: .5 },
+  { id: "mid-night",   label: "Mid-night",   look: "night",   turn: .5,  time: "00:08", sign: "night",  word: "Clear",  phase: .5 },
+  { id: "moon-waxing", label: "Waxing moon", look: "night",   turn: .36, time: "21:40", sign: "night",  word: "Clear",  phase: .25 },
+  { id: "moon-waning", label: "Waning moon", look: "night",   turn: .64, time: "02:30", sign: "night",  word: "Clear",  phase: .75 },
+  { id: "moon-full",   label: "Full moon",   look: "full",    turn: .5,  time: "00:08", sign: "night",  word: "Clear",  phase: .5 },
+  { id: "moon-set",    label: "Moon set",    look: "dusk",    turn: .97, time: "07:03", sign: "night",  word: "Clear",  phase: .5 },
+];
+const SILVER = "214,228,240", ICE = "150,200,222", TEAL = "40,214,220", GOLD = "255,214,60", VIOLET = "196,150,255", ROSE = "255,196,190";
+
+function prng(seed) {
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+const DPR = Math.min(3, window.devicePixelRatio || 1);
+canvas.width = W * DPR; canvas.height = H * DPR;
+
+const rnd = prng(613), list = (n, f) => Array.from({ length: n }, f);
+const bits = {
+  /* dust thrown outward from the ring: each speck starts at the ring and drifts away */
+  dust: list(1100, () => ({ a: rnd() * TAU, d: Math.pow(rnd(), 1.8), sp: .012 + rnd() * .02, s: .5 + rnd() * rnd() * 1.9, ph: rnd() * TAU, v: rnd() < .09 })),
+  /* wiring: a spoke with a short arc at its end */
+  wires: list(64, () => ({ a: rnd() * TAU, r0: 1.35 + rnd() * 1.5, len: .06 + rnd() * .5, da: (rnd() - .35) * .16, w: rnd() < .25 ? 1.6 : .7, rose: rnd() < .3, k: .6 + rnd() * .6 })),
+  plates: list(18, () => ({ a: rnd() * TAU, len: .1 + rnd() * .5, r: 1.34 + Math.floor(rnd() * 4) * .13, k: .7 + rnd() * .5 })),
+  blocks: list(30, () => ({ a: rnd() * TAU, len: .02 + rnd() * .1, r: .2 + rnd() * .6, on: rnd() })),
+  spokes: list(11, () => ({ a: rnd() * TAU, r0: .25 + rnd() * .3, r1: .7 + rnd() * .28 })),
+  beams: list(15, () => ({ a: rnd() * TAU, ph: rnd(), sp: .05 + rnd() * .05, len: 60 + rnd() * 100 })),
+  inner: list(46, () => ({ a: rnd() * TAU, d: Math.sqrt(rnd()), s: .5 + rnd() * .8, ph: rnd() * TAU })),
+  clouds: list(9, () => ({ x: rnd(), y: -.62 + rnd() * .75, w: .35 + rnd() * .45, h: .07 + rnd() * .08, sp: .006 + rnd() * .012 })),
+  rain: list(40, () => ({ x: rnd(), y: rnd(), sp: .5 + rnd() * .4 })),
+  snow: list(38, () => ({ x: rnd(), y: rnd(), sp: .03 + rnd() * .04, r: .6 + rnd() * .9, ph: rnd() * TAU })),
+  glints: list(110, () => ({ x: rnd(), y: Math.pow(rnd(), 1.6), ph: rnd() * TAU, s: .5 + rnd() * 1.2, v: rnd() < .08 })),
+};
+let state, look;
+const col = (rgb, a) => `rgba(${rgb},${Math.max(0, a)})`;
+
+function arc(r, a0, a1, rgb, alpha, width = 1, dash) {
+  ctx.beginPath(); ctx.arc(RING.x, RING.y, r, a0, a1); ctx.setLineDash(dash || []); ctx.lineWidth = width; ctx.strokeStyle = col(rgb, alpha); ctx.stroke(); ctx.setLineDash([]);
+}
+function glow(x, y, rx, ry, rgb, alpha, mid = .4) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(rx, ry);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  g.addColorStop(0, col(rgb, alpha)); g.addColorStop(mid, col(rgb, alpha * .35)); g.addColorStop(1, col(rgb, 0));
+  ctx.fillStyle = g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
+}
+/* the two arcs inside the window; both run between the same two points on the ring */
+const wobble = (u, t) => Math.sin(PI * u) * (1.4 * Math.sin(u * 9 + t * .7) + .9 * Math.sin(u * 23 - t * 1.1));
+const pathAt = (u, t = 0, h = PATH_H) => [RING.x - JX * Math.cos(PI * u), JY - h * Math.sin(PI * u) + (h === PATH_H ? 0 : wobble(u, t))];
+
+function draw(t) {
+  const { x, y, r, band } = RING, { body, glow: halo, arc: tint } = look;
+  const P = look.power * (.96 + .04 * Math.sin(t * 1.3)), spin = t * .045;        // canvas angles grow clockwise
+  const [bx, by] = pathAt(state.turn);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "butt";
+
+  /* ---- the light the ring gives off ---- */
+  glow(x, y, r * 3.4, r * 3.4, "70,96,120", .5 * (.5 + .5 * P), .5);
+  glow(x, y, r * 2.0, r * 2.0, ICE, .5 * (.5 + .5 * P), .66);
+  /* the sea: a hazy plane under the horizon, lit from the middle */
+  const sea = ctx.createLinearGradient(0, HZ, 0, HZ + 120);
+  sea.addColorStop(0, col("120,140,160", .34)); sea.addColorStop(.25, col("90,108,128", .16)); sea.addColorStop(1, col("60,70,90", 0));
+  ctx.fillStyle = sea; ctx.fillRect(0, HZ, W, 120);
+  glow(x, HZ, W * .75, 5, SILVER, .5 * P, .3);
+  glow(x, HZ + 30, 120, 60, tint, .2 * P, .4);
+  for (const g of bits.glints) {
+    const gy = HZ + 3 + g.y * 78, spread = 40 + g.y * 220, gx = x + (g.x - .5) * 2 * spread;
+    const a = Math.pow(.5 + .5 * Math.sin(t * 1.7 + g.ph), 3) * (1 - g.y * .7);
+    ctx.fillStyle = col(g.v ? VIOLET : SILVER, a * .9); ctx.fillRect(gx, gy, g.s * 2.2, .7);
+  }
+
+  /* ---- everything that turns with the ring ---- */
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
+  for (const p of bits.plates) arc(r * p.r, p.a + spin * p.k, p.a + spin * p.k + p.len, ICE, .15 * (.5 + .5 * P), r * .09);
+  for (const w of bits.wires) {
+    const a = w.a + spin * w.k, r0 = r * w.r0, r1 = r * (w.r0 + w.len), fade = Math.max(0, 1 - (w.r0 - 1.3) / 1.9);
+    ctx.beginPath(); ctx.moveTo(x + r0 * Math.cos(a), y + r0 * Math.sin(a)); ctx.lineTo(x + r1 * Math.cos(a), y + r1 * Math.sin(a));
+    ctx.arc(x, y, r1, a, a + w.da, w.da < 0);
+    ctx.lineWidth = w.w; ctx.strokeStyle = col(w.rose ? ROSE : SILVER, (.25 + .5 * fade) * (.55 + .45 * P)); ctx.stroke();
+  }
+  for (const d of bits.dust) {                                                   // stars, drifting outward as they turn
+    const f = (d.d + t * d.sp) % 1, rad = r * (1.24 + f * 3.4), a = d.a + spin * (1.3 - f * .6);
+    const px = x + rad * Math.cos(a), py = y + rad * Math.sin(a);
+    if (py > HZ - 2) continue;
+    const tw = .55 + .45 * Math.sin(t * 1.4 + d.ph), al = Math.min(1, f * 12) * (1 - f) * (1 - f * .6) * tw * (look.night ? 1.25 : .95);
+    ctx.fillStyle = col(d.v ? VIOLET : SILVER, al); ctx.fillRect(px - d.s / 2, py - d.s / 2, d.s, d.s);
+  }
+
+  ctx.restore();
+
+  /* ---- the ring itself: a dark band with lit segments ---- */
+  ctx.globalCompositeOperation = "source-over";
+  ctx.beginPath(); ctx.arc(x, y, r + band + 4, 0, TAU); ctx.fillStyle = "#04060a"; ctx.fill();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.shadowColor = col(ICE, 1); ctx.shadowBlur = 10 * DPR * P;
+  arc(r + band + 4, 0, TAU, ICE, .5 * P, 1);
+  ctx.shadowBlur = 0;
+  arc(r + band + 9, spin * 1.2, spin * 1.2 + 4.4, ICE, .3 * P, 3.5, [14, 5]);
+  arc(r + band - 2, 0, TAU, SILVER, .5 * P, .5);
+  arc(r + 4, 0, TAU, SILVER, .55 * P, 2.4, [.6, 1.5]);                             // the fine teeth on the inner edge
+  arc(r + 1, 0, TAU, SILVER, .5 * P, .6);
+  for (const b of bits.blocks) {
+    const a = b.a + spin;
+    arc(r + 7 + b.r * (band - 9), a, a + b.len, b.on > .6 ? "255,255,255" : ICE, (b.on > .6 ? .95 : .4) * (.5 + .5 * P), b.on > .8 ? 4.5 : 2.2);
+  }
+
+  /* ---- inside the window: this part stays level ---- */
+  ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.clip();
+  ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#020306"; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  ctx.globalCompositeOperation = "lighter";
+  if (look.night) for (const s of bits.inner) {
+    const sy = y + Math.sin(s.a) * s.d * r * .96; if (sy > JY - 6) continue;
+    ctx.fillStyle = col(SILVER, .25 + .55 * Math.pow(.5 + .5 * Math.sin(t * .9 + s.ph), 2));
+    ctx.fillRect(x + Math.cos(s.a) * s.d * r * .96, sy, s.s, s.s);
+  }
+  /* turning marks seen through the window */
+  for (const s of bits.spokes) {
+    const a = s.a + spin * 1.6;
+    ctx.beginPath(); ctx.moveTo(x + r * s.r0 * Math.cos(a), y + r * s.r0 * Math.sin(a)); ctx.lineTo(x + r * s.r1 * Math.cos(a), y + r * s.r1 * Math.sin(a));
+    ctx.lineWidth = .5; ctx.strokeStyle = col(SILVER, .22); ctx.stroke();
+  }
+  arc(r * .93, spin * 1.6, spin * 1.6 + 5, SILVER, .3, 1.4, [3, 5]);
+
+  /* the band of white light: bright along its top edge, which never keeps quite the same shape */
+  const N = 48;
+  ctx.beginPath(); ctx.moveTo(...pathAt(0, t, LIMB_H));
+  for (let i = 1; i <= N; i++) ctx.lineTo(...pathAt(i / N, t, LIMB_H));
+  ctx.lineTo(x + r, y + r); ctx.lineTo(x - r, y + r); ctx.closePath();
+  const fill = ctx.createLinearGradient(0, JY - LIMB_H - 2, 0, y + r);
+  fill.addColorStop(0, col(tint, .78 * P)); fill.addColorStop(.3, col(tint, .36 * P)); fill.addColorStop(1, col(tint, .05));
+  ctx.fillStyle = fill; ctx.fill();
+  const foot = pathAt(state.turn, t, LIMB_H);
+  glow(bx, foot[1] + 4, r * .6, r * .3, halo, .75 * P, .45);                       // the sun or moon lights the band below it
+  ctx.shadowColor = col(tint, 1); ctx.shadowBlur = 7 * DPR;
+  ctx.beginPath(); ctx.moveTo(...pathAt(0, t, LIMB_H));
+  for (let i = 1; i <= N; i++) ctx.lineTo(...pathAt(i / N, t, LIMB_H));
+  ctx.lineWidth = 1.3; ctx.strokeStyle = col("255,255,255", .95 * P); ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  /* the path the sun and moon travel: a thin arc whose light runs along it and thickens and thins */
+  for (let i = 0; i < N; i++) {
+    const u0 = i / N, u1 = (i + 1) / N, k = .5 + .5 * Math.sin(u0 * 14 - t * 1.6) * Math.sin(u0 * 5 + t * .5);
+    const near = Math.exp(-Math.pow((u0 - state.turn) * 5, 2));
+    ctx.beginPath(); ctx.moveTo(...pathAt(u0)); ctx.lineTo(...pathAt(u1));
+    ctx.lineWidth = .5 + 1.5 * k + 1.2 * near; ctx.strokeStyle = col(halo, (.22 + .5 * k + .3 * near) * (.55 + .45 * P)); ctx.stroke();
+  }
+  glow(...pathAt((t * .07) % 1), 9, 9, halo, .5, .3);                             // a pulse of light running along it
+
+  /* weather, inside the window */
+  if (state.clouds) for (const c of bits.clouds) {
+    const cx = x + ((c.x * 2.6 + t * c.sp * 2.6) % 2.6 - 1.3) * r, cy = y + c.y * r;
+    glow(cx, cy, c.w * r, c.h * r * 1.5, state.rain ? "150,164,180" : SILVER, .3 * state.clouds, .6);
+    glow(cx + c.w * r * .25, cy - c.h * r * .5, c.w * r * .5, c.h * r, SILVER, .26 * state.clouds, .6);
+  }
+  if (state.rain) {
+    ctx.beginPath();
+    for (const p of bits.rain) { const f = (p.y + t * p.sp) % 1, px = x - r + p.x * r * 2.3 - f * 22, py = y - r + f * r * 2; ctx.moveTo(px, py); ctx.lineTo(px - 2.6, py + 9); }
+    ctx.lineWidth = .8; ctx.strokeStyle = col(SILVER, .7); ctx.stroke();
+  }
+  if (state.snow) for (const f of bits.snow) {
+    const fy = y - r + ((f.y + t * f.sp) % 1) * r * 2, fx = x - r + f.x * r * 2 + Math.sin(t * .6 + f.ph) * 4;
+    ctx.fillStyle = col("255,255,255", .9); ctx.beginPath(); ctx.arc(fx, fy, f.r, 0, TAU); ctx.fill();
+  }
+
+  /* the sun or the moon */
+  const R = 10.5, veil = state.rain ? .7 : state.clouds ? .85 : 1;
+  glow(bx, by, R * 4.2, R * 4.2, halo, .55 * P * veil, .3);
+  ctx.globalCompositeOperation = "source-over";
+  if (state.phase == null) {
+    const g = ctx.createRadialGradient(bx - 2, by - 2, 0, bx, by, R);
+    g.addColorStop(0, col(body, veil)); g.addColorStop(1, col(body, .9 * veil));
+    ctx.fillStyle = "#020306"; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.beginPath(); ctx.arc(bx, by, R + 3.5, t * .5, t * .5 + 4.2); ctx.lineWidth = .7; ctx.strokeStyle = col(halo, .8 * veil); ctx.stroke();
+  } else {
+    const k = Math.cos(TAU * state.phase), lit = (1 - k) / 2;
+    ctx.fillStyle = "#0b1018"; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    ctx.save(); ctx.translate(bx, by); if (state.phase > .5) ctx.scale(-1, 1);
+    ctx.beginPath();
+    if (lit > .985) ctx.arc(0, 0, R, 0, TAU);
+    else { ctx.arc(0, 0, R, -PI / 2, PI / 2); ctx.ellipse(0, 0, R * Math.abs(k), R, 0, PI / 2, PI * 1.5, lit < .5); }
+    ctx.fillStyle = col(body, 1); ctx.fill(); ctx.restore();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.lineWidth = .6; ctx.strokeStyle = col(SILVER, .55); ctx.stroke();
+  }
+  ctx.restore();
+  ctx.globalCompositeOperation = "lighter";
+
+  /* ---- beams: shot outward from the ring, and gone past the edge of the screen ---- */
+  ctx.lineCap = "round"; ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
+  for (const b of bits.beams) {
+    const f = (b.ph + t * b.sp) % 1, a = b.a + spin * .5, head = r * .9 + Math.pow(f, 1.6) * 640, len = b.len * (.5 + f * 1.6);
+    const tail = Math.max(r * .9, head - len), al = Math.min(1, f * 8);
+    const x0 = x + tail * Math.cos(a), y0 = y + tail * Math.sin(a), x1 = x + head * Math.cos(a), y1 = y + head * Math.sin(a);
+    const g = ctx.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, col(TEAL, 0)); g.addColorStop(.5, col(TEAL, al)); g.addColorStop(1, col("120,244,248", al));
+    ctx.shadowColor = col(GOLD, 1); ctx.shadowBlur = 6 * DPR;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = 2.6; ctx.strokeStyle = col(GOLD, .14 * al); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = 1.5; ctx.strokeStyle = g; ctx.stroke();
+  }
+  ctx.restore(); ctx.lineCap = "butt";
+
+  /* ---- the picture is cut into upright panels that sit a little out of line, as in the reference ---- */
+  ctx.globalCompositeOperation = "source-over";
+  for (const [sx, sw, dy] of [[0, 49, -13], [338, 55, 15]]) {
+    ctx.drawImage(canvas, sx * DPR, 150 * DPR, sw * DPR, 420 * DPR, sx, 150 + dy, sw, 420);
+    ctx.fillStyle = "rgba(0,0,0,.7)"; ctx.fillRect(sx === 0 ? sx + sw - .5 : sx - .5, 150, 1, 420);
+  }
+  /* dark behind the words */
+  const top = ctx.createLinearGradient(0, 0, 0, 200); top.addColorStop(0, "rgba(0,0,0,1)"); top.addColorStop(.7, "rgba(0,0,0,.8)"); top.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = top; ctx.fillRect(0, 0, W, 200);
+  const low = ctx.createLinearGradient(0, HZ + 34, 0, HZ + 100); low.addColorStop(0, "rgba(0,0,0,0)"); low.addColorStop(1, "rgba(0,0,0,.92)");
+  ctx.fillStyle = low; ctx.fillRect(0, HZ + 34, W, H - HZ - 34);
+  ctx.fillStyle = "rgba(255,255,255,.16)"; ctx.fillRect(0, 578, 30, .6); ctx.fillRect(W - 30, 578, 30, .6);
+}
+
+/* ---------- choosing a state ---------- */
+const params = new URLSearchParams(location.search);
+const still = params.has("still"), T0 = parseFloat(params.get("t")) || 7.3;
+if (params.has("bare")) document.body.classList.add("bare");
+
+function show(id) {
+  state = STATES.find(s => s.id === id) || STATES[0];
+  look = LOOK[state.look];
+  document.getElementById("weather").setAttribute("href", "#w-" + state.sign);
+  document.getElementById("weather-word").textContent = state.word;
+  document.getElementById("time").textContent = state.time;
+  document.getElementById("clock").textContent = state.time.replace(/^0/, "");
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
+  if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
+}
+const nav = document.getElementById("nav");
+for (const s of STATES) {
+  const b = document.createElement("button");
+  b.textContent = s.label; b.dataset.id = s.id; b.onclick = () => show(s.id); nav.appendChild(b);
+}
+addEventListener("keydown", e => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  show(STATES[(STATES.indexOf(state) + step + STATES.length) % STATES.length].id);
+});
+((document.fonts && document.fonts.ready) || Promise.resolve()).then(() => {
+  show(params.get("state") || "mid-day");
+  if (still) { document.title = "ready"; return; }
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const loop = ms => { draw(calm ? T0 : ms / 1000); if (!calm) requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
