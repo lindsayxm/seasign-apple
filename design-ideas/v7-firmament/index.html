@@ -43,7 +43,9 @@
   .events { left: 96px; top: 64px; width: 281px; margin: 0; padding: 8px 8px 2px 8px; list-style: none; font-size: 11px; letter-spacing: .13em; line-height: 16px;
             background: rgba(0, 0, 0, .55); }
   .events li { display: grid; grid-template-columns: 66px 1fr; margin-bottom: 10px; padding-left: 7px; border-left: 1px solid rgba(var(--teal), .6); }
-  .events time { color: rgb(var(--teal)); font-size: 10px; letter-spacing: .04em; }
+  /* the time is two fixed columns: the hour (or the day, for an all-day event), then AM, PM or ALL, so those always start at the same place */
+  .events time { color: rgb(var(--teal)); font-size: 10px; letter-spacing: .04em; display: grid; grid-template-columns: 5.6ch auto; justify-content: start; }
+  .events time b { font-weight: inherit; }
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
@@ -100,9 +102,9 @@
     <div class="now"><span>55°F</span></div>
 
     <ul class="events">
-      <li><time class="mono">6:45 PM</time><span>Hanna’s show</span></li>
-      <li><time class="mono">8:15 PM</time><span>Submit work hours for studio payroll</span></li>
-      <li><time class="mono">TUE · ALL</time><span>Brush pets teeth</span></li>
+      <li><time class="mono"><b>6:45</b><b>PM</b></time><span>Hanna’s show</span></li>
+      <li><time class="mono"><b>8:15</b><b>PM</b></time><span>Submit work hours for studio payroll</span></li>
+      <li><time class="mono"><b>Tue</b><b>All</b></time><span>Brush pets teeth</span></li>
     </ul>
 
     <svg class="line more"><use href="#i-more"/></svg>
