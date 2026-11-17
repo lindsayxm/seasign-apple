@@ -46,12 +46,12 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* one column at the right: saved stays put, list sits centred on the horizon (y 486), settings the same step above */
-  .icons { right: 30px; top: 425px; display: flex; flex-direction: column; gap: 26.5px; }
+  /* one column at the right: saved stays put, list sits centred on the horizon (y 426), settings the same step above */
+  .icons { right: 30px; top: 365px; display: flex; flex-direction: column; gap: 26.5px; }
   .icons svg { width: 23px; height: 23px; filter: drop-shadow(0 0 5px rgba(var(--amber), .7)); }
-  .more { left: 44px; top: 530px; width: 12px; height: 12px; }
+  .more { left: 44px; top: 470px; width: 12px; height: 12px; }
 
-  .feed { left: 44px; top: 590px; width: 322px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
+  .feed { left: 44px; top: 530px; width: 322px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
   .feed li { display: grid; grid-template-columns: 28px 1fr; height: 45px; }
   .feed i { font-style: normal; font-size: 8.5px; letter-spacing: .04em; }
   .home { left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
@@ -110,6 +110,7 @@
       <li><i class="mono teal">03</i><span>'Birdbrain' is a misnomer. Crows make decisions faster than we can</span></li>
       <li><i class="mono teal">04</i><span>What the Great Lakes remember about last winter</span></li>
       <li><i class="mono teal">05</i><span>The quiet return of the paper map</span></li>
+      <li><i class="mono teal">06</i><span>Why lighthouse keepers kept such careful weather diaries</span></li>
     </ul>
     <div class="home"></div>
   </div>
@@ -123,8 +124,8 @@
 <script>
 "use strict";
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
-const HZ = 486;                                        // the sea's horizon
-const PATH = { x: W / 2, rx: 116, ry: 250 };           // the sun and moon's path: an ellipse centred on the horizon, so it crosses the waterline twice
+const HZ = 426;                                        // the sea's horizon
+const PATH = { x: W / 2, rx: 116, ry: 96 };           // the sun and moon's path: an ellipse centred on the horizon, so it crosses the waterline twice
 
 /* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
 const LOOK = {
@@ -206,7 +207,7 @@ const pathAt = u => [PATH.x - PATH.rx * Math.cos(PI * u), HZ - PATH.ry * Math.si
 function draw(t) {
   const x = PATH.x, { body, glow: halo, arc: tint } = look;
   const P = look.power * (.96 + .04 * Math.sin(t * 1.3)), wheel = t * .0015;      // canvas angles grow clockwise: stars rise at the left and set at the right
-  const [bx, by] = pathAt(state.turn), lowness = Math.pow(Math.max(0, 1 - (HZ - by) / 150), 2);   // lowness: 1 when the sun or moon is on the water
+  const [bx, by] = pathAt(state.turn), lowness = Math.pow(Math.max(0, 1 - (HZ - by) / 96), 2);   // lowness: 1 when the sun or moon is on the water
   const skyClip = () => { ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip(); };
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
@@ -353,7 +354,7 @@ function draw(t) {
   ctx.fillStyle = top; ctx.fillRect(0, 0, W, 200);
   const low = ctx.createLinearGradient(0, HZ + 34, 0, HZ + 100); low.addColorStop(0, "rgba(0,0,0,0)"); low.addColorStop(1, "rgba(0,0,0,.92)");
   ctx.fillStyle = low; ctx.fillRect(0, HZ + 34, W, H - HZ - 34);
-  ctx.fillStyle = "rgba(255,255,255,.16)"; ctx.fillRect(0, 578, 30, .6); ctx.fillRect(W - 30, 578, 30, .6);
+  ctx.fillStyle = "rgba(255,255,255,.16)"; ctx.fillRect(0, HZ + 92, 30, .6); ctx.fillRect(W - 30, HZ + 92, 30, .6);
 }
 
 /* ---------- choosing a state ---------- */
