@@ -48,18 +48,17 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* one column at the right: saved stays put, list sits centred on the horizon (y 426), settings the same step above */
-  .icons { right: 30px; top: 365px; display: flex; flex-direction: column; gap: 26.5px; }
+  /* one column at the right, wholly above the horizon; the ∀ button sits below it, just under the horizon */
+  .icons { right: 30px; top: 282px; display: flex; flex-direction: column; gap: 26.5px; }
   /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
   .icons svg, svg.more { stroke: rgb(var(--btn)); }
   body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
   .icons svg { width: 23px; height: 23px; stroke-width: .1; }
   /* the dark panel behind these three is drawn on the canvas (see `panel` in the script), so the film grain lies over it */
-  .more { left: 34px; top: 502px; width: 12px; height: 12px; stroke-width: .17; }
+  .more { left: 345.5px; top: 446px; width: 12px; height: 12px; stroke-width: .17; }
 
-  .feed { left: 34px; top: 530px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
-  .feed li { display: grid; grid-template-columns: 28px 1fr; height: 45px; }
-  .feed i { font-style: normal; font-size: 8.5px; letter-spacing: .04em; }
+  .feed { left: 34px; top: 476px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
+  .feed li { height: 45px; }
   /* article titles: a humanist serif in sentence case (Iowan Old Style, then Charter; both ship with iOS and macOS) */
   .feed span { font-family: "Iowan Old Style", "Charter", ui-serif, Georgia, serif; text-transform: none; letter-spacing: .01em; color: rgb(244, 242, 236); font-size: 13.5px; line-height: 17.5px; }
   .home { left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
@@ -113,12 +112,12 @@
     </div>
 
     <ul class="feed">
-      <li><i class="mono teal">01</i><span>A short explainer on how El Niño works [video]</span></li>
-      <li><i class="mono teal">02</i><span>It’s getting too dry for even cactuses to survive</span></li>
-      <li><i class="mono teal">03</i><span>‘Birdbrain’ is a misnomer. Crows make decisions faster than we can</span></li>
-      <li><i class="mono teal">04</i><span>What the Great Lakes remember about last winter</span></li>
-      <li><i class="mono teal">05</i><span>The quiet return of the paper map</span></li>
-      <li><i class="mono teal">06</i><span>Why lighthouse keepers kept such careful weather diaries</span></li>
+      <li><span>A short explainer on how El Niño works [video]</span></li>
+      <li><span>It’s getting too dry for even cactuses to survive</span></li>
+      <li><span>‘Birdbrain’ is a misnomer. Crows make decisions faster than we can</span></li>
+      <li><span>What the Great Lakes remember about last winter</span></li>
+      <li><span>The quiet return of the paper map</span></li>
+      <li><span>Why lighthouse keepers kept such careful weather diaries</span></li>
     </ul>
     <div class="home"></div>
   </div>
@@ -133,8 +132,8 @@
 "use strict";
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
 const HZ = 426;                                        // the sea's horizon
-const PANEL = { x: 329, y: 352, w: 45, h: 149, r: 13 };  // behind the three buttons at the right
-const PATH = { x: 40 + 115, half: 115, top: 100 };     // left of centre, to leave room for the buttons: its left end is at x 40, directly above the ∀ button
+const PANEL = { x: 329, y: 269, w: 45, h: 149, r: 13 };  // behind the three buttons at the right; its bottom edge is 8 points above the horizon
+const PATH = { x: 40 + 115, half: 115, top: 100 };     // left of centre, to leave room for the buttons: its left end is at x 40
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
 
 /* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
@@ -387,22 +386,22 @@ function draw(t) {
       ctx.globalAlpha = a; ctx.drawImage(soft, 0, 0, W, H); ctx.globalAlpha = 1;
     }
   }
-  /* ---- the panel behind the three buttons: deep blue at the top, near black at the bottom, a little over 40% see-through.
-          A soft glow sits over its top edge and a soft shadow under its bottom edge. Drawn before the grain, so the grain covers it too ---- */
+  /* ---- the panel behind the three buttons: near black at the top, deep blue at the bottom, a little over 40% see-through.
+          A soft glow sits under its bottom edge and a soft shadow over its top edge. Drawn before the grain, so the grain covers it too ---- */
   if (!document.body.classList.contains("nobtn")) {
     const dusk = state.look === "sunset";                                           // at sunset the glow over the top edge is dark pink, not blue
     const p = PANEL, shape = dx => { ctx.beginPath(); ctx.roundRect(p.x + dx, p.y, p.w, p.h, p.r); };
     ctx.globalCompositeOperation = "source-over";
-    for (const [top, rgba, blur, off] of [[p.y, dusk ? "rgba(206,76,120,.7)" : "rgba(128,176,250,.6)", 11, -2], [p.y + p.h - 28, "rgba(0,0,0,.8)", 9, 4]]) {
+    for (const [top, rgba, blur, off] of [[p.y + p.h - 28, dusk ? "rgba(206,76,120,.7)" : "rgba(128,176,250,.6)", 11, 2], [p.y, "rgba(0,0,0,.8)", 9, -4]]) {
       ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.roundRect(p.x, p.y, p.w, p.h, p.r); ctx.clip("evenodd");   // outside the panel only
       ctx.shadowColor = rgba; ctx.shadowBlur = blur * DPR; ctx.shadowOffsetX = 2000 * DPR; ctx.shadowOffsetY = off * DPR;
       ctx.beginPath(); ctx.roundRect(p.x - 2000, top, p.w, 28, p.r); ctx.fillStyle = "#000"; ctx.fill(); ctx.restore();   // the caster is off screen; only its light or shade lands here
     }
     const pg = ctx.createLinearGradient(0, p.y, 0, p.y + p.h);
-    pg.addColorStop(0, "rgba(30,54,108,.58)"); pg.addColorStop(.45, "rgba(12,24,58,.58)"); pg.addColorStop(1, "rgba(2,5,14,.58)");
+    pg.addColorStop(0, "rgba(2,5,14,.58)"); pg.addColorStop(.55, "rgba(12,24,58,.58)"); pg.addColorStop(1, "rgba(30,54,108,.58)");
     shape(0); ctx.fillStyle = pg; ctx.fill();
-    ctx.save(); shape(0); ctx.clip(); ctx.beginPath(); ctx.roundRect(p.x + .5, p.y + .5, p.w - 1, p.h, p.r);   // a faint lit rim along the top
-    const rim = ctx.createLinearGradient(0, p.y, 0, p.y + 22); rim.addColorStop(0, dusk ? "rgba(240,140,170,.5)" : "rgba(170,206,255,.5)"); rim.addColorStop(1, dusk ? "rgba(240,140,170,0)" : "rgba(170,206,255,0)");
+    ctx.save(); shape(0); ctx.clip(); ctx.beginPath(); ctx.roundRect(p.x + .5, p.y - .5, p.w - 1, p.h, p.r);   // a faint lit rim along the bottom
+    const rim = ctx.createLinearGradient(0, p.y + p.h, 0, p.y + p.h - 22); rim.addColorStop(0, dusk ? "rgba(240,140,170,.5)" : "rgba(170,206,255,.5)"); rim.addColorStop(1, dusk ? "rgba(240,140,170,0)" : "rgba(170,206,255,0)");
     ctx.lineWidth = 1; ctx.strokeStyle = rim; ctx.stroke(); ctx.restore();
     ctx.globalCompositeOperation = "lighter";
   }
@@ -415,7 +414,6 @@ function draw(t) {
   ctx.fillStyle = top; ctx.fillRect(0, 0, W, 200);
   const low = ctx.createLinearGradient(0, HZ + 34, 0, HZ + 100); low.addColorStop(0, "rgba(0,0,0,0)"); low.addColorStop(1, "rgba(0,0,0,.92)");
   ctx.fillStyle = low; ctx.fillRect(0, HZ + 34, W, H - HZ - 34);
-  ctx.fillStyle = "rgba(255,255,255,.16)"; ctx.fillRect(0, HZ + 92, 30, .6); ctx.fillRect(W - 30, HZ + 92, 30, .6);
 }
 
 /* ---------- choosing a state ---------- */
