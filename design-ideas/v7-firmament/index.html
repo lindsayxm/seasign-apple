@@ -9,7 +9,7 @@
   @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
 
   /* --amber: buttons and main highlights; --teal: times and numbers; --hi: the day name. All three are warm by day and cool at night (set per state below). */
-  :root { --btn: 255, 196, 56; --btnlist: 255, 196, 56; --amber: 255, 170, 48; --teal: 255, 122, 60; --hi: 255, 214, 160; }
+  :root { --btn: 255, 196, 56; --amber: 255, 170, 48; --teal: 255, 122, 60; --hi: 255, 214, 160; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
@@ -51,7 +51,6 @@
   .icons { right: 30px; top: 365px; display: flex; flex-direction: column; gap: 26.5px; }
   /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
   .icons svg, svg.more { stroke: rgb(var(--btn)); }
-  .icons svg:nth-child(2) { stroke: rgb(var(--btnlist)); }   /* the list button sits on the horizon, where the light is strongest, so it can differ */
   body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
   .icons svg { width: 23px; height: 23px; stroke-width: .1; }
   .more { left: 44px; top: 470px; width: 12px; height: 12px; stroke-width: .17; }
@@ -410,8 +409,6 @@ function show(id) {
                            : { amber: "255,170,48",  teal: "255,122,60",  hi: "255,214,160" };     // warm: amber, orange, peach
   /* buttons: flat colour, no shadow or glow. Day: warm yellow-orange. Sunrise: a stronger, slightly darker orange. Sunset: pale ice blue. Black night: bright aqua. */
   tones.btn = look.night ? "140,240,248" : state.look === "sunset" ? "206,246,255" : state.look === "sunrise" ? "250,126,16" : "255,196,56";
-  /* the list button alone: darker where the horizon behind it is bright (measured with ?nobtn) */
-  tones.btnlist = { sunrise: "226,70,0", sunset: "36,84,230", "moon-set": "36,84,230" }[state.id] || tones.btn;
   for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
   document.getElementById("weather").setAttribute("href", "#w-" + state.sign);
   document.getElementById("clock").textContent = state.time.replace(/^0/, "");
