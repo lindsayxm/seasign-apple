@@ -132,13 +132,13 @@ const SKY = {
   sunset:  { sky: [[0,"#353f47"],[.42,"#5c4f47"],[.74,"#b4633a"],[.9,"#8b4027"],[1,"#40251f"]],
              water: [[0,"#8a4a2c"],[.08,"#4a2c2c"],[.35,"#231f30"],[1,"#0b0e18"]], halo: "255,128,44", core: "#ffe7bb" },
   day:     { sky: [[0,"#243c54"],[.55,"#4f7b9a"],[1,"#aacbd8"]],
-             water: [[0,"#8fb6c6"],[.12,"#4c7790"],[.5,"#22405a"],[1,"#0d1b2a"]], halo: "176,226,255", core: "#ffffff" },
+             water: [[0,"#8fb6c6"],[.12,"#4c7790"],[.5,"#22405a"],[1,"#0d1b2a"]], halo: "255,208,96", core: "#ffe89a", air: "200,232,255" },
   cloudy:  { sky: [[0,"#333b44"],[.6,"#636d76"],[1,"#9ea8ae"]],
-             water: [[0,"#8a959c"],[.12,"#4f5a64"],[.5,"#262e37"],[1,"#0e1217"]], halo: "216,228,240", core: "#ffffff" },
+             water: [[0,"#8a959c"],[.12,"#4f5a64"],[.5,"#262e37"],[1,"#0e1217"]], halo: "255,212,110", core: "#ffeaa6", air: "216,228,240" },
   rain:    { sky: [[0,"#1d242b"],[.6,"#414c55"],[1,"#6f7b85"]],
-             water: [[0,"#5f6b74"],[.12,"#36414a"],[.5,"#1a2027"],[1,"#090c10"]], halo: "190,214,236", core: "#f2f8ff" },
+             water: [[0,"#5f6b74"],[.12,"#36414a"],[.5,"#1a2027"],[1,"#090c10"]], halo: "250,208,112", core: "#ffe8a4", air: "190,214,236" },
   snow:    { sky: [[0,"#2a323c"],[.6,"#5f6c79"],[1,"#aeb9c2"]],
-             water: [[0,"#97a3ad"],[.12,"#525e69"],[.5,"#252d36"],[1,"#0d1116"]], halo: "226,236,248", core: "#ffffff" },
+             water: [[0,"#97a3ad"],[.12,"#525e69"],[.5,"#252d36"],[1,"#0d1116"]], halo: "255,214,116", core: "#ffeaa8", air: "226,236,248" },
   night:   { sky: [[0,"#050609"],[.7,"#121418"],[1,"#2b2d31"]],
              water: [[0,"#26282c"],[.06,"#101114"],[1,"#040506"]], halo: "232,238,255", core: "#ffffff", chroma: true },
 };
@@ -232,7 +232,7 @@ function makeBits() {
   const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
   const list = (n, f) => Array.from({ length: n }, f);
   return {
-    stars: list(120, () => ({ x: rnd() * W, y: rnd() * (HZ - 14), s: .35 + rnd() * rnd() * 1.3, ph: rnd() * TAU, sp: .6 + rnd() * 2, tint: rnd() })),
+    stars: list(210, () => ({ x: rnd() * W, y: rnd() * (HZ - 10), s: .4 + Math.pow(rnd(), 3) * 1.7, ph: rnd() * TAU, sp: .6 + rnd() * 2, tint: rnd() })),
     glitter: list(620, () => ({ u: gauss(), v: Math.pow(rnd(), 1.5), ph: rnd() * TAU, sp: 1.2 + rnd() * 3.2, k: rnd() })),
     dashes: list(80, () => ({ x: rnd() * W, v: Math.pow(rnd(), 1.3), len: 8 + rnd() * 34, ph: rnd() * TAU, sp: .4 + rnd() * 1.2 })),
     wisps: list(9, (_, i) => ({ x: rnd() * W, y: 150 + rnd() * 250, w: 110 + rnd() * 150, h: 10 + rnd() * 16, a: .5 + rnd() * .4, sp: 2 + rnd() * 5, dark: i % 3 === 0 })),
@@ -256,7 +256,7 @@ function streak(y, cx, half, height, rgb, alpha) {                // a horizonta
 }
 
 function draw(t) {
-  const { cx, cy, r } = body, halo = look.halo, night = look.chroma;
+  const { cx, cy, r } = body, halo = look.halo, air = look.air || look.halo, night = look.chroma;
   const veil = state.clouds || 0;                                  // clouds soften everything
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
@@ -266,10 +266,10 @@ function draw(t) {
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
   ctx.globalCompositeOperation = "lighter";
   if (night) for (const s of bits.stars) {
-    const tw = .35 + .65 * Math.pow(.5 + .5 * Math.sin(t * s.sp + s.ph), 2);
-    ctx.fillStyle = `rgba(${s.tint > .8 ? "170,210,255" : s.tint < .12 ? "255,214,190" : "255,255,255"},${.75 * tw})`;
+    const tw = (.45 + .55 * Math.pow(.5 + .5 * Math.sin(t * s.sp + s.ph), 2)) * (s.y < 175 ? .5 : 1);   // quieter behind the header text
+    ctx.fillStyle = `rgba(${s.tint > .8 ? "170,210,255" : s.tint < .12 ? "255,214,190" : "255,255,255"},${.95 * tw})`;
     ctx.beginPath(); ctx.arc(s.x, s.y, s.s, 0, TAU); ctx.fill();
-    if (s.s > 1.25) streak(s.y, s.x, 7, .6, "255,255,255", .5 * tw);
+    if (s.s > 1.45 && s.y > 175) { blob(s.x, s.y, s.s * 4.5, s.s * 4.5, "200,220,255", .28 * tw); streak(s.y, s.x, 5 + s.s * 4, .6, "255,255,255", .6 * tw); }
   }
   /* the air around the ring, and the brighter sky seen through it */
   const breathe = 1 + .04 * Math.sin(t * .9);
@@ -295,7 +295,7 @@ function draw(t) {
   if (veil) for (const w of bits.wisps) {
     const x = ((w.x / W * (W + 400) + t * w.sp) % (W + 400)) - 200;
     ctx.globalCompositeOperation = w.dark ? "source-over" : "lighter";
-    blob(x, w.y, w.w, w.h, w.dark ? "28,34,40" : halo, w.dark ? w.a * .8 : w.a * .3 * veil, .6);
+    blob(x, w.y, w.w, w.h, w.dark ? "28,34,40" : air, w.dark ? w.a * .8 : w.a * .3 * veil, .6);
     if (!w.dark) blob(x, w.y - w.h * .3, w.w * .8, w.h * .6, "255,255,255", w.a * .09, .5);
   }
   ctx.restore();
@@ -345,7 +345,7 @@ function draw(t) {
   if (state.rain) for (const p of bits.ripples) {                  // rings where the rain lands
     const q = (t * p.sp + p.ph) % 1, y = HZ + 14 + p.v * (H - HZ - 30), rx = 3 + q * (10 + p.v * 22);
     ctx.beginPath(); ctx.ellipse(p.x, y, rx, rx * .26, 0, 0, TAU);
-    ctx.lineWidth = .8; ctx.strokeStyle = `rgba(${halo},${.4 * (1 - q)})`; ctx.stroke();
+    ctx.lineWidth = .8; ctx.strokeStyle = `rgba(${air},${.4 * (1 - q)})`; ctx.stroke();
   }
   ctx.restore();
 
@@ -363,6 +363,14 @@ function draw(t) {
     if (night) { streak(HZ - 4, cx + 30, W * .8, 1, FRINGE[1], .5); streak(HZ + 4, cx - 30, W * .8, 1, FRINGE[0], .45); }
   }
 
+  /* a veil over the water so the headlines read; the horizon and the top of the reflection stay clear */
+  ctx.globalCompositeOperation = "source-over";
+  const shade = ctx.createLinearGradient(0, HZ, 0, H);
+  shade.addColorStop(0, "rgba(6,9,16,0)"); shade.addColorStop(.07, "rgba(6,9,16,.12)");
+  shade.addColorStop(.17, "rgba(6,9,16,.5)"); shade.addColorStop(.72, "rgba(6,9,16,.56)"); shade.addColorStop(1, "rgba(6,9,16,.38)");
+  ctx.fillStyle = shade; ctx.fillRect(0, HZ, W, H - HZ);
+  ctx.globalCompositeOperation = "lighter";
+
   /* weather in front of everything */
   if (state.rain) {
     ctx.beginPath();
@@ -370,7 +378,7 @@ function draw(t) {
       const y = (p.y + t * 720 * p.sp) % (H + 30) - 30, x = p.x - y * .16;
       ctx.moveTo(x, y); ctx.lineTo(x - p.len * .16, y + p.len);
     }
-    ctx.lineWidth = .8; ctx.strokeStyle = `rgba(${halo},.34)`; ctx.stroke();
+    ctx.lineWidth = .8; ctx.strokeStyle = `rgba(${air},.34)`; ctx.stroke();
   }
   if (state.snow) for (const f of bits.snow) {
     const y = (f.y + t * 34 * f.sp * (1 + f.s * .25)) % (H + 20) - 10, x = f.x + Math.sin(t * .6 + f.ph) * 9;
