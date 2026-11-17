@@ -259,9 +259,9 @@ function draw(t) {
     ctx.lineWidth = w.w * .7; ctx.strokeStyle = g; ctx.stroke();
   }
   /* stars: born at the ring's edge, they circle it clockwise, fast at first and slower as they work their way outward */
-  for (const d of bits.dust) if (d.sw == null) { d.sw = 7 + hash(d.ph * 5.1) * 5; d.off = (hash(d.ph * 9.7) - .5) * .5; }
+  for (const d of bits.dust) if (d.sw == null) { d.sw = 3 + hash(d.ph * 5.1) * 2.4; d.off = (hash(d.ph * 9.7) - .5) * .5; }
   const dustAt = (d, time) => {
-    const cyc = d.d + time * d.sp * .45, f = cyc % 1, n = Math.floor(cyc);
+    const cyc = d.d + time * d.sp * .32, f = cyc % 1, n = Math.floor(cyc);
     const a = d.a + hash(d.ph + n * 3.3) * 1.2 + spin + d.sw * Math.log(1 + f * 5) / Math.log(6);
     const rad = r * (1.25 + Math.pow(f, 1.25) * 3.3 + d.off * f);
     return [x + rad * Math.cos(a), y + rad * Math.sin(a), f];
@@ -273,7 +273,7 @@ function draw(t) {
     const tw = .55 + .45 * Math.sin(t * 1.4 + d.ph), al = Math.min(1, f * 30) * (1 - f) * (1 - f * .6) * tw * (look.night ? 1.25 : .95);
     const rgb = d.v ? VIOLET : d.s > 1.45 ? "236,244,255" : SILVER;
     if (d.s > .95 && f > .012) {                                                  // a short streak behind it, along its path
-      const [qx, qy] = dustAt(d, t - .7), [mx, my] = dustAt(d, t - .35);
+      const [qx, qy] = dustAt(d, t - 1.6), [mx, my] = dustAt(d, t - .8);
       ctx.beginPath(); ctx.moveTo(qx, qy); ctx.quadraticCurveTo(mx, my, px, py); ctx.lineWidth = d.s * .45; ctx.strokeStyle = col(rgb, al * .3); ctx.stroke();
     }
     if (d.s > 1.45) glow(px, py, d.s * 1.8, d.s * 1.8, rgb, al, .22);
@@ -392,12 +392,13 @@ function draw(t) {
   ctx.lineCap = "round"; ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
   bits.beams.forEach((b, i) => {
     const cyc = b.ph + t * b.sp, f = cyc % 1, n = Math.floor(cyc);
+    if (hash(i * 4.9 + n * 6.1) > .42) return;                                    // most turns, this one stays dark
     const h1 = hash(i * 7.3 + n * 1.7), h2 = hash(i * 3.1 + n * 5.9), h3 = hash(i * 11.7 + n * 2.3);
     const a = b.a + (h1 - .5) * .9 + spin * .5, skew = (h2 - .5) * .24, start = r * (.5 + h3 * .7);
     const head = start + Math.pow(f, 1.5) * (520 + h2 * 260), len = b.len * (.35 + h3) * (.5 + f * 1.8), tail = Math.max(start, head - len);
     const ox = x + start * Math.cos(a), oy = y + start * Math.sin(a), dx = Math.cos(a + skew), dy = Math.sin(a + skew);
     const at = d => [ox + (d - start) * dx, oy + (d - start) * dy];
-    const al = Math.min(1, f * 7) * (.55 + .45 * b.k) * (.78 + .22 * Math.sin(t * (9 + h1 * 8) + i)), w = b.w * (.7 + h3 * .8);
+    const al = Math.min(1, f * 7) * (.44 + .38 * b.k) * (.78 + .22 * Math.sin(t * (9 + h1 * 8) + i)), w = b.w * (.6 + h3 * .65);
     const [x0, y0] = at(tail), [x1, y1] = at(head);
     for (const [ww, aa] of [[w * 10, .05], [w * 5.5, .09], [w * 3, .1]]) {     // warm light round the beam
       const g = ctx.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, col(GOLD, 0)); g.addColorStop(.55, col(GOLD, aa * al)); g.addColorStop(1, col(GOLD, aa * al * .7));
@@ -438,7 +439,7 @@ function draw(t) {
 
 /* ---------- choosing a state ---------- */
 const params = new URLSearchParams(location.search);
-const still = params.has("still"), T0 = parseFloat(params.get("t")) || 7.3;
+const still = params.has("still"), T0 = parseFloat(params.get("t")) || 19;
 if (params.has("bare")) document.body.classList.add("bare");
 
 function show(id) {
