@@ -371,6 +371,20 @@ function draw(t) {
     g.addColorStop(0, col(body, veil)); g.addColorStop(1, col(body, .9 * veil));
     ctx.fillStyle = "#020306"; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    /* burning gas: a hot centre, a deeper edge, and bright and dark cells that churn and flicker */
+    ctx.save(); ctx.clip();
+    const fire = ctx.createRadialGradient(bx, by, 0, bx, by, R);
+    fire.addColorStop(0, col("255,244,190", .95 * veil)); fire.addColorStop(.5, col(halo, .55 * veil)); fire.addColorStop(.82, col(body, 0)); fire.addColorStop(1, col("176,30,6", .5));
+    ctx.fillStyle = fire; ctx.fillRect(bx - R, by - R, R * 2, R * 2);
+    for (let k = 0; k < 16; k++) {
+      const ang = k * 2.4 + t * (.22 + hash(k * 1.7) * .3) * (k % 2 ? 1 : -1), rad = R * (.1 + .8 * hash(k * 3.1)) * (.85 + .15 * Math.sin(t * .9 + k));
+      const size = R * (.24 + .3 * hash(k * 7.7)) * (.8 + .3 * Math.sin(t * 1.7 + k * 2.1)), cx = bx + rad * Math.cos(ang), cy = by + rad * Math.sin(ang);
+      if (k % 3 === 0) { ctx.globalCompositeOperation = "source-over"; glow(cx, cy, size, size, "168,32,0", .5 * veil, .5); }
+      else { ctx.globalCompositeOperation = "lighter"; glow(cx, cy, size, size, "255,236,170", .5 * veil * (.55 + .45 * Math.sin(t * 2.3 + k * 1.3)), .4); }
+    }
+    ctx.globalCompositeOperation = "soft-light"; ctx.globalAlpha = .55;
+    const go = Math.floor(t * 10); ctx.drawImage(grain, Math.floor(hash(go) * 90), Math.floor(hash(go + 4.2) * 90), 84, 84, bx - R - 1, by - R - 1, 28, 28);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
     ctx.globalCompositeOperation = "lighter";
     ctx.beginPath(); ctx.arc(bx, by, R + 3.5, t * .5, t * .5 + 4.2); ctx.lineWidth = .7; ctx.strokeStyle = col(halo, .8 * veil); ctx.stroke();
   } else {
@@ -380,7 +394,24 @@ function draw(t) {
     ctx.beginPath();
     if (lit > .985) ctx.arc(0, 0, R, 0, TAU);
     else { ctx.arc(0, 0, R, -PI / 2, PI / 2); ctx.ellipse(0, 0, R * Math.abs(k), R, 0, PI / 2, PI * 1.5, lit < .5); }
-    ctx.fillStyle = col(body, 1); ctx.fill(); ctx.restore();
+    ctx.fillStyle = col(body, 1); ctx.fill();
+    /* the lit face: darker plains, small craters, shade toward the edge, and grain. None of it moves. */
+    ctx.clip(); const sx = state.phase > .5 ? -1 : 1;
+    for (let k = 0; k < 9; k++) {
+      const ang = hash(k * 2.3 + 1) * TAU, rad = R * .75 * Math.sqrt(hash(k * 5.9 + 2)), size = R * (.22 + .34 * hash(k * 8.1 + 3));
+      glow(sx * rad * Math.cos(ang), rad * Math.sin(ang), size, size * (.6 + .5 * hash(k * 1.1)), "58,72,98", .36, .6);
+    }
+    for (let k = 0; k < 14; k++) {
+      const ang = hash(k * 3.7 + 9) * TAU, rad = R * .9 * Math.sqrt(hash(k * 6.3 + 5)), cr = .5 + hash(k * 4.4) * 1.1, cx = sx * rad * Math.cos(ang), cy = rad * Math.sin(ang);
+      ctx.fillStyle = col("46,58,84", .5); ctx.beginPath(); ctx.arc(cx, cy, cr, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, cr, .4, 2.4); ctx.lineWidth = .3; ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.stroke();
+    }
+    const shade = ctx.createRadialGradient(-sx * R * .2, -R * .25, R * .35, 0, 0, R);
+    shade.addColorStop(0, "rgba(30,40,64,0)"); shade.addColorStop(.7, "rgba(30,40,64,.16)"); shade.addColorStop(1, "rgba(30,40,64,.45)");
+    ctx.fillStyle = shade; ctx.fillRect(-R, -R, R * 2, R * 2);
+    ctx.globalCompositeOperation = "multiply"; ctx.globalAlpha = .2; ctx.filter = "invert(1)";
+    ctx.drawImage(grain, 20, 30, 84, 84, -R - 1, -R - 1, 28, 28);
+    ctx.filter = "none"; ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
     ctx.globalCompositeOperation = "lighter";
     ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.lineWidth = .6; ctx.strokeStyle = col(SILVER, .55); ctx.stroke();
   }
