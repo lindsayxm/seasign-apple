@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seasign v2 — halo</title>
+<style>
+  @font-face { font-family: "Jost"; font-weight: 400; src: url("fonts/Jost-400-Book.ttf") format("truetype"); }
+  @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
+
+  :root { --ink: 255, 255, 255; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #0a0b0e;
+    color: #d8dce2;
+    font-family: "Jost", "Avenir Next", "Helvetica Neue", sans-serif;
+    display: flex; align-items: center; justify-content: center; gap: 48px;
+    flex-wrap: wrap; padding: 24px;
+  }
+  body.bare { display: block; padding: 0; background: #000; overflow: hidden; }
+
+  .phone {
+    position: relative; width: 393px; height: 852px; flex: none;
+    border-radius: 46px; overflow: hidden; background: #000;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 0 0 9px #050506, 0 0 0 10px rgba(255,255,255,.10),
+                0 30px 90px rgba(0,0,0,.7);
+  }
+  body.bare .phone { border-radius: 0; box-shadow: none; }
+  canvas { position: absolute; inset: 0; width: 393px; height: 852px; display: block; }
+
+  /* ---------- text and icons over the scene ---------- */
+  .ui { position: absolute; inset: 0; color: rgb(var(--ink)); text-transform: uppercase; }
+  .glow { text-shadow: 0 0 10px rgba(var(--halo), .55), 0 0 2px rgba(0,0,0,.35); }
+
+  .clock { position: absolute; left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif;
+           text-transform: none; letter-spacing: 0; opacity: .92; }
+
+  .date { position: absolute; left: 36px; top: 58px; font-size: 9.5px; letter-spacing: .26em; opacity: .8; }
+  .date b { font-weight: 500; margin-left: 10px; }
+  .day  { position: absolute; left: 34px; top: 70px; font-size: 50px; line-height: 62px; letter-spacing: .14em;
+          font-weight: 400; text-shadow: 0 0 22px rgba(var(--halo), .75), 0 0 4px rgba(var(--halo), .5); }
+  .temp { position: absolute; left: 37px; top: 147px; font-size: 11px; letter-spacing: .2em; }
+
+  .rule-v { position: absolute; left: 180px; top: 66px; width: 1px; height: 100px;
+            background: linear-gradient(rgba(var(--ink),0), rgba(var(--ink),.5) 25%, rgba(var(--ink),.5) 75%, rgba(var(--ink),0)); }
+  .rule-h { position: absolute; left: 30px; right: 30px; top: 192px; height: 1px;
+            background: linear-gradient(90deg, rgba(var(--ink),0), rgba(var(--ink),.45) 18%, rgba(var(--ink),.45) 82%, rgba(var(--ink),0)); }
+
+  .events { position: absolute; left: 192px; top: 70px; width: 176px; margin: 0; padding: 0; list-style: none;
+            font-size: 8.5px; letter-spacing: .13em; line-height: 15px; }
+  .events li { display: grid; grid-template-columns: 74px 1fr; margin-bottom: 9px; }
+  .events time { opacity: .72; }
+
+  .icons { position: absolute; left: 319px; top: 204px; display: grid; gap: 18px; }
+  .icons svg { width: 26px; height: 26px; fill: none; stroke: rgb(var(--ink)); stroke-width: 1.1; stroke-linecap: round;
+               opacity: .85; filter: drop-shadow(0 0 5px rgba(var(--halo), .9)); }
+
+  .feed { position: absolute; left: 35px; top: 488px; width: 326px; margin: 0; padding: 0; list-style: none;
+          font-size: 10px; letter-spacing: .19em; line-height: 14.5px; }
+  .feed li { height: 57px; text-shadow: 0 0 8px rgba(0,0,0,.75), 0 0 2px rgba(0,0,0,.6); opacity: .93; }
+
+  .more { position: absolute; left: 35px; top: 808px; font-size: 17px; letter-spacing: -.02em;
+          text-shadow: 0 0 10px rgba(var(--halo), .9); }
+  .home { position: absolute; left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.55); }
+
+  /* ---------- the picker beside the phone ---------- */
+  nav { width: 250px; }
+  nav h1 { font-size: 13px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase; margin: 0 0 6px; color: #fff; }
+  nav p { font-size: 13px; line-height: 1.5; color: #8d939c; margin: 0 0 18px; }
+  nav button {
+    display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 1px solid #2a2d33;
+    color: #9aa0a9; font: 400 12px "Jost", sans-serif; letter-spacing: .22em; text-transform: uppercase;
+    padding: 9px 14px; cursor: pointer;
+  }
+  nav button:hover { color: #fff; }
+  nav button[aria-pressed="true"] { color: #fff; border-left-color: #fff; text-shadow: 0 0 12px rgba(255,255,255,.8); }
+  nav button:focus-visible { outline: 1px solid #fff; outline-offset: -1px; }
+  body.bare nav { display: none; }
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <canvas id="scene" width="393" height="852"></canvas>
+  <div class="ui">
+    <div class="clock">6:23</div>
+    <div class="date glow">Nov<b>16</b></div>
+    <div class="day">Mon</div>
+    <div class="temp glow">55°F</div>
+    <div class="rule-v"></div>
+    <ul class="events glow">
+      <li><time>6:45PM</time><span>Hanna's show</span></li>
+      <li><time>8:15PM</time><span>Submit work hours for St…</span></li>
+      <li><time>Tue all day</time><span>Brush pets teeth</span></li>
+    </ul>
+    <div class="rule-h"></div>
+    <div class="icons" aria-hidden="true">
+      <!-- settings -->
+      <svg viewBox="0 0 26 26"><path d="M4 9h18M4 17h18M16 5.5v7M10 13.5v7"/></svg>
+      <!-- do / get -->
+      <svg viewBox="0 0 26 26"><circle cx="13" cy="13" r="7.5"/><path d="M3 10.5h20M3 15.5h20"/></svg>
+      <!-- saved -->
+      <svg viewBox="0 0 26 26"><path d="M13 3.5v19M4.8 8.2l16.4 9.6M21.2 8.2L4.8 17.8"/></svg>
+    </div>
+    <ul class="feed">
+      <li>A short explainer on how El Niño works [video]</li>
+      <li>It's getting too dry for even cactuses to survive</li>
+      <li>'Birdbrain' is a misnomer. Crows make decisions faster than we can</li>
+      <li>What the Great Lakes remember about last winter</li>
+      <li>The quiet return of the paper map</li>
+    </ul>
+    <div class="more">»</div>
+    <div class="home"></div>
+  </div>
+</div>
+
+<nav id="nav" aria-label="Scene state">
+  <h1>Seasign v2 · Halo</h1>
+  <p>The sun and moon are rings of light. Pick a state; arrow keys step through them.</p>
+</nav>
+
+<script>
+"use strict";
+const W = 393, H = 852, HZ = 432;           // HZ: the horizon, where v1 has it
+const TAU = Math.PI * 2;
+
+/* ---------- states: the same twelve as design-ideas/v1 ---------- */
+const SKY = {
+  sunrise: { sky: [[0,"#232c3a"],[.5,"#544f63"],[.82,"#c08273"],[1,"#f3bb93"]],
+             water: [[0,"#b08877"],[.1,"#5a4d5d"],[.4,"#252b3e"],[1,"#0d111c"]], halo: "255,168,128", core: "#fff3e4" },
+  sunset:  { sky: [[0,"#353f47"],[.42,"#5c4f47"],[.74,"#b4633a"],[.9,"#8b4027"],[1,"#40251f"]],
+             water: [[0,"#8a4a2c"],[.08,"#4a2c2c"],[.35,"#231f30"],[1,"#0b0e18"]], halo: "255,128,44", core: "#ffe7bb" },
+  day:     { sky: [[0,"#243c54"],[.55,"#4f7b9a"],[1,"#aacbd8"]],
+             water: [[0,"#8fb6c6"],[.12,"#4c7790"],[.5,"#22405a"],[1,"#0d1b2a"]], halo: "176,226,255", core: "#ffffff" },
+  cloudy:  { sky: [[0,"#333b44"],[.6,"#636d76"],[1,"#9ea8ae"]],
+             water: [[0,"#8a959c"],[.12,"#4f5a64"],[.5,"#262e37"],[1,"#0e1217"]], halo: "216,228,240", core: "#ffffff" },
+  rain:    { sky: [[0,"#1d242b"],[.6,"#414c55"],[1,"#6f7b85"]],
+             water: [[0,"#5f6b74"],[.12,"#36414a"],[.5,"#1a2027"],[1,"#090c10"]], halo: "190,214,236", core: "#f2f8ff" },
+  snow:    { sky: [[0,"#2a323c"],[.6,"#5f6c79"],[1,"#aeb9c2"]],
+             water: [[0,"#97a3ad"],[.12,"#525e69"],[.5,"#252d36"],[1,"#0d1116"]], halo: "226,236,248", core: "#ffffff" },
+  night:   { sky: [[0,"#050609"],[.7,"#121418"],[1,"#2b2d31"]],
+             water: [[0,"#26282c"],[.06,"#101114"],[1,"#040506"]], halo: "232,238,255", core: "#ffffff", chroma: true },
+};
+const LOW_L = { cx: 184, r: 100, low: true }, LOW_R = { cx: 204, r: 100, low: true }, HIGH = { cx: 196, cy: 237, r: 46 };
+const STATES = [
+  { id: "sunrise",     label: "Sunrise",     look: "sunrise", at: LOW_L },
+  { id: "mid-day",     label: "Mid-day",     look: "day",     at: HIGH },
+  { id: "sunset",      label: "Sunset",      look: "sunset",  at: LOW_R },
+  { id: "clouds",      label: "Clouds",      look: "cloudy",  at: HIGH, clouds: 1 },
+  { id: "rain",        label: "Rain",        look: "rain",    at: HIGH, clouds: 1.25, rain: true },
+  { id: "snow",        label: "Snow",        look: "snow",    at: HIGH, clouds: 1, snow: true },
+  { id: "moon-rise",   label: "Moon rise",   look: "night",   at: LOW_L, phase: .5 },
+  { id: "mid-night",   label: "Mid-night",   look: "night",   at: HIGH,  phase: .5 },
+  { id: "moon-waxing", label: "Waxing moon", look: "night",   at: HIGH,  phase: .25 },
+  { id: "moon-waning", label: "Waning moon", look: "night",   at: HIGH,  phase: .75 },
+  { id: "moon-full",   label: "Full moon",   look: "night",   at: HIGH,  phase: .5 },
+  { id: "moon-set",    label: "Moon set",    look: "night",   at: LOW_R, phase: .5 },
+];
+const FRINGE = ["255,120,150", "110,220,255", "170,255,190", "255,228,150", "176,150,255"];
+
+/* ---------- helpers ---------- */
+function prng(seed) {                         // mulberry32: the same picture every time
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+function gradient(ctx, y0, y1, stops) {
+  const g = ctx.createLinearGradient(0, y0, 0, y1);
+  for (const [p, c] of stops) g.addColorStop(p, c);
+  return g;
+}
+/* How brightly the rim is lit at `angle` (0 = right, clockwise on screen) for a moon phase.
+   A full ring for the sun and the full moon; an arc on the right while waxing, on the left while waning. */
+function lit(state, angle) {
+  if (state.phase == null) return 1;
+  const k = (1 - Math.cos(TAU * state.phase)) / 2;        // lit fraction
+  if (k > .985) return 1;
+  const centre = state.phase < .5 ? 0 : Math.PI;
+  let d = Math.abs(angle - centre) % TAU; if (d > Math.PI) d = TAU - d;
+  return .13 + .87 * (1 - smooth(k * Math.PI - .28, k * Math.PI + .28, d));
+}
+
+/* ---------- canvas ---------- */
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+const DPR = Math.min(3, window.devicePixelRatio || 1);
+canvas.width = W * DPR; canvas.height = H * DPR;
+
+let state, look, body, sprite, bits;
+
+/* The ring is drawn once per state into a sprite, glow included, so each frame is cheap. */
+function makeRing() {
+  const pad = 70, size = (body.r + pad) * 2;
+  const c = document.createElement("canvas"); c.width = c.height = Math.ceil(size * DPR);
+  const g = c.getContext("2d"); g.scale(DPR, DPR);
+  const m = size / 2, halo = look.halo;
+  const ring = (r, width, colour, blur, blurColour) => {
+    g.beginPath(); g.arc(m, m, r, 0, TAU); g.lineWidth = width; g.strokeStyle = colour;
+    g.shadowBlur = blur * DPR; g.shadowColor = blurColour; g.stroke();
+  };
+  g.globalCompositeOperation = "lighter";
+  const warm = look.chroma ? .7 : 1;
+  ring(body.r, 3, `rgba(${halo},${.16 * warm})`, 44, `rgba(${halo},1)`);   // wide bloom
+  ring(body.r, 3, `rgba(${halo},${.16 * warm})`, 44, `rgba(${halo},1)`);
+  ring(body.r, 3, `rgba(${halo},${.2 * warm})`, 20, `rgba(${halo},1)`);
+  ring(body.r, 2, `rgba(${halo},${.5 * warm})`, 8, `rgba(${halo},1)`);     // tight glow
+  if (look.chroma) {                                              // thin coloured rings, slightly off-centre
+    const rnd = prng(7);
+    FRINGE.forEach((rgb, i) => {
+      g.beginPath();
+      g.ellipse(m + (rnd() - .5) * 7, m + (rnd() - .5) * 5, body.r + (rnd() - .35) * 7, body.r + (rnd() - .65) * 7, rnd() * 3, 0, TAU);
+      g.lineWidth = 1.1; g.strokeStyle = `rgba(${rgb},.8)`; g.shadowBlur = 7 * DPR; g.shadowColor = `rgba(${rgb},1)`; g.stroke();
+    });
+  } else {
+    ring(body.r + 3.5, .8, `rgba(${halo},.5)`, 6, `rgba(${halo},1)`);
+  }
+  ring(body.r, 1.5, look.core, 4, "#fff");                         // the hot line
+  g.shadowBlur = 0;
+  if (state.phase != null) {                                       // dim the unlit part of the rim
+    const mask = g.createConicGradient(0, m, m);
+    for (let i = 0; i <= 72; i++) mask.addColorStop(i / 72, `rgba(0,0,0,${lit(state, i / 72 * TAU)})`);
+    g.globalCompositeOperation = "destination-in"; g.fillStyle = mask; g.fillRect(0, 0, size, size);
+  }
+  return { c, size };
+}
+
+/* Everything random about a state, made once from a fixed seed. */
+function makeBits() {
+  const rnd = prng(41);
+  const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
+  const list = (n, f) => Array.from({ length: n }, f);
+  return {
+    stars: list(120, () => ({ x: rnd() * W, y: rnd() * (HZ - 14), s: .35 + rnd() * rnd() * 1.3, ph: rnd() * TAU, sp: .6 + rnd() * 2, tint: rnd() })),
+    glitter: list(620, () => ({ u: gauss(), v: Math.pow(rnd(), 1.5), ph: rnd() * TAU, sp: 1.2 + rnd() * 3.2, k: rnd() })),
+    dashes: list(80, () => ({ x: rnd() * W, v: Math.pow(rnd(), 1.3), len: 8 + rnd() * 34, ph: rnd() * TAU, sp: .4 + rnd() * 1.2 })),
+    wisps: list(9, (_, i) => ({ x: rnd() * W, y: 150 + rnd() * 250, w: 110 + rnd() * 150, h: 10 + rnd() * 16, a: .5 + rnd() * .4, sp: 2 + rnd() * 5, dark: i % 3 === 0 })),
+    gold: list(5, () => ({ dx: (rnd() - .5) * 1.5, dy: -.45 + rnd() * .7, w: .5 + rnd() * .5, h: .035 + rnd() * .04, a: .18 + rnd() * .2 })),
+    rain: list(130, () => ({ x: rnd() * (W + 60), y: rnd() * H, len: 13 + rnd() * 12, sp: .8 + rnd() * .5 })),
+    ripples: list(16, () => ({ x: rnd() * W, v: rnd(), ph: rnd(), sp: .35 + rnd() * .4 })),
+    snow: list(110, () => ({ x: rnd() * W, y: rnd() * H, s: .8 + Math.pow(rnd(), 2.5) * 5, ph: rnd() * TAU, sp: .25 + rnd() * .5, a: .35 + rnd() * .6 })),
+  };
+}
+
+function blob(x, y, rx, ry, rgb, alpha, mid = .45) {              // a soft ellipse of light
+  ctx.save(); ctx.translate(x, y); ctx.scale(rx, ry);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  g.addColorStop(0, `rgba(${rgb},${alpha})`); g.addColorStop(mid, `rgba(${rgb},${alpha * .35})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
+}
+function streak(y, cx, half, height, rgb, alpha) {                // a horizontal flare, brightest at cx
+  const g = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
+  g.addColorStop(0, `rgba(${rgb},0)`); g.addColorStop(.5, `rgba(${rgb},${alpha})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(cx - half, y - height / 2, half * 2, height);
+}
+
+function draw(t) {
+  const { cx, cy, r } = body, halo = look.halo, night = look.chroma;
+  const veil = state.clouds || 0;                                  // clouds soften everything
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
+
+  /* sky */
+  ctx.fillStyle = gradient(ctx, 0, HZ, look.sky); ctx.fillRect(0, 0, W, HZ);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip();
+  ctx.globalCompositeOperation = "lighter";
+  if (night) for (const s of bits.stars) {
+    const tw = .35 + .65 * Math.pow(.5 + .5 * Math.sin(t * s.sp + s.ph), 2);
+    ctx.fillStyle = `rgba(${s.tint > .8 ? "170,210,255" : s.tint < .12 ? "255,214,190" : "255,255,255"},${.75 * tw})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.s, 0, TAU); ctx.fill();
+    if (s.s > 1.25) streak(s.y, s.x, 7, .6, "255,255,255", .5 * tw);
+  }
+  /* the air around the ring, and the brighter sky seen through it */
+  const breathe = 1 + .04 * Math.sin(t * .9);
+  blob(cx, cy, r * 3.4 * breathe, r * 3.0 * breathe, halo, (night ? .16 : .3) * (1 - veil * .25), .4);
+  blob(cx, cy, r * 1.02, r * 1.02, halo, night ? .07 : .16, .8);
+  if (!night && body.low) for (const w of bits.gold)              // lit wisps of cloud inside the ring
+    blob(cx + w.dx * r + Math.sin(t * .08 + w.dy * 9) * 5, cy + w.dy * r, w.w * r, w.h * r, "255,214,150", w.a);
+  /* ring: two passes a hair apart, breathing against each other, read as shimmer */
+  const dim = 1 - veil * .28;
+  const rot = night ? .05 : .025;
+  for (const [turn, a] of [[0, .9 + .1 * Math.sin(t * 1.7)], [Math.sin(t * .45) * rot, .30 + .14 * Math.sin(t * 2.3 + 1)]]) {
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(turn); ctx.globalAlpha = a * dim;
+    ctx.drawImage(sprite.c, -sprite.size / 2, -sprite.size / 2, sprite.size, sprite.size); ctx.restore();
+  }
+  /* a glint that travels round the rim */
+  const ga = t * .42 + 1;
+  ctx.globalAlpha = .85 * lit(state, ((ga + .3) % TAU + TAU) % TAU) * dim;
+  ctx.beginPath(); ctx.arc(cx, cy, r, ga, ga + .6); ctx.lineWidth = 2; ctx.lineCap = "round";
+  ctx.strokeStyle = "#fff"; ctx.shadowBlur = 14 * DPR; ctx.shadowColor = `rgba(${halo},1)`; ctx.stroke();
+  ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  if (night && body.low) { blob(cx, cy - r, W * .8, 5, "200,214,255", .3, .3); streak(cy - r - 2, cx + 24, W * .6, .8, FRINGE[1], .4); streak(cy - r + 2, cx - 24, W * .6, .8, FRINGE[0], .32); }     // lens streak across the top of the ring
+  /* clouds: lit wisps, and darker ones that pass in front of the ring */
+  if (veil) for (const w of bits.wisps) {
+    const x = ((w.x / W * (W + 400) + t * w.sp) % (W + 400)) - 200;
+    ctx.globalCompositeOperation = w.dark ? "source-over" : "lighter";
+    blob(x, w.y, w.w, w.h, w.dark ? "28,34,40" : halo, w.dark ? w.a * .8 : w.a * .3 * veil, .6);
+    if (!w.dark) blob(x, w.y - w.h * .3, w.w * .8, w.h * .6, "255,255,255", w.a * .09, .5);
+  }
+  ctx.restore();
+
+  /* water */
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = gradient(ctx, HZ, H, look.water); ctx.fillRect(0, HZ, W, H - HZ);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, HZ, W, H - HZ); ctx.clip();
+  ctx.globalCompositeOperation = "lighter";
+  for (const d of bits.dashes) {                                   // faint moving lines of light on the surface
+    const y = HZ + 4 + d.v * (H - HZ - 8), a = (.05 + .1 * (1 - d.v)) * Math.max(0, Math.sin(t * d.sp + d.ph));
+    ctx.fillStyle = `rgba(${halo},${a})`; ctx.fillRect(d.x + Math.sin(t * .3 + d.ph) * 6, y, d.len * (1 + d.v), .8 + d.v * .5);
+  }
+  /* the ring mirrored in the water as broken horizontal strokes */
+  const squash = .9, maxD = (HZ - (cy - r)) * squash;
+  const power = (night ? .8 : .42) * (1 - veil * .45);
+  ctx.save(); ctx.translate(cx, HZ + (HZ - cy) * squash); ctx.scale(1.03, -squash);
+  ctx.globalAlpha = (night ? .34 : .16) * power * (.85 + .15 * Math.sin(t * 1.1));
+  ctx.drawImage(sprite.c, -sprite.size / 2, -sprite.size / 2, sprite.size, sprite.size); ctx.restore();
+  let row = 0;
+  for (let d = 1.5; d < maxD; d += 1.7, row++) {
+    const dy = (HZ - d / squash) - cy;
+    if (Math.abs(dy) >= r) continue;
+    const hx = Math.sqrt(r * r - dy * dy), fade = Math.pow(1 - d / (maxD * 1.08), 1.15);
+    const rgb = night ? FRINGE[(row * 3 + (row >> 2)) % FRINGE.length] : halo;
+    for (const side of [-1, 1]) {
+      const wob = Math.sin(row * 12.9898 + t * 1.3 + side) * (2 + d * .07) + Math.sin(row * 4.1 + t * .7) * (1 + d * .03);
+      const half = 7 + d * .09 + 34 * Math.pow(1 - hx / r, 2.2);
+      const a = lit(state, Math.atan2(dy, side * hx)) * power * fade * (.5 + .5 * Math.sin(row * 1.7 + t * 3.1 + side * 2));
+      const x = cx + side * hx + wob;
+      ctx.fillStyle = `rgba(${rgb},${.62 * a})`;  ctx.fillRect(x - half, HZ + d, half * 2, 1);
+      ctx.fillStyle = `rgba(255,255,255,${.5 * a})`; ctx.fillRect(x - half * .4, HZ + d, half * .8, .8);
+      ctx.fillStyle = `rgba(${rgb},${.16 * a})`;  ctx.fillRect(x - half * 2.2, HZ + d - 1, half * 4.4, 3.2);
+    }
+  }
+  /* glitter: a path of sparks under the light */
+  const reach = body.low ? (night ? 60 : 105) : 30, depth = body.low ? .82 : .5, strength = (body.low ? 1 : .5) * (1 - veil * .55);
+  const start = body.low ? 0 : (HZ - cy - r) * squash * .6;
+  for (const s of bits.glitter) {
+    const tw = Math.pow(Math.max(0, Math.sin(t * s.sp + s.ph)), 3);
+    if (tw < .02) continue;
+    const x = cx + s.u * (9 + s.v * reach), y = HZ + 3 + start + s.v * (H - HZ) * depth;
+    const a = strength * (1 - s.v * .72) * tw, w = 1.2 + s.v * 6 + s.k * 2.5;
+    ctx.fillStyle = `rgba(${night ? FRINGE[(s.k * 50 | 0) % FRINGE.length] : halo},${.55 * a})`; ctx.fillRect(x - w, y - .3, w * 2, 1.3);
+    ctx.fillStyle = `rgba(255,255,255,${.9 * a})`; ctx.fillRect(x - w * .5, y, w, .8);
+  }
+  if (state.rain) for (const p of bits.ripples) {                  // rings where the rain lands
+    const q = (t * p.sp + p.ph) % 1, y = HZ + 14 + p.v * (H - HZ - 30), rx = 3 + q * (10 + p.v * 22);
+    ctx.beginPath(); ctx.ellipse(p.x, y, rx, rx * .26, 0, 0, TAU);
+    ctx.lineWidth = .8; ctx.strokeStyle = `rgba(${halo},${.4 * (1 - q)})`; ctx.stroke();
+  }
+  ctx.restore();
+
+  /* the horizon: a line of light, and where the ring touches it, a hot spot with flares */
+  ctx.globalCompositeOperation = "lighter";
+  streak(HZ, cx, W * 1.1, 1, halo, body.low ? .55 : .3);
+  if (body.low) {
+    const pulse = 1 + .05 * Math.sin(t * 1.3);
+    const hot = night ? "255,255,255" : "255,236,200";
+    blob(cx, HZ, 130 * pulse, 60 * pulse, halo, night ? .3 : .42, .35);
+    blob(cx, HZ, 52 * pulse, 30 * pulse, hot, .95, .5);
+    blob(cx, HZ + 26, 40, 46, hot, .5, .5);
+    streak(HZ, cx, W * 1.2, 2.2, hot, .95);
+    blob(cx, HZ, W * .9, 7, halo, .3, .3);
+    if (night) { streak(HZ - 4, cx + 30, W * .8, 1, FRINGE[1], .5); streak(HZ + 4, cx - 30, W * .8, 1, FRINGE[0], .45); }
+  }
+
+  /* weather in front of everything */
+  if (state.rain) {
+    ctx.beginPath();
+    for (const p of bits.rain) {
+      const y = (p.y + t * 720 * p.sp) % (H + 30) - 30, x = p.x - y * .16;
+      ctx.moveTo(x, y); ctx.lineTo(x - p.len * .16, y + p.len);
+    }
+    ctx.lineWidth = .8; ctx.strokeStyle = `rgba(${halo},.34)`; ctx.stroke();
+  }
+  if (state.snow) for (const f of bits.snow) {
+    const y = (f.y + t * 34 * f.sp * (1 + f.s * .25)) % (H + 20) - 10, x = f.x + Math.sin(t * .6 + f.ph) * 9;
+    blob(x, y, f.s * 2.4, f.s * 2.4, "255,255,255", f.a / (1 + f.s * .22), .3);
+  }
+
+  /* dark corners */
+  ctx.globalCompositeOperation = "source-over";
+  const v = ctx.createRadialGradient(W / 2, H * .46, H * .32, W / 2, H * .46, H * .78);
+  v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,.42)");
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+
+/* ---------- choosing a state ---------- */
+const params = new URLSearchParams(location.search);
+const still = params.has("still");
+if (params.has("bare")) document.body.classList.add("bare");
+
+function show(id) {
+  state = STATES.find(s => s.id === id) || STATES[0];
+  look = SKY[state.look];
+  body = { ...state.at }; if (body.low) body.cy = HZ - body.r + 7;   // the ring rests on the horizon
+  sprite = makeRing(); bits = makeBits();
+  document.getElementById("phone").style.setProperty("--halo", look.halo);
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
+  if (!still) history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
+  if (still) draw(7.3);
+}
+const nav = document.getElementById("nav");
+for (const s of STATES) {
+  const b = document.createElement("button");
+  b.textContent = s.label; b.dataset.id = s.id; b.onclick = () => show(s.id); nav.appendChild(b);
+}
+addEventListener("keydown", e => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  show(STATES[(STATES.indexOf(state) + step + STATES.length) % STATES.length].id);
+});
+
+const ready = (document.fonts && document.fonts.ready) || Promise.resolve();
+ready.then(() => {
+  show(params.get("state") || "sunset");
+  if (still) { document.title = "ready"; return; }
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const loop = ms => { draw(calm ? 7.3 : ms / 1000); if (!calm) requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
