@@ -133,7 +133,6 @@
 "use strict";
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
 const HZ = 376;                                        // the sea's horizon
-const GULL_SEED = new URLSearchParams(location.search).has("still") ? 0 : Math.floor(Math.random() * 9000);   // a new starting point for the gulls each time the page opens (fixed for stills)
 const SHOW_ARC = new URLSearchParams(location.search).has("arc");   // the drawn line of the sun and moon's path: off unless ?arc is in the address
 const PANEL = { x: 329, y: 302, w: 45, h: 149, r: 13 };  // behind the three buttons at the right
 const PATH = { x: 62 + 101, half: 101, top: 100 };     // left of centre and narrower than the screen: its ends are placed so the very large rising and setting sun or moon clears the left edge and the button panel
@@ -429,31 +428,6 @@ function draw(t) {
       ctx.globalAlpha = a; ctx.drawImage(soft, 0, 0, W, H); ctx.globalAlpha = 1;
     }
   }
-  /* ---- gulls: once a minute a small flock crosses the sky. Every crossing is made up afresh from its number: direction, height, climb,
-          bend, how many birds, and each bird's place, size and wing beat. They are flat silhouettes, dark by day and dim grey-blue at night ---- */
-  {
-    const EVERY = 60, LASTS = 16, tt = t - 3, turn = Math.floor(tt / EVERY), f = tt - turn * EVERY, n = turn + GULL_SEED;
-    if (tt >= 0 && f < LASTS) {
-      const h = k => hash(n * 17.3 + k * 3.91 + 5), dir = h(1) < .5 ? 1 : -1, count = 1 + Math.floor(h(2) * 3), p = f / LASTS;
-      const y0 = HZ - 40 - h(3) * 80, climb = (h(4) - .5) * 50, bend = (h(5) - .5) * 40,   // kept in the lower, lighter sky, where a dark shape shows
-            trail = count * 26 + 40;
-      const lead = dir > 0 ? -20 + p * (W + 40 + trail) : W + 20 - p * (W + 40 + trail);
-      skyClip(); ctx.globalCompositeOperation = "source-over"; ctx.lineCap = "round"; ctx.lineJoin = "round";
-      ctx.strokeStyle = ctx.fillStyle = look.night ? "rgba(104,120,146,.75)" : "rgba(8,12,22,.88)";
-      for (let i = 0; i < count; i++) {
-        const g = k => hash(n * 9.7 + i * 5.3 + k * 2.2 + 1), row = Math.ceil(i / 2), side = i % 2 ? 1 : -1;
-        const gx = lead - dir * (row * (15 + g(1) * 14) + g(6) * 8), pp = Math.min(1, Math.max(0, (gx + 20) / (W + 40)));
-        const gy = y0 + climb * (dir > 0 ? pp : 1 - pp) + bend * Math.sin(PI * pp) + side * row * (5 + g(2) * 6) + Math.sin(t * 1.3 + i * 2.1) * 1.6;
-        const sz = 4.6 + g(3) * 3.2, glide = .3 + .7 * Math.pow(.5 + .5 * Math.sin(t * .7 + g(4) * TAU), 2), beat = Math.sin(t * (6.5 + g(5) * 3) + g(4) * TAU) * glide;
-        const tip = -sz * (.08 + .5 * beat), elbow = -sz * (.3 + .22 * Math.max(0, beat));   // wing tips rise and fall; the wing bends at the elbow
-        ctx.beginPath(); ctx.moveTo(gx - sz, gy + tip); ctx.quadraticCurveTo(gx - sz * .42, gy + elbow, gx, gy); ctx.quadraticCurveTo(gx + sz * .42, gy + elbow, gx + sz, gy + tip);
-        ctx.lineWidth = sz * .2; ctx.stroke();
-        ctx.beginPath(); ctx.ellipse(gx + dir * sz * .06, gy + sz * .04, sz * .3, sz * .11, 0, 0, TAU); ctx.fill();
-      }
-      ctx.restore(); ctx.lineCap = "butt"; ctx.globalCompositeOperation = "lighter";
-    }
-  }
-
   /* ---- the panel behind the three buttons: deep blue at the top, near black at the bottom, a little over 40% see-through.
           A soft glow sits over its top edge and a soft shadow under its bottom edge. Drawn before the grain, so the grain covers it too ---- */
   if (!document.body.classList.contains("nobtn")) {

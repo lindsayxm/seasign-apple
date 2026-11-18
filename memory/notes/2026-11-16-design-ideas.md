@@ -46,7 +46,7 @@ What the user has settled for v7:
 - Article titles: serif (Iowan Old Style), sentence case, no numbers, left edge at x 34.
 - Buttons: flat colour per state (yellow-orange by day, #ffffcc at sunrise, #ffcdba at sunset, aqua at night) on a dark blue see-through panel with a top glow (dark pink at sunset) and bottom shadow. `∀` (all publications) is at the bottom right, centred under the column.
 - Header accents are yellow in mid-day, clouds, rain and snow; orange at sunrise and sunset; cool at night.
-- One to three gulls cross once a minute; the sequence starts from a random point on each page load.
+- Gulls crossing once a minute (one to three) were tried on 2026-11-17 and removed on 2026-11-18: the user found them too much.
 
 Tried and rejected by the user (do not repeat): signal-yellow and strong-blue buttons; a separate colour for the list button; drop shadows on the three right-hand buttons; the panel wholly above the horizon with a reversed gradient; a rippling edge on the sun itself; serif for calendar events.
 
