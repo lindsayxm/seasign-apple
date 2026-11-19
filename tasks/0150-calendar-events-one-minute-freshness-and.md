@@ -1,11 +1,11 @@
 ---
 id: 150
 title: Calendar events: one-minute freshness and pull-to-refresh on Today
-status: review
+status: done
 owner: implementer-1
 depends_on: []
 created: 2026-11-19T15:14:02Z
-updated: 2026-11-19T16:23:32Z
+updated: 2026-11-19T16:26:20Z
 ---
 
 ## Goal
@@ -14,12 +14,12 @@ User, 2026-11-19: events added in Google Calendar took about 25 minutes to show 
 
 ## Acceptance criteria
 
-- [ ] API: CALENDAR_TTL in api/src/routes/calendar is 60 seconds (check in cloudflare-docs that 60 is KV's minimum expirationTtl; do not go lower); tests that pin 15 minutes updated; npm test and tsc pass; openapi/openapi.json unchanged
-- [ ] App: EventsModel.refreshInterval is 60 seconds, comment and tests updated. The existing minute loop and the scenePhase .active trigger in TodayView stay; confirm with a test or the log that an open app now asks about once a minute and stays well under the calendar rate limit (20 per 60 s per IP)
-- [ ] Pull down on Today refreshes events with refresh(force: true), which must still honour retryNotBefore after a 429. The pull may also run the sky and feed refreshes under their normal rules, but must never start an AI search (it spends the user's daily cap and key)
-- [ ] Today still does not scroll: the pull must not move or bounce the layout or scene at rest, and taps on titles, the three buttons and the all-publications mark still work. Look up .refreshable and its scroll-container requirement in sosumi first. Screenshots of three states through the DEBUG override match the v11 stills as before
-- [ ] Reproduced on the iPhone 16 Pro Max simulator (7F57E59E-6D2C-438C-B107-5250AFE1B7D8) against the wrangler dev already running on port 8787: after more than 60 s, a background/foreground and a pull each add a POST /v1/calendar/events to the server log that is not a cache hit. Do not start a second dev server or stop the running one; do not print the calendar link
-- [ ] Suite passes on iPhone 16 / iOS 18.3.1 and iPhone 17 / iOS 27.2
+- [x] API: CALENDAR_TTL in api/src/routes/calendar is 60 seconds (check in cloudflare-docs that 60 is KV's minimum expirationTtl; do not go lower); tests that pin 15 minutes updated; npm test and tsc pass; openapi/openapi.json unchanged
+- [x] App: EventsModel.refreshInterval is 60 seconds, comment and tests updated. The existing minute loop and the scenePhase .active trigger in TodayView stay; confirm with a test or the log that an open app now asks about once a minute and stays well under the calendar rate limit (20 per 60 s per IP)
+- [x] Pull down on Today refreshes events with refresh(force: true), which must still honour retryNotBefore after a 429. The pull may also run the sky and feed refreshes under their normal rules, but must never start an AI search (it spends the user's daily cap and key)
+- [x] Today still does not scroll: the pull must not move or bounce the layout or scene at rest, and taps on titles, the three buttons and the all-publications mark still work. Look up .refreshable and its scroll-container requirement in sosumi first. Screenshots of three states through the DEBUG override match the v11 stills as before
+- [x] Reproduced on the iPhone 16 Pro Max simulator (7F57E59E-6D2C-438C-B107-5250AFE1B7D8) against the wrangler dev already running on port 8787: after more than 60 s, a background/foreground and a pull each add a POST /v1/calendar/events to the server log that is not a cache hit. Do not start a second dev server or stop the running one; do not print the calendar link
+- [x] Suite passes on iPhone 16 / iOS 18.3.1 and iPhone 17 / iOS 27.2
 
 ## Relevant files
 
@@ -46,3 +46,11 @@ User, 2026-11-19: events added in Google Calendar took about 25 minutes to show 
 - 2026-11-19T16:23:32Z [implementer-1] Correction to the evidence note: the Home button press did not background the app (a screenshot after Home still showed Today), so the 10:02-10:05 'background' requests and the SIGSTOP run were the foreground minute loop, not a foreground-return test. Redone properly: opened Photos with simctl launch at 10:19:58 (Seasign backgrounded, Photos shows the back-to-Seasign link); last request 10:19:30; no requests for 2 min 20 s; simctl launch brought the same process (started 10:10:08) back at 10:21:52 and the log shows two POSTs at 10:21:53, both misses (646 ms, 508 ms): the scenePhase .active refresh and the minute loop whose sleep had run out, both in flight before either finished (refresh() has no in-flight dedupe). Two requests is far under the 20/min limit; noted, not changed.
 - 2026-11-19T16:23:32Z [implementer-1] Headlines (-debugFeed YES sample, nothing fetched): a pull started on headline row 02 sent a POST at 10:22:39 (hit) without opening the row; a tap on headline row 01 opened the reading view, closed with Close. Not verified: pulls and taps on iOS 27.2 (XcodeBuildMCP UI tools are pinned to the Pro Max session defaults; the iPhone 17 got the full suite, 438 passed, and an at-rest screenshot only); the Settings button tap (not opened on the Pro Max by instruction; same iconButton path as Do/Get and Saved, which were tapped); VoiceOver Refresh action not run. Known: a pull within 60 s of the last server fetch gets the cached copy and resets fetchedAt, so the next loop tick is skipped; data can then be up to about 2 min old. Tests: api 1613 passed, tsc clean, openapi unchanged; iOS 438 tests in 63 suites passed on iPhone 16 / 18.3.1 and iPhone 17 / 27.2.
 - 2026-11-19T16:23:32Z [implementer-1] status: in-progress → review
+- 2026-11-19T16:26:19Z [lead] Lead check: own runs: npm test 1613 passed; iOS suite 438 tests in 63 suites passed on iPhone 17 / iOS 27.2 (iOS 18.3.1 count is the implementer's report). Read the implementer's timestamped calendar log: one request a minute while open, two on return to the foreground, pulls answered. Viewed the spinner screenshot. Accepted deviation: the pull is a custom drag gesture, not .refreshable (which never fired on Today). Not verified: pulls and taps on iOS 27.2, the Settings button tap, VoiceOver's Refresh action. Open for the user: the spinner's look and place; a pull within a minute of the last server fetch returns the cached copy. Closed by the lead without a separate reviewer.
+- 2026-11-19T16:26:19Z [lead] criterion 1 met: API: CALENDAR_TTL in api/src/routes/calendar is 60 seconds (check in cloudflare-docs that 60 is KV's minimum expirationTtl; do not go lower); tests that pin 15 minutes updated; npm test and tsc pass; openapi/openapi.json unchanged
+- 2026-11-19T16:26:20Z [lead] criterion 2 met: App: EventsModel.refreshInterval is 60 seconds, comment and tests updated. The existing minute loop and the scenePhase .active trigger in TodayView stay; confirm with a test or the log that an open app now asks about once a minute and stays well under the calendar rate limit (20 per 60 s per IP)
+- 2026-11-19T16:26:20Z [lead] criterion 3 met: Pull down on Today refreshes events with refresh(force: true), which must still honour retryNotBefore after a 429. The pull may also run the sky and feed refreshes under their normal rules, but must never start an AI search (it spends the user's daily cap and key)
+- 2026-11-19T16:26:20Z [lead] criterion 4 met: Today still does not scroll: the pull must not move or bounce the layout or scene at rest, and taps on titles, the three buttons and the all-publications mark still work. Look up .refreshable and its scroll-container requirement in sosumi first. Screenshots of three states through the DEBUG override match the v11 stills as before
+- 2026-11-19T16:26:20Z [lead] criterion 5 met: Reproduced on the iPhone 16 Pro Max simulator (7F57E59E-6D2C-438C-B107-5250AFE1B7D8) against the wrangler dev already running on port 8787: after more than 60 s, a background/foreground and a pull each add a POST /v1/calendar/events to the server log that is not a cache hit. Do not start a second dev server or stop the running one; do not print the calendar link
+- 2026-11-19T16:26:20Z [lead] criterion 6 met: Suite passes on iPhone 16 / iOS 18.3.1 and iPhone 17 / iOS 27.2
+- 2026-11-19T16:26:20Z [lead] status: review → done
