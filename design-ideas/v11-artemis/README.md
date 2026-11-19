@@ -17,6 +17,8 @@ Open `index.html`. Same address switches as v8: `?state=<id>`, `&bare`, `&still`
 
 - **`∀` is in the lower right corner** moved from the lower left at the user's request, and centred on x 331 so it stands straight under the column of three buttons.
 
-Kept from v8: the full-screen sky and sea, the sun and moon as light on a centred path with bracket and tag, the rise and set marks on the horizon, one ink colour per screen, the numbered serif titles (seven), no stars at mid-day.
+- **Five article titles** instead of seven, at the user's request. The list still starts at y 486 and `∀` stays at y 794, so there is open sea between them.
+
+Kept from v8: the full-screen sky and sea, the sun and moon as light on a centred path with bracket and tag, the rise and set marks on the horizon, one ink colour per screen, the numbered serif titles, no stars at mid-day.
 
 Stills `01-sunrise.png` … `12-moon-set.png` are rendered at 3× with headless Chrome, as for the other versions.
