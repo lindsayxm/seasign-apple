@@ -103,10 +103,17 @@ final class EventsModel {
     /// cached events belong to another time zone.
     func labels(now: Date, clock: ClockStyle, limit: Int = 3) -> [EventLabel] {
         let zone = timeZone()
-        guard let snapshot, isFrozen || snapshot.timezone == zone.identifier else { return [] }
-        return EventPicker.next(snapshot.events, now: now, limit: limit).map {
+        return EventPicker.next(upcoming(now: now), now: now, limit: limit).map {
             EventLabel(event: $0, now: now, timeZone: zone, clock: clock)
         }
+    }
+
+    /// The events that have not ended, soonest first, in the events' time
+    /// zone; empty while the cached events belong to another zone. Today
+    /// merges these with the Google events (`TodayEvents`).
+    func upcoming(now: Date) -> [UpcomingEvent] {
+        guard let snapshot, isFrozen || snapshot.timezone == timeZone().identifier else { return [] }
+        return EventPicker.upcoming(snapshot.events, now: now)
     }
 
     /// How the last read of `link` went; nil if it has not been read yet.

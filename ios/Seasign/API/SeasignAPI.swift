@@ -65,7 +65,86 @@ struct SeasignAPI: Sendable {
     ) {
         self.serverURL = serverURL
         self.keyNeedsHTTPS = keyNeedsHTTPS
-        client = Client(serverURL: serverURL, transport: transport, middlewares: [RawKeyHeader()])
+        client = Client(serverURL: serverURL, transport: transport, middlewares: [RawKeyHeader(), RawGoogleTokenHeader()])
+    }
+
+    /// Why a `/v1/google/*` request failed as a whole. Payload-free: the
+    /// generated client's errors describe the request, and these requests
+    /// carry the user's Google access token in a header.
+    enum GoogleFailure: Error, Equatable {
+        /// 401 `google_auth`: Google did not take the access token. Refresh
+        /// it and ask once more.
+        case googleAuth
+        /// 403 `google_forbidden` (calendar list only): the token lacks a
+        /// scope; refreshing will not help, the user must connect again.
+        case forbidden
+        /// 400: the request was refused (a bad header, ids or zone).
+        case invalidRequest
+        /// The API's own per-network limit (429): wait `retryAfter` seconds.
+        case rateLimited(retryAfter: Int)
+        /// The server or Google could not be reached, failed, or sent
+        /// something unreadable (502, 500, a 3xx, no answer).
+        case unavailable
+    }
+
+    /// `GET /v1/google/calendars`: the calendars on the user's Google
+    /// calendar list, read with `token` (sent in `X-Google-Token` and nowhere
+    /// else). Throws a `GoogleFailure`.
+    func googleCalendars(token: GoogleSecret) async throws -> [GoogleCalendarEntry] {
+        let output: Operations.getGoogleCalendars.Output
+        do {
+            output = try await client.getGoogleCalendars(headers: .init(x_hyphen_google_hyphen_token: token.secret))
+        } catch {
+            // Dropped on purpose: its description includes the token header.
+            if let delay = ServerRateLimit.delay(after: error) { throw GoogleFailure.rateLimited(retryAfter: delay) }
+            throw GoogleFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let body = try? response.body.json else { throw GoogleFailure.unavailable }
+            return body.calendars.map { GoogleCalendarEntry(id: $0.id, name: $0.name, primary: $0.primary) }
+        case .badRequest:
+            throw GoogleFailure.invalidRequest
+        case .unauthorized:
+            throw GoogleFailure.googleAuth
+        case .forbidden:
+            throw GoogleFailure.forbidden
+        case .tooManyRequests(let response):
+            throw GoogleFailure.rateLimited(retryAfter: ServerRateLimit.delay(response.headers.Retry_hyphen_After))
+        default:
+            throw GoogleFailure.unavailable
+        }
+    }
+
+    /// `POST /v1/google/events`: the events of up to ten Google calendars
+    /// (by Google's calendar id) that have not ended and start within seven
+    /// days, and how reading each went, read with `token`. A calendar that
+    /// cannot be read is reported in `calendars`, not thrown. Throws a
+    /// `GoogleFailure`.
+    func googleEvents(token: GoogleSecret, calendars: [String], timezone: String?) async throws -> GoogleEventsAnswer {
+        let output: Operations.postGoogleEvents.Output
+        do {
+            output = try await client.postGoogleEvents(
+                headers: .init(x_hyphen_google_hyphen_token: token.secret),
+                body: .json(.init(calendars: calendars, timezone: timezone))
+            )
+        } catch {
+            if let delay = ServerRateLimit.delay(after: error) { throw GoogleFailure.rateLimited(retryAfter: delay) }
+            throw GoogleFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let body = try? response.body.json else { throw GoogleFailure.unavailable }
+            return GoogleEventsAnswer(body)
+        case .badRequest:
+            throw GoogleFailure.invalidRequest
+        case .unauthorized:
+            throw GoogleFailure.googleAuth
+        case .tooManyRequests(let response):
+            throw GoogleFailure.rateLimited(retryAfter: ServerRateLimit.delay(response.headers.Retry_hyphen_After))
+        default:
+            throw GoogleFailure.unavailable
+        }
     }
 
     /// `GET /v1/health`. Throws when the server is unreachable or answers with anything but 200.
@@ -412,6 +491,75 @@ struct RawKeyHeader: ClientMiddleware {
             request.headerFields[Self.name] = raw
         }
         return try await next(request, body, baseURL)
+    }
+}
+
+/// The same for the Google access token in `X-Google-Token`: Google's
+/// tokens may hold `/`, `+` and `=`, which the generated client would
+/// percent-encode. Only this one header is touched.
+struct RawGoogleTokenHeader: ClientMiddleware {
+    static let name = HTTPField.Name("x-google-token")!
+
+    func intercept(
+        _ request: HTTPRequest,
+        body: HTTPBody?,
+        baseURL: URL,
+        operationID: String,
+        next: @Sendable (HTTPRequest, HTTPBody?, URL) async throws -> (HTTPResponse, HTTPBody?)
+    ) async throws -> (HTTPResponse, HTTPBody?) {
+        var request = request
+        if let encoded = request.headerFields[Self.name], let raw = encoded.removingPercentEncoding {
+            request.headerFields[Self.name] = raw
+        }
+        return try await next(request, body, baseURL)
+    }
+}
+
+/// One calendar on the user's Google calendar list (`GET /v1/google/calendars`).
+struct GoogleCalendarEntry: Sendable, Equatable {
+    /// Google's calendar id, sent back in `POST /v1/google/events`.
+    var id: String
+    /// The user's name for it; may be empty.
+    var name: String
+    var primary: Bool
+}
+
+/// A `POST /v1/google/events` response in the app's own types. Calendars are
+/// named by their index in the request.
+struct GoogleEventsAnswer: Sendable, Equatable {
+    struct Status: Sendable, Equatable {
+        var index: Int
+        var ok: Bool
+        var partial: Bool
+        var error: GoogleCalendarProblem?
+    }
+
+    /// The same event shape as `/v1/calendar/events`; `calendar` is the index
+    /// of the calendar id in the request.
+    var events: [CalendarAnswer.Event]
+    var calendars: [Status]
+}
+
+extension GoogleEventsAnswer {
+    init(_ body: Components.Schemas.GoogleEvents) {
+        events = body.events.map { event in
+            CalendarAnswer.Event(
+                calendar: event.calendar,
+                title: event.title,
+                start: event.start,
+                end: event.end,
+                allDay: event.allDay,
+                date: event.date
+            )
+        }
+        calendars = body.calendars.map { status in
+            Status(
+                index: status.index,
+                ok: status.ok,
+                partial: status.partial,
+                error: status.error.flatMap { GoogleCalendarProblem(rawValue: $0.rawValue) }
+            )
+        }
     }
 }
 

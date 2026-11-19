@@ -9,6 +9,7 @@ import SwiftUI
 struct TodayView: View {
     @Environment(TodayModel.self) private var model
     @Environment(EventsModel.self) private var events
+    @Environment(GoogleCalendarModel.self) private var google
     @Environment(FeedModel.self) private var feed
     @Environment(SavedModel.self) private var saved
     @Environment(AISearchModel.self) private var ai
@@ -68,6 +69,18 @@ struct TodayView: View {
                 try? await Task.sleep(for: .seconds(60))
             }
         }
+        // Google events: while the app is active and Today itself is on
+        // screen, one request every 5 seconds for all chosen calendars (a
+        // stand-in until push exists). The task starts again, asking at
+        // once, whenever the gate opens: back to the foreground, a sheet
+        // closed, a calendar turned on. No spinner.
+        .task(id: googlePolls) {
+            guard googlePolls else { return }
+            while !Task.isCancelled {
+                await google.refresh()
+                try? await Task.sleep(for: GooglePoll.interval)
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             // Notes typed in Saved are written before the app leaves the
             // foreground (Saved does this too; this covers it from the root).
@@ -91,6 +104,7 @@ struct TodayView: View {
         // fetched again.
         .onChange(of: eventZoneID) {
             Task { await events.refresh() }
+            Task { await google.refresh(force: true) }
         }
         .fullScreenCover(item: $destination) { destination in
             switch destination {
@@ -121,8 +135,9 @@ struct TodayView: View {
         switch target {
         case .calendar:
             async let calendar: Void = events.refresh(force: true)
+            async let googleEvents: Void = google.refresh(force: true)
             async let sky: Void = model.refresh(force: true)
-            _ = await (calendar, sky)
+            _ = await (calendar, googleEvents, sky)
         case .headlines:
             await feed.refresh(force: true, waitsOutDelay: true)
         }
@@ -336,7 +351,22 @@ struct TodayView: View {
             return EventLabel.mockupSamples(now: now, timeZone: eventZone, clock: clockStyle, titles: titles)
         }
         #endif
-        return events.labels(now: now, clock: clockStyle)
+        return TodayEvents.labels(
+            links: events.upcoming(now: now),
+            google: google.upcoming(now: now),
+            now: now,
+            timeZone: eventZone,
+            clock: clockStyle
+        )
+    }
+
+    /// Whether Today polls Google now (`GooglePoll.isOn`).
+    private var googlePolls: Bool {
+        GooglePoll.isOn(
+            appActive: scenePhase == .active,
+            todayOnScreen: destination == nil && reading == nil,
+            canPoll: google.canPoll
+        )
     }
 
     /// The time zone events are asked for and shown in.

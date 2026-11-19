@@ -314,6 +314,60 @@ import Testing
         #expect(try ModelContext(userOnly).fetch(FetchDescriptor<SavedItem>()).count == 2)
     }
 
+    /// Task 154 added `GoogleAccount` and `GoogleCalendarChoice` to the user
+    /// store and `CachedGoogleEvents` to the cache. Stores written with the
+    /// schema before that (listed by hand) open with nothing lost, neither
+    /// file thrown away, and the new models land in the right files.
+    @Test func storesFromBeforeGoogleCalendarOpenAndKeepEverything() throws {
+        defer { cleanUp() }
+        do {
+            let user: [any PersistentModel.Type] = [
+                Settings.self, ListItem.self, CalendarLink.self, Site.self, SavedItem.self, SearchCount.self,
+            ]
+            let cache: [any PersistentModel.Type] = [CachedSky.self, CachedEvents.self, FeedItem.self, CachedFeedState.self]
+            let old = try ModelContainer(
+                for: Schema(user + cache),
+                configurations: [
+                    ModelConfiguration("user", schema: Schema(user), url: files.user),
+                    ModelConfiguration("cache", schema: Schema(cache), url: files.cache),
+                ]
+            )
+            let context = ModelContext(old)
+            context.insert(ListItem(kind: .get, title: "Oat milk", createdAt: instant("2026-11-15T12:00:00Z")))
+            context.insert(Settings(zip: "10001"))
+            context.insert(CalendarLink(name: "Family", url: "https://cal.example.com/a.ics", createdAt: .now))
+            context.insert(CachedEvents(payload: Data("{}".utf8), fetchedAt: .now))
+            try context.save()
+        }
+
+        do {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .kept)
+            let context = ModelContext(opened.container)
+            #expect(try titles(opened.container) == ["Oat milk"])
+            #expect(try context.fetch(FetchDescriptor<Settings>()).map(\.zip) == ["10001"])
+            #expect(try context.fetch(FetchDescriptor<CalendarLink>()).map(\.name) == ["Family"])
+            #expect(try context.fetch(FetchDescriptor<CachedEvents>()).count == 1)
+            #expect(try context.fetch(FetchDescriptor<GoogleCalendarChoice>()).isEmpty)
+            context.insert(GoogleAccount(stateRaw: "connected"))
+            context.insert(GoogleCalendarChoice(calendarID: "primary", name: "Me", isPrimary: true, isOn: true, order: 0))
+            context.insert(CachedGoogleEvents(payload: Data("{}".utf8), fetchedAt: .now))
+            try context.save()
+        }
+
+        let userOnly = try ModelContainer(
+            for: Schema(SeasignSchema.userModels),
+            configurations: [ModelConfiguration("user", schema: Schema(SeasignSchema.userModels), url: files.user)]
+        )
+        #expect(try ModelContext(userOnly).fetch(FetchDescriptor<GoogleCalendarChoice>()).map(\.name) == ["Me"])
+        #expect(try ModelContext(userOnly).fetch(FetchDescriptor<GoogleAccount>()).map(\.stateRaw) == ["connected"])
+        let cacheOnly = try ModelContainer(
+            for: Schema(SeasignSchema.cacheModels),
+            configurations: [ModelConfiguration("cache", schema: Schema(SeasignSchema.cacheModels), url: files.cache)]
+        )
+        #expect(try ModelContext(cacheOnly).fetch(FetchDescriptor<CachedGoogleEvents>()).count == 1)
+    }
+
     /// A saved article and its notes are the user's: they survive the loss
     /// of the cache, where its feed item was.
     @Test func savedItemsSurviveABrokenCache() throws {

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Settings: the zip code the Today scene follows, the calendar links
-/// (`CalendarSettingsSection`), the followed sites (`SitesSettingsSection`)
+/// Settings: the zip code the Today scene follows, Google Calendar
+/// (`GoogleSettingsSection`), the calendar links (`CalendarSettingsSection`), the followed sites (`SitesSettingsSection`)
 /// and AI search (`AISettingsSection`).
 struct SettingsView: View {
     @Environment(TodayModel.self) private var model
@@ -14,6 +14,7 @@ struct SettingsView: View {
     var body: some View {
         SheetScaffold(title: "Settings") {
             zipSection
+            GoogleSettingsSection()
             CalendarSettingsSection()
             SitesSettingsSection()
             AISettingsSection()

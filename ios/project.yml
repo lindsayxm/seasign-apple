@@ -58,6 +58,16 @@ targets:
           - Jost-400-Book.ttf
           - Jost-500-Medium.ttf
           - PTSansNarrow-Bold.ttf
+        # Google sign-in (task 154): the client ID, set once below as
+        # GOOGLE_CLIENT_ID, and the redirect scheme Google gives an iOS
+        # client, its reverse DNS form. GoogleOAuthConfig reads the first and
+        # derives the second; a test checks the two agree.
+        GoogleClientID: $(GOOGLE_CLIENT_ID).apps.googleusercontent.com
+        CFBundleURLTypes:
+          - CFBundleURLName: google-sign-in
+            CFBundleTypeRole: Viewer
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.$(GOOGLE_CLIENT_ID)
     dependencies:
       - package: swift-openapi-runtime
         product: OpenAPIRuntime
@@ -66,6 +76,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_ID)
+        # The user's Google OAuth client for this bundle ID (iOS type), without
+        # ".apps.googleusercontent.com". Not a secret. The one place it is set.
+        GOOGLE_CLIENT_ID: 347928684020-vs0cht1ik72su6d4fl4skogak6odtl82
         # iPhone only. It has to be set on the target: XcodeGen's iOS target
         # preset sets "1,2", which wins over the project-level value above.
         TARGETED_DEVICE_FAMILY: "1"

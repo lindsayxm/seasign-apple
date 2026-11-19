@@ -7,13 +7,14 @@ import SwiftData
 ///
 /// - the **user store** (`default.store`): `SeasignSchema.userModels`
 ///   (`Settings`, `ListItem`, `CalendarLink`, `Site`, `SavedItem`,
-///   `SearchCount`). It holds
+///   `SearchCount`, `GoogleAccount`, `GoogleCalendarChoice`). It holds
 ///   things the user typed and nothing can bring them back, so the app never
 ///   deletes or moves this file and never opens it with anything but the full
 ///   schema, which would change its tables. If it will not open, `open` throws
 ///   and the app shows `StoreErrorView`.
 /// - the **cache store** (`SkyCache.store`): `SeasignSchema.cacheModels`
-///   (`CachedSky`, `CachedEvents`, `FeedItem`, `CachedFeedState`), copies of
+///   (`CachedSky`, `CachedEvents`, `FeedItem`, `CachedFeedState`,
+///   `CachedGoogleEvents`), copies of
 ///   API responses. If the container will not open and the user store is
 ///   healthy, this file is deleted and made again; the next refresh refills it.
 ///

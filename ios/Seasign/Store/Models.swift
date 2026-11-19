@@ -87,13 +87,18 @@ final class CachedEvents {
 /// it can be fetched again; anything the user typed belongs in `userModels`.
 enum SeasignSchema {
     /// What the user entered: settings, the Do/Get lists, the calendar links,
-    /// the followed sites, the saved articles with their notes, and the
-    /// day's AI search count. Never deleted by the app.
+    /// the followed sites, the saved articles with their notes, the day's AI
+    /// search count, and the Google connection state with the chosen Google
+    /// calendars (deleted only when the user disconnects Google). Never
+    /// deleted by the app otherwise.
     static let userModels: [any PersistentModel.Type] = [
         Settings.self, ListItem.self, CalendarLink.self, Site.self, SavedItem.self, SearchCount.self,
+        GoogleAccount.self, GoogleCalendarChoice.self,
     ]
     /// Copies of what the API returned. Safe to throw away.
-    static let cacheModels: [any PersistentModel.Type] = [CachedSky.self, CachedEvents.self, FeedItem.self, CachedFeedState.self]
+    static let cacheModels: [any PersistentModel.Type] = [
+        CachedSky.self, CachedEvents.self, FeedItem.self, CachedFeedState.self, CachedGoogleEvents.self,
+    ]
     static let models: [any PersistentModel.Type] = userModels + cacheModels
 
     /// A container that lives only in memory, for tests and previews.

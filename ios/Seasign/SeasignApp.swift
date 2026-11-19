@@ -6,7 +6,7 @@ struct SeasignApp: App {
     /// The local stores and the models that read them, or the fact that the
     /// user's store would not open (see `LocalStore`).
     private enum Session {
-        case ready(ModelContainer, TodayModel, ListsModel, EventsModel, FeedModel, SavedModel, AISearchModel)
+        case ready(ModelContainer, TodayModel, ListsModel, EventsModel, GoogleCalendarModel, FeedModel, SavedModel, AISearchModel)
         case storeUnreadable
     }
 
@@ -19,11 +19,12 @@ struct SeasignApp: App {
     var body: some Scene {
         WindowGroup {
             switch session {
-            case .ready(let container, let today, let lists, let events, let feed, let saved, let ai):
+            case .ready(let container, let today, let lists, let events, let google, let feed, let saved, let ai):
                 TodayView()
                     .environment(today)
                     .environment(lists)
                     .environment(events)
+                    .environment(google)
                     .environment(feed)
                     .environment(saved)
                     .environment(ai)
@@ -53,6 +54,9 @@ struct SeasignApp: App {
                 // The zip's time zone when a zip is set, otherwise the phone's.
                 EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent)
             }
+            let liveGoogle = GoogleCalendarModel(context: container.mainContext) {
+                EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent)
+            }
             let lists = ListsModel(context: container.mainContext)
             let feed = FeedModel(context: container.mainContext)
             let saved = SavedModel(context: container.mainContext)
@@ -66,6 +70,9 @@ struct SeasignApp: App {
             // AI-found items, likewise (it implies the feed sample).
             let defaults = UserDefaults.standard
             let events = defaults.bool(forKey: "debugEvents") ? (try? EventsModel.sample()) ?? live : live
+            // `-debugGoogle YES`: a connected Google account with sample
+            // calendars and events, in memory, with no token and no requests.
+            let google = defaults.bool(forKey: "debugGoogle") ? (try? GoogleCalendarModel.sample()) ?? liveGoogle : liveGoogle
             let showAI = defaults.bool(forKey: "debugAI")
             let sample = debugSamples(
                 feed: feed,
@@ -80,10 +87,10 @@ struct SeasignApp: App {
             let ai = sample.ai ?? (showAI
                 ? AISearchModel.debugFallback(feed: sample.feed, context: container.mainContext)
                 : AISearchModel(context: container.mainContext, feed: sample.feed, zone: zone))
-            return .ready(container, today, lists, events, sample.feed, sample.saved, ai)
+            return .ready(container, today, lists, events, google, sample.feed, sample.saved, ai)
             #else
             let ai = AISearchModel(context: container.mainContext, feed: feed, zone: zone)
-            return .ready(container, today, lists, live, feed, saved, ai)
+            return .ready(container, today, lists, live, liveGoogle, feed, saved, ai)
             #endif
         } catch {
             return .storeUnreadable
