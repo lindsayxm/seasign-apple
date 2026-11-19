@@ -27,6 +27,9 @@ struct TodayView: View {
     /// `-debugMockupEvents YES`: the v11 mockup's three events, for
     /// screenshots to set beside its stills.
     @AppStorage("debugMockupEvents") private var debugMockupEvents = false
+    /// `-debugEventTitles "Dentist|A long title…"`: other titles for those
+    /// events, one to three, separated by `|`; `none` for none.
+    @AppStorage("debugEventTitles") private var debugEventTitles = ""
     #endif
 
     enum Destination: String, Identifiable {
@@ -233,8 +236,11 @@ struct TodayView: View {
     /// The next three calendar events, or the DEBUG mockup's three.
     private func eventLabels(now: Date) -> [EventLabel] {
         #if DEBUG
-        if debugMockupEvents {
-            return EventLabel.mockupSamples(now: now, timeZone: eventZone, clock: clockStyle)
+        if debugMockupEvents || !debugEventTitles.isEmpty {
+            let titles = debugEventTitles.isEmpty
+                ? EventLabel.mockupTitles
+                : debugEventTitles.split(separator: "|").map(String.init).filter { $0 != "none" }
+            return EventLabel.mockupSamples(now: now, timeZone: eventZone, clock: clockStyle, titles: titles)
         }
         #endif
         return events.labels(now: now, clock: clockStyle)
