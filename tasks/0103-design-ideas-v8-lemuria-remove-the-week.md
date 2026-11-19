@@ -1,11 +1,11 @@
 ---
 id: 103
 title: design-ideas/v8-lemuria: remove the week ruler bar from the header
-status: review
+status: done
 owner: lead
 depends_on: []
 created: 2026-11-19T01:03:53Z
-updated: 2026-11-19T01:04:18Z
+updated: 2026-11-19T01:04:19Z
 ---
 
 ## Goal
@@ -26,3 +26,4 @@ updated: 2026-11-19T01:04:18Z
 - 2026-11-19T01:03:53Z [lead] status: todo → in-progress — claimed by lead
 - 2026-11-19T01:04:18Z [lead] Ruler removed (CSS and markup); events moved up 6 points; 12 stills re-rendered, mid-day header viewed; README, notes, landing thumbs updated.
 - 2026-11-19T01:04:18Z [lead] status: in-progress → review
+- 2026-11-19T01:04:19Z [lead] status: review → done
