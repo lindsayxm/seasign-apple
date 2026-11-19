@@ -1,11 +1,11 @@
 ---
 id: 109
 title: design-ideas/v8-lemuria: remove the labels under the buttons
-status: review
+status: done
 owner: lead
 depends_on: []
 created: 2026-11-19T01:15:15Z
-updated: 2026-11-19T01:15:39Z
+updated: 2026-11-19T01:15:40Z
 ---
 
 ## Goal
@@ -26,3 +26,4 @@ updated: 2026-11-19T01:15:39Z
 - 2026-11-19T01:15:15Z [lead] status: todo → in-progress — claimed by lead
 - 2026-11-19T01:15:39Z [lead] Labels removed (markup and CSS); bar height 31; 12 stills re-rendered, mid-day viewed; README and landing thumbs updated.
 - 2026-11-19T01:15:39Z [lead] status: in-progress → review
+- 2026-11-19T01:15:40Z [lead] status: review → done
