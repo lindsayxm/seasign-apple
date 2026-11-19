@@ -54,12 +54,9 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* three controls (settings, list, saved) in a column at the right of the events, exactly as tall as the events block, behind a hairline with ink ends;
+  /* three controls (settings, list, saved) in a bare column at the right of the events, spaced 26 points apart, so the column runs a little below the events;
      the fourth, ∀ for all publications, is small in the lower left corner under the article list */
-  .col { right: 34px; top: 118px; height: 88px; padding-left: 13px; display: flex; flex-direction: column; justify-content: space-between; border-left: .5px solid rgba(255,255,255,.26); }
-  .col::before, .col::after { content: ""; position: absolute; left: -1px; width: 6px; height: 6px; border-left: 1px solid rgb(var(--amber)); }
-  .col::before { top: 0; border-top: 1px solid rgb(var(--amber)); }
-  .col::after { bottom: 0; border-bottom: 1px solid rgb(var(--amber)); }
+  .col { right: 34px; top: 118px; display: flex; flex-direction: column; gap: 26px; }
   .col svg { display: block; width: 19px; height: 19px; stroke: rgb(var(--btn)); stroke-width: .09; }
   .more { left: 34px; top: 812px; width: 10px; height: 10px; stroke: rgb(var(--btn)); stroke-width: .13; }
   body.nobtn .col, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the controls */
