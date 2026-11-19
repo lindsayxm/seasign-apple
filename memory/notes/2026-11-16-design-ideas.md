@@ -64,3 +64,5 @@ Third pass (#102), "make the top a little more technical looking": boxed mono da
 The week ruler was removed at the user's request straight after (#103); the header now has no bar.
 
 The boxed date and place labels were then moved below the day and temperature at the user's request (#104).
+
+Then (#105) the user had the right column stacked as boxed date, boxed place, temperature, with the coordinates removed; the day name and its week/day note stay at the top left.
