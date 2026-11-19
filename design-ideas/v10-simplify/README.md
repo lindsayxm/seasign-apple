@@ -17,6 +17,14 @@ Open `index.html`. Address switches: `?state=<id>` (the same twelve ids as the o
   - at the bottom, four small pale marks for settings, list, saved and all publications.
 - **Colours:** paper, indigo, ink, and one red.
 
+## Changes after the first pass (2026-11-18, at the user's request; these supersede the description above where they differ)
+
+- The four marks at the bottom are larger (21 points), bolder and nearly full cream.
+- The article titles start 20 points higher (y 520).
+- The wave lines are much fainter, and they move as waves: each line rises and falls a moment after the one behind it, so swells roll toward the viewer, and the crests travel sideways faster than before.
+- Rain and snow begin under the events (y 150), fading in, and are far more see-through (rain about a third, snow about six tenths).
+- The events are in the medium weight, a touch larger.
+
 ## Left out on purpose (it is the simplified version)
 
 Wind, cloud cover, rise and set times, the moon's lit share as a number, the place name, button names, title numbers, any frame, rule or meter. The sky itself says whether it is clear, cloudy, raining or snowing.

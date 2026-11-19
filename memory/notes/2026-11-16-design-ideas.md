@@ -90,3 +90,5 @@ After calling v8 done the user asked for "a few more designs first" and a clean-
 ## 2026-11-18: v10-simplify
 
 "ok one more - v10 - look at the reference images - make a very simplified japanese art inspired version". First pass built (#124); see its README for what is shown and what was left out on purpose.
+
+Second round on v10 (#125): bolder, larger bottom marks; titles higher; fainter wave lines that roll like waves; rain and snow start below the events and are more see-through; events in the medium weight.
