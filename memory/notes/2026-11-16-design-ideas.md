@@ -60,3 +60,5 @@ The user said v7 still felt like a cartoon or video game and asked for a v8 push
 Second pass the same day (#101), after "push v8 further - think from first principles": the view now fills the screen (sky to the top, sea with faint wave lights to the bottom, grain over everything); the button column is gone and the four controls are a labelled row along the bottom; the sun and moon's path is centred and wider; the header is a large thin day name and temperature under small date and place labels, then the events across the full width. This gave up several of v7's settled layout choices on purpose (listed in the v8 README); the user had invited a rethink.
 
 Third pass (#102), "make the top a little more technical looking": boxed mono date and place labels, large light mono day and temperature with small two-line notes (week and day of year; latitude and longitude), and the bar as a seven-segment week ruler with today in ink.
+
+The week ruler was removed at the user's request straight after (#103); the header now has no bar.

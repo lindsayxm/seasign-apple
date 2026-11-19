@@ -25,7 +25,7 @@ The user asked for the part above the horizontal bar to look more technical. It 
 - The date (`2026 · NOV 16`, in ink) and the place (`CHICAGO · IL`, in white) are small mono labels in hairline boxes.
 - The day name and the temperature are large light mono read-outs (the thin condensed face is gone).
 - Each has a small two-line note beside it: week and day of the year next to the day (`WK 47`, `DAY 320`), latitude and longitude next to the temperature. All four come from what the app has: the date, and the place found from the zip code.
-- The bar is now a ruler of the week: seven segments, Monday first, with a small tick in the middle of each, and today's segment drawn thick in ink.
+- There is no bar under the header. A hairline, and then a ruler of the week (seven segments, today in ink), were tried there; the user had the ruler removed. The events sit 6 points higher to close the gap.
 
 ## What changed from v7 (first pass)
 

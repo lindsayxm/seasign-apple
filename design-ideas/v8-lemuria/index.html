@@ -33,7 +33,7 @@
   .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; text-transform: none; color: #fff; }
 
   /* the header, as an instrument read-out: two boxed labels (date, place); under them two large mono read-outs (day, temperature), each with a small
-     two-line note beside it (week and day of the year; latitude and longitude); then a ruler of the week's seven days with today's segment in ink */
+     two-line note beside it (week and day of the year; latitude and longitude) */
   .date, .place { top: 58px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8.5px; line-height: 11px; letter-spacing: .18em; white-space: nowrap; padding: 2px 3px 2px 6px; }
   .date { left: 34px; color: rgb(var(--amber)); border: .5px solid rgba(var(--amber), .55); }
   .place { right: 34px; color: rgba(238,240,240,.85); border: .5px solid rgba(255,255,255,.3); }
@@ -45,10 +45,7 @@
   .temp i { font-style: normal; font-size: 13px; line-height: 16px; vertical-align: 19px; margin-left: 3px; font-weight: 400; letter-spacing: .06em; }
   .hero small { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 7.5px; line-height: 11px; letter-spacing: .16em; color: rgba(238,240,240,.6); margin-bottom: 6px; }
   .hero small em { font-style: normal; color: rgba(238,240,240,.95); }
-  .rule { left: 34px; top: 134px; width: 325px; height: 6px; display: grid; grid-template-columns: repeat(7, 1fr); border-top: .5px solid rgba(255,255,255,.34); border-right: .5px solid rgba(255,255,255,.5); }
-  .rule i { border-left: .5px solid rgba(255,255,255,.5); background: linear-gradient(90deg, transparent calc(50% - .25px), rgba(255,255,255,.28) calc(50% - .25px), rgba(255,255,255,.28) calc(50% + .25px), transparent calc(50% + .25px)) 0 0 / 100% 3px no-repeat; }
-  .rule i.on { box-shadow: inset 0 2px 0 rgb(var(--amber)); border-left-color: rgb(var(--amber)); }
-  .events { left: 34px; top: 150px; width: 325px; margin: 0; padding: 0; list-style: none; font-size: 11px; letter-spacing: .13em; line-height: 16px; text-shadow: 0 0 5px rgba(0,0,0,.9); }
+  .events { left: 34px; top: 144px; width: 325px; margin: 0; padding: 0; list-style: none; font-size: 11px; letter-spacing: .13em; line-height: 16px; text-shadow: 0 0 5px rgba(0,0,0,.9); }
   .events li { display: grid; grid-template-columns: 70px 1fr; margin-bottom: 8px; }
   /* the time is two fixed columns: the hour (or the day, for an all-day event), then AM, PM or ALL, so those always start at the same place */
   .events time { color: rgb(var(--teal)); font-size: 10px; letter-spacing: .04em; display: grid; grid-template-columns: 5.6ch auto; justify-content: start; }
@@ -116,7 +113,6 @@
     <div class="place">Chicago · IL</div>
     <div class="hero l"><b class="day" id="day">Mon</b><small>Wk <em>47</em><br>Day <em>320</em></small></div>
     <div class="hero r"><b class="temp">55<i>°F</i></b><small><em>41.88</em>°N<br><em>87.63</em>°W</small></div>
-    <div class="rule"><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
 
     <ul class="events">
       <li><time class="mono"><b>6:45</b><b>PM</b></time><span>Hanna’s show</span></li>
