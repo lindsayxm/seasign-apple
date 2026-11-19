@@ -26,7 +26,7 @@ The user asked for the part above the horizontal bar to look more technical. It 
 - The day name and the temperature are large light mono read-outs (the thin condensed face is gone).
 - Each has a small two-line note beside it: week and day of the year next to the day (`WK 47`, `DAY 320`), latitude and longitude next to the temperature. All four come from what the app has: the date, and the place found from the zip code.
 - The two boxed labels sit under the read-outs (date under the day, place under the temperature); they were above at first and the user had them moved.
-- **Current arrangement (supersedes the lines above where they differ):** the day name with its week and day-of-year note is at the top left. The right column, right-aligned, stacks the boxed date, the boxed place, and then the temperature. The latitude and longitude note was removed at the user's request. The events start 10 points lower (y 154) to clear the temperature.
+- **Current arrangement (supersedes the lines above where they differ):** the day name with its week and day-of-year note is at the top left. At the top right are two boxes of equal width, one above the other: the date (`2026 · NOV 16`, ink) and the place with the temperature (`CHICAGO · 55°F`, white). Together the two boxes are exactly as tall as the day name's letters (y 64.7 to 93). The large temperature read-out, the state (`IL`) and the latitude and longitude note were removed at the user's request. The events start at y 118, 22 points under the header.
 - There is no bar under the header. A hairline, and then a ruler of the week (seven segments, today in ink), were tried there; the user had the ruler removed. The events sit 6 points higher to close the gap.
 
 ## What changed from v7 (first pass)
