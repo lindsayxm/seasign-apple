@@ -1,11 +1,11 @@
 ---
 id: 153
 title: API: read Google calendars with the user's token (calendar list and events)
-status: in-progress
+status: review
 owner: implementer-1
 depends_on: []
 created: 2026-11-19T19:33:51Z
-updated: 2026-11-19T19:46:27Z
+updated: 2026-11-19T19:49:18Z
 ---
 
 ## Goal
@@ -39,3 +39,5 @@ Plan plans/2026-11-19-google-calendar-push.md, task A. The app will send a short
 - 2026-11-19T19:46:26Z [implementer-1] Built GET /v1/google/calendars and POST /v1/google/events (api/src/routes/google.ts, Google fetch helper and item mapping in api/src/lib/google.ts). Events reuse CalendarEventSchema (now exported from routes/calendar.ts) and upcomingEvents: Google items become StoredEvents (dateTime -> instant, date -> allDay wall-clock midnights, end.date exclusive), Google asked for now-1d..now+8d with singleEvents=true, orderBy=startTime, maxResults=250, fields limited to status/summary/start/end/endTimeUnspecified; up to 4 pages per calendar, then partial. Title cleaning shared via new cleanTitle() in lib/calendar.ts. Outbound: fetch to https://www.googleapis.com only, redirect manual, 8 s deadline per calendar across all pages, 1 MB per page, 64 KB error bodies. No KV use; Cache-Control: no-store set in app.ts on every /v1/google/* answer (body-limit and 429 included).
 - 2026-11-19T19:46:26Z [implementer-1] Error mapping: header missing/malformed 400 invalid_request. Google 401 on any calendar or the list -> 401 google_auth. Per calendar: 403 (non-quota) forbidden, 404/410 not_found, 429 or 403 with usageLimits/rateLimitExceeded/userRateLimitExceeded/quotaExceeded/RESOURCE_EXHAUSTED rate_limited, 5xx/3xx/network/unreadable fetch_failed, deadline timeout, over cap too_large. Calendar list: non-quota 403 -> 403 google_forbidden (likely missing scope; refresh will not help), anything else -> 502 google_unavailable. Rate limit: new group google (RATE_LIMIT_GOOGLE, namespace 19006) 120 per 60 s per client, covering both routes: one phone polling every 5 s is 12/min, so room for about ten phones behind one address; cost per request is small and Google quota is the caller's. wrangler.jsonc and RATE_LIMITS updated together; cf-typegen rerun.
 - 2026-11-19T19:46:27Z [implementer-1] Verified: npm test 1690 passed (17 files; new test/google.test.ts 58 tests incl. timed, all-day, multi-day, recurring instances, cancelled, paging, page cap, 50 cap, per-calendar errors, 401, timeouts, token never in logs/KV/responses, no-store, 429 on both routes); tsc clean; npm run openapi regenerated openapi/openapi.json; iOS xcodebuild test on iPhone 17 (iOS 27.2): 449 tests passed, generated client has getGoogleCalendars/postGoogleEvents. Docs read 2026-11-19: events.list, Event resource, calendarList.list and resource, errors guide, performance guide (fields), OAuth2 overview (token size 2048).
+- 2026-11-19T19:49:17Z [implementer-1] Deliberate departures and additions, for the reviewer: (1) criterion 4 says Google 429/5xx -> 502 or per-calendar fetch_failed; on /v1/google/events a Google 429 or quota 403 is reported per calendar as rate_limited (not fetch_failed) so the app can tell 'Google is throttling, back off' from 'broken'; 5xx is fetch_failed. Folding rate_limited into fetch_failed is a one-line change if preferred. On /v1/google/calendars every 429/5xx is 502 google_unavailable as written. (2) Not in the criteria: calendar list answers a non-quota 403 as 403 google_forbidden (token lacks the calendarlist scope; refreshing will not help), and each calendar carries 'selected' (shown in Google's own app) besides id, name, primary, color. memory/architecture.md updated with the routes, files and limiter. Not verified against live Google (no token): fields expressions and error bodies are mocks following the docs; the 'insufficientPermissions' reason used in a test is not from the fetched pages (mapping is by status, so it does not depend on it).
+- 2026-11-19T19:49:18Z [implementer-1] status: in-progress → review
