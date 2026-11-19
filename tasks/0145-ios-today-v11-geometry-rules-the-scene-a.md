@@ -1,11 +1,11 @@
 ---
 id: 145
 title: iOS: Today v11 — geometry, rules, the scene and the marks tied to the sun, moon and horizon
-status: todo
-owner: 
+status: in-progress
+owner: lead
 depends_on: []
 created: 2026-11-19T03:09:05Z
-updated: 2026-11-19T03:09:05Z
+updated: 2026-11-19T03:09:16Z
 ---
 
 ## Goal
@@ -33,3 +33,4 @@ Read plans/2026-11-18-today-v11.md first; it is the spec. Then design-ideas/v11-
 ## Log
 
 - 2026-11-19T03:09:05Z [lead] created (todo)
+- 2026-11-19T03:09:16Z [lead] status: todo → in-progress — claimed by lead
