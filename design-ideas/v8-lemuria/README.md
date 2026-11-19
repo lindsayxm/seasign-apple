@@ -7,7 +7,7 @@ Open `index.html`. Same address switches as v7: `?state=<id>`, `&bare`, `&still`
 ## What changed from v7
 
 - **One ink colour per screen.** The date, day name, event times, buttons and the tag's first line share one colour; everything else is white. Soft yellow by day and in weather, pale yellow at sunrise, pale peach at sunset, pale aqua at night. v7 used three colours per screen. The glow behind the day name is gone.
-- **The sun reads as light, not as a drawn ball.** A near-white hot core, a warm limb, far fainter dark cells, more bloom. It still churns and flickers, and the rippling outer line at rise and set is kept, thinner and paler. The rotating pale ring from v6 is gone.
+- **The sun reads as light, not as a drawn ball.** A near-white hot core, a warm limb, far fainter dark cells; its paler colours make the soft light round it stronger. It still churns and flickers, and the rippling outer line at rise and set is kept, thinner and paler. The rotating pale ring from v6 is gone.
 - **Thinner weather.** Clouds are flatter, wider bands; rain is longer, finer lines; snow is smaller.
 - **Button frame.** The rounded glowing panel is now a flat dark plate with a hairline edge, short ink-coloured corners and two faint dividers.
 - **Three instrument marks, each showing something the app knows:**

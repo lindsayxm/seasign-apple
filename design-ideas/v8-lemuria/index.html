@@ -63,10 +63,10 @@
   /* article titles: a humanist serif in sentence case (Iowan Old Style, then Charter; both ship with iOS and macOS) */
   .feed span { font-family: "Iowan Old Style", "Charter", ui-serif, Georgia, serif; text-transform: none; letter-spacing: .01em; color: rgb(244, 242, 236); font-size: 13.5px; line-height: 17.5px; }
   /* the tag beside the sun or moon and the rise and set times under the horizon: small mono type; the lines they hang on are drawn on the canvas */
-  .tag { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8.5px; line-height: 12px; letter-spacing: .14em; white-space: nowrap; color: rgba(238,240,240,.78); text-shadow: 0 0 4px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9); }
+  .tag { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8.5px; line-height: 12px; letter-spacing: .14em; white-space: nowrap; color: rgba(244,246,246,.92); text-shadow: 0 0 5px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1), 0 0 1px rgba(0,0,0,1); }
   .tag b { display: block; font-weight: 400; color: rgb(var(--amber)); }
   .tag.flip { text-align: right; transform: translateX(-100%); }
-  .mark { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8px; line-height: 10px; letter-spacing: .1em; white-space: nowrap; color: rgba(238,240,240,.8); transform: translateX(-50%); text-shadow: 0 0 4px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9); }
+  .mark { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8.5px; line-height: 10px; letter-spacing: .1em; white-space: nowrap; color: rgba(244,246,246,.95); transform: translateX(-50%); text-shadow: 0 0 4px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9); }
   body.nohud .tag, body.nohud .mark { display: none; }
   .home { left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
 
@@ -171,8 +171,8 @@ const STATES = [
   { id: "snow",        label: "Snow",        look: "snow",    turn: .5,   time: "11:36", sign: "snow",   word: "Snow",   clouds: .6, snow: true, rise: "6:41 AM", set: "4:31 PM", wind: 5 },
   { id: "moon-rise",   label: "Moon rise",   look: "dusk",    turn: .005, time: "17:12", sign: "night",  word: "Clear",  phase: .5, rise: "5:12 PM", set: "7:03 AM", wind: 9 },
   { id: "mid-night",   label: "Mid-night",   look: "night",   turn: .5,   time: "00:08", sign: "night",  word: "Clear",  phase: .5, rise: "5:12 PM", set: "7:03 AM", wind: 4 },
-  { id: "moon-waxing", label: "Waxing moon", look: "night",   turn: .36,  time: "21:40", sign: "night",  word: "Clear",  phase: .25, rise: "1:20 PM", set: "12:48 AM", wind: 7 },
-  { id: "moon-waning", label: "Waning moon", look: "night",   turn: .64,  time: "02:30", sign: "night",  word: "Clear",  phase: .75, rise: "11:54 PM", set: "12:36 PM", wind: 7 },
+  { id: "moon-waxing", label: "Waxing moon", look: "night",   turn: .36,  time: "21:40", sign: "night",  word: "Clear",  phase: .25, rise: "4:35 PM", set: "6:40 AM", wind: 7 },
+  { id: "moon-waning", label: "Waning moon", look: "night",   turn: .64,  time: "02:30", sign: "night",  word: "Clear",  phase: .75, rise: "5:32 PM", set: "7:32 AM", wind: 7 },
   { id: "moon-full",   label: "Full moon",   look: "full",    turn: .5,   time: "00:08", sign: "night",  word: "Clear",  phase: .5, rise: "5:12 PM", set: "7:03 AM", wind: 3 },
   { id: "moon-set",    label: "Moon set",    look: "dusk",    turn: .995, time: "07:03", sign: "night",  word: "Clear",  phase: .5, rise: "5:12 PM", set: "7:03 AM", wind: 10 },
 ];
@@ -447,7 +447,7 @@ function draw(t) {
     /* the horizon as a scale: one tick an hour between rising and setting (longer at the ends, where the times are written), and a small square under the sun or moon */
     const hours = look.night ? 14 : 10;
     for (let i = 0; i <= hours; i++) { const px = pathAt(i / hours)[0], end = i === 0 || i === hours; hair(px, HZ + 2, px, HZ + (end ? 9 : 5), "255,255,255", end ? .7 : .42); }
-    ctx.fillStyle = col(ink, .95); ctx.fillRect(bx - 2, HZ + 1.5, 4, 4);
+    if (state.turn > .05 && state.turn < .95) { ctx.fillStyle = col(ink, .95); ctx.fillRect(bx - 2, HZ + 1.5, 4, 4); }   // not when it is on the horizon, where the square is lost in the glare
     /* corner brackets round the sun or moon, and a short leader to its tag */
     const hb = R + 8, arm = Math.min(9, 4 + R * .1), flip = bx > 190 ? -1 : 1;
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
@@ -505,7 +505,7 @@ function show(id) {
   document.getElementById("tag1").textContent = edge ? (lit == null ? "Sun" : "Moon") + edge + " " + state[edge] : lit == null ? "Sun" : "Moon " + lit + "%";
   document.getElementById("tag2").textContent = (state.snow ? "Snow · " : state.rain ? "Rain · " : state.clouds ? "Cloud " + Math.round(state.clouds * 100) + "% · " : "") + "Wind " + state.wind + " mph";
   tag.classList.toggle("flip", flip); tag.style.left = tx + (flip ? -1 : 1) * (hb + 23) + "px"; tag.style.top = ty - hb - 11 - 9 + "px";
-  for (const [id, u] of [["rise", 0], ["set", 1]]) { const el = document.getElementById(id); el.textContent = state[id]; el.style.left = pathAt(u)[0] + "px"; el.style.top = HZ + 12 + "px"; el.style.visibility = id === edge ? "hidden" : "visible"; }
+  for (const [id, u] of [["rise", 0], ["set", 1]]) { const el = document.getElementById(id); el.textContent = state[id]; el.style.left = pathAt(u)[0] + "px"; el.style.top = HZ + 13 + "px"; el.style.visibility = id === edge ? "hidden" : "visible"; }
   if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : "") + (params.has("arc") ? "&arc" : ""));
 }
 const nav = document.getElementById("nav");
