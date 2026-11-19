@@ -115,3 +115,35 @@ Entry format:
   - The headless-Chrome helper scripts are in the session scratchpad and will not survive; the notes file says how to rewrite them.
   - Tasks #45–#98 were closed by the lead without a separate reviewer (look-only mockups).
   - Still to correct: the `npx -y npm@11 install` row in the `AGENTS.md` CLI table overstates the problem.
+
+## 2026-11-19 — Today design v11 built in the app; refresh rules; Google Calendar through sign-in started (API routes, app sign-in, notification API), nothing deployed
+
+- Done:
+  - #99–#144 (2026-11-18): look-only rounds `design-ideas/v8-lemuria/`, `v9-pangea/`, `v10-simplify/`, `v11-artemis/` and v7 tweaks. The user chose v11 for Today.
+  - #145–#147: v11 built in `ios/` (scene, overlay, follow-ups). Spec: `plans/2026-11-18-today-v11.md`.
+  - #148, #149: the rise/set tag removed, wind line always shown, no AI mark on Today titles; v11 mockup, four stills and the plan updated to match (`memory/decisions/2026-11-19-today-no-tag-no-ai-mark.md`).
+  - #150–#152: calendar links cached 1 minute (was 15) and refreshed by the app every minute (was 10); sky cached 5 minutes (was 15); pull down above the horizon refreshes events and sky, pull down on the sea or titles refreshes headlines, each with its own spinner.
+  - #153, #155: `GET /v1/google/calendars` and `POST /v1/google/events` (header `X-Google-Token`, never stored or logged), reviewed and passed, with the reviewer's follow-ups applied.
+  - The plan `plans/2026-11-19-google-calendar-push.md` (approved by the user) and `memory/decisions/2026-11-19-google-calendar-api-and-refresh.md`.
+  - The project now uses the real identity: bundle ID `technology.artisan.seasign`, team `Q79NR2FCR9` (`app-identity.xcconfig`, `api/wrangler.jsonc`).
+- In flight:
+  - #154 (`todo`, 5 of 7 criteria, code committed): Google sign-in in the app, calendar choice in Settings, Google events on Today, 5-second polling. A reviewer asked for changes; the seven fixes are listed in the task's last lead note (the main one: a cancelled request is treated as a Google failure). The user has not yet tried the real sign-in.
+  - #156 (`review`, code committed, not yet reviewed): `POST /v1/google/watch`, `/unwatch`, the webhook `/v1/google/notify`, the D1 table `calendar_channels` (local migration applied) and the APNs sender. Tested with mocks only.
+  - #20: still waiting for provider keys.
+- Next:
+  1. Ask the user how the Google sign-in went on the iPhone 16 Pro Max simulator (Settings → Connect Google Calendar); fix what it shows.
+  2. Give #154 to an implementer for the review fixes, then re-review and close.
+  3. Give #156 to a reviewer.
+  4. Plan task D, the deploy to `api.seasign.app`: remote D1 and KV, the migration, the custom domain, the three APNs secrets typed by the user (`APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`), the app's base URL per build configuration. Ask before each step. First check after deploy: a tokenless POST from the Worker to APNs must answer 403 `MissingProviderToken`; if a Worker cannot reach APNs (HTTP/2), a relay is needed and that is a new service to ask about.
+  5. Plan task E: Push Notifications capability, device-token registration, background push handling, channel upkeep; then task F, the end-to-end check with the user.
+- Notes:
+  - Nothing is deployed and no secret is set. Nothing has run against live Google or APNs. The user holds the APNs key file; the agent must never see it. The key ID and Google iOS client ID are in the plan (not secrets).
+  - A `wrangler dev` started this session on port 8787 may still be running; the app in the Simulator needs it. The XcodeBuildMCP defaults point at the iPhone 16 Pro Max with the new bundle ID.
+  - The new bundle ID installed as a new app; the old `com.example.seasign` app (with the user's pasted calendar link) is still on the Pro Max and the iPhone 16 simulators.
+  - The iPhone 16 simulator holds the user's real zip and a personal calendar link: do not screenshot or log its calendar contents or change its settings.
+  - Closed by the lead without a separate reviewer: #145–#152 except where a reviewer is named in the task log (#146 had one). #151 is done with one criterion unticked: no headline pull has been seen fetching real headlines, because the Pro Max follows no sites.
+  - Not verified by anyone: VoiceOver on Today (description, the two refresh actions); pulls and taps on iOS 27.2; the Settings button after the pull gesture was added; real weather on screen for all twelve v11 states.
+  - Open for the user: spinner colour (system grey) and its overlap with a full-width first event or headline; whether a headline pull should bypass the 30-minute site cache; whether working-location, focus-time, out-of-office and birthday entries should show; removing the AI mark from History, Saved and Reading too; duplicate events when one Google calendar is both connected and pasted; day-name size cap, daytime stars in bad weather, lighter mono type, and unused code from the old Today design.
+  - Google test mode: at most 100 users, an "unverified app" warning, sign-in expires every 7 days; verification is needed before the App Store.
+  - Background pushes are low priority and throttled by iOS; the app must keep fetching on return to the foreground. Coalescing pushes per device may be needed.
+  - Still to correct: the `npx -y npm@11 install` row in the `AGENTS.md` CLI table.
