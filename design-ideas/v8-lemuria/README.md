@@ -4,7 +4,23 @@ Look-only mockup; nothing here is part of the app. Made from `v7-firmament/` as 
 
 Open `index.html`. Same address switches as v7: `?state=<id>`, `&bare`, `&still`, `&t=<seconds>`, `&nobtn`, `&arc`. New: `&nohud` hides the bracket, tag and horizon marks.
 
-## What changed from v7
+## The reasoning (second pass, 2026-11-18)
+
+The user asked to push further and to think from first principles. A head-up display is a view of the world with a thin layer of read-outs over it. That gives five rules, and each one changed something:
+
+1. **The view fills the screen.** Before, the scene was a strip between two black blocks of text, like a picture set into a page. Now the sky runs to the top (stars show faintly behind the header) and the sea runs to the bottom, with faint wave lights all the way down, brighter in a lane under the sun or moon. Dark is laid over both ends so the words read, but never to black. The film grain covers the whole screen.
+2. **Nothing stands in the view.** The button column and its plate stood on the horizon and pushed the sun and moon's path to the left. The four controls (settings, do and get lists, saved, all publications) are now one row along the bottom, within thumb reach, hung from a hairline, each with its name under it. The path is centred and wider (its ends at x 62 and 331), and the horizon is clear from edge to edge.
+3. **Rank by size and brightness, not by colour or boxes.** The header is two large thin read-outs, the day at the left in the ink colour and the temperature at the right in white, each under a small label (date; place). A hairline with ink ends closes it, and the three events run under it across the full width, with no box and no rule lines.
+4. **Two voices.** The instrument speaks in small mono capitals and thin numerals (date, place, times, tag, control names). What people wrote keeps its own voice: event titles in Jost capitals, article titles in the serif.
+5. **Every mark shows something the app knows.** Nothing decorative was added. The place name (from the zip code) is new; the rest was already in the first pass.
+
+Also in this pass: the moon is softer (fainter craters, no pale rims, a fainter edge line), and the horizon moved down 12 points to y 388 with the top of the path 96 above it.
+
+Given up on purpose from v7's settled layout, since the user invited a rethink: the date block beside the events, the day name sized to the date's width, the button column, `∀` in the lower right corner (it is now the fourth control), and the place name is added. Kept: serif titles without numbers, 12-hour times, no condition word or symbol at the top, the path line off, the sky gradients.
+
+## What changed from v7 (first pass)
+
+Where this section disagrees with the reasoning above (button frame, layout), the section above is the current state.
 
 - **One ink colour per screen.** The date, day name, event times, buttons and the tag's first line share one colour; everything else is white. Soft yellow by day and in weather, pale yellow at sunrise, pale peach at sunset, pale aqua at night. v7 used three colours per screen. The glow behind the day name is gone.
 - **The sun reads as light, not as a drawn ball.** A near-white hot core, a warm limb, far fainter dark cells; its paler colours make the soft light round it stronger. It still churns and flickers, and the rippling outer line at rise and set is kept, thinner and paler. The rotating pale ring from v6 is gone.
@@ -18,7 +34,7 @@ Open `index.html`. Same address switches as v7: `?state=<id>`, `&bare`, `&still`
 
 ## Kept from v7 on purpose
 
-Layout (clock, date block, events, horizon at y 376, button column, `∀`, article list), serif article titles without numbers, 12-hour times, temperature only at the top, the path line off (`&arc` shows it), the sky gradients, the stars, grain, water glints, the moon, and the size of the sun and moon at rise and set.
+Serif article titles without numbers, 12-hour times, temperature only at the top, the path line off (`&arc` shows it), the sky gradients, the stars, grain, water glints, the moon, and the size of the sun and moon at rise and set.
 
 ## Decided without being asked
 

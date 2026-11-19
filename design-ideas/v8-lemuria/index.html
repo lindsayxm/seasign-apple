@@ -32,34 +32,36 @@
   /* everything at the left lines up with the clock's left edge (x 34): date, day, weather, the ∀ button and the article list */
   .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; text-transform: none; color: #fff; }
 
-  /* upper left: date, day, weather sign, temperature, condition */
-  .date { left: 34px; top: 72.7px; font-size: 9px; letter-spacing: .26em; }
-  /* the day name: a light condensed face (Avenir Next Condensed, which ships with iOS and macOS), sized by script to be exactly as wide as the date above it */
-  .day  { left: 34px; top: 102.2px; font-family: "Avenir Next Condensed", "Jost", sans-serif; font-size: 28px; line-height: 30px; letter-spacing: .03em; font-weight: 400; color: rgb(var(--hi));
-          white-space: nowrap; }
-  .now  { left: 34px; top: 145.8px; display: flex; align-items: center; height: 14px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
-
-  /* upper right: the next three events */
-  .events { left: 96px; top: 64px; width: 281px; margin: 0; padding: 8px 8px 2px 8px; list-style: none; font-size: 11px; letter-spacing: .13em; line-height: 16px;
-            background: rgba(0, 0, 0, .55); }
-  .events li { display: grid; grid-template-columns: 66px 1fr; margin-bottom: 10px; padding-left: 7px; border-left: 1px solid rgba(var(--teal), .6); }
+  /* the header: two small labels (date, place) over two large thin read-outs (day, temperature), a hairline, then the next three events across the full width */
+  .date, .place { top: 62px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 9px; line-height: 11px; letter-spacing: .2em; white-space: nowrap; }
+  .date { left: 34px; color: rgb(var(--amber)); }
+  .place { right: 34px; color: rgba(238,240,240,.7); letter-spacing: .2em; margin-right: -.2em; }
+  .day, .temp { top: 76px; font-family: "Avenir Next Condensed", "Jost", sans-serif; font-weight: 200; font-size: 50px; line-height: 50px; white-space: nowrap; }
+  .day  { left: 32px; letter-spacing: .06em; color: rgb(var(--hi)); }
+  .temp { right: 34px; color: #fff; text-transform: none; }
+  .temp i { font-style: normal; font-size: 17px; line-height: 20px; vertical-align: 24px; margin-left: 2px; font-weight: 400; letter-spacing: .04em; }
+  .rule { left: 34px; top: 136px; width: 325px; height: 5px; border-top: .5px solid rgba(255,255,255,.3); border-left: 1px solid rgb(var(--amber)); border-right: 1px solid rgb(var(--amber)); }
+  .events { left: 34px; top: 150px; width: 325px; margin: 0; padding: 0; list-style: none; font-size: 11px; letter-spacing: .13em; line-height: 16px; text-shadow: 0 0 5px rgba(0,0,0,.9); }
+  .events li { display: grid; grid-template-columns: 70px 1fr; margin-bottom: 8px; }
   /* the time is two fixed columns: the hour (or the day, for an all-day event), then AM, PM or ALL, so those always start at the same place */
   .events time { color: rgb(var(--teal)); font-size: 10px; letter-spacing: .04em; display: grid; grid-template-columns: 5.6ch auto; justify-content: start; }
   .events time b { font-weight: inherit; }
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* one column at the right: saved below the horizon, list centred on it (y 376), settings the same step above; the ∀ button is in the lower right corner, centred under the column */
-  .icons { right: 30px; top: 315px; display: flex; flex-direction: column; gap: 26.5px; }
-  /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
-  .icons svg, svg.more { stroke: rgb(var(--btn)); }
-  body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
-  .icons svg { width: 23px; height: 23px; stroke-width: .1; }
-  /* the dark panel behind these three is drawn on the canvas (see `panel` in the script), so the film grain lies over it */
-  .more { left: 345.5px; top: 766px; width: 12px; height: 12px; stroke-width: .17; filter: drop-shadow(0 1px 2.5px rgba(0,0,0,.75)) drop-shadow(0 0 6px rgba(0,0,0,.5)); }   /* a soft dark shadow round it; it has no panel */
+  /* the four controls: one row along the bottom, within thumb reach, hung from a hairline with ink corners; each has its name under it */
+  .bar { left: 34px; top: 772px; width: 325px; height: 46px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: .5px solid rgba(255,255,255,.26); }
+  .bar::before, .bar::after { content: ""; position: absolute; top: -1px; width: 7px; height: 7px; border-top: 1px solid rgb(var(--amber)); }
+  .bar::before { left: 0; border-left: 1px solid rgb(var(--amber)); }
+  .bar::after { right: 0; border-right: 1px solid rgb(var(--amber)); }
+  .bar div { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 7px; }
+  .bar svg { width: 19px; height: 19px; stroke: rgb(var(--btn)); stroke-width: .09; }
+  .bar svg.all { width: 15px; height: 15px; margin-bottom: 2px; stroke-width: .12; }
+  .bar span { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 7px; line-height: 8px; letter-spacing: .18em; margin-right: -.18em; color: rgba(238,240,240,.62); }
+  body.nobtn .bar { display: none; }   /* ?nobtn: a frame without the controls */
 
-  .feed { left: 34px; top: 480px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
-  .feed li { height: 45px; }
+  .feed { left: 34px; top: 486px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
+  .feed li { height: 44px; text-shadow: 0 0 6px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.7); }
   /* article titles: a humanist serif in sentence case (Iowan Old Style, then Charter; both ship with iOS and macOS) */
   .feed span { font-family: "Iowan Old Style", "Charter", ui-serif, Georgia, serif; text-transform: none; letter-spacing: .01em; color: rgb(244, 242, 236); font-size: 13.5px; line-height: 17.5px; }
   /* the tag beside the sun or moon and the rise and set times under the horizon: small mono type; the lines they hang on are drawn on the canvas */
@@ -103,9 +105,11 @@
   <div class="ui">
     <div class="clock" id="clock">6:23</div>
 
-    <div class="date"><span class="amber" id="date">Nov 16</span></div>
-    <div class="day"><span id="day">Mon</span></div>
-    <div class="now"><span>55°F</span></div>
+    <div class="date" id="date">Nov 16 · 2026</div>
+    <div class="place">Chicago</div>
+    <div class="day" id="day">Mon</div>
+    <div class="temp">55<i>°F</i></div>
+    <div class="rule"></div>
 
     <ul class="events">
       <li><time class="mono"><b>6:45</b><b>PM</b></time><span>Hanna’s show</span></li>
@@ -117,11 +121,6 @@
     <div class="mark" id="rise">6:41 AM</div>
     <div class="mark" id="set">4:31 PM</div>
 
-    <svg class="line more"><use href="#i-more"/></svg>
-    <div class="icons" aria-hidden="true">
-      <svg class="line"><use href="#i-settings"/></svg><svg class="line"><use href="#i-list"/></svg><svg class="line"><use href="#i-saved"/></svg>
-    </div>
-
     <ul class="feed">
       <li><span>A short explainer on how El Niño works [video]</span></li>
       <li><span>It’s getting too dry for even cactuses to survive</span></li>
@@ -130,23 +129,28 @@
       <li><span>The quiet return of the paper map</span></li>
       <li><span>Why lighthouse keepers kept such careful weather diaries</span></li>
     </ul>
+    <div class="bar">
+      <div><svg class="line"><use href="#i-settings"/></svg><span>Settings</span></div>
+      <div><svg class="line"><use href="#i-list"/></svg><span>Do · Get</span></div>
+      <div><svg class="line"><use href="#i-saved"/></svg><span>Saved</span></div>
+      <div><svg class="line all"><use href="#i-more"/></svg><span>All</span></div>
+    </div>
     <div class="home"></div>
   </div>
 </div>
 
 <nav id="nav" aria-label="Scene state">
   <h1>Seasign v8 · Lemuria</h1>
-  <p>v7 pushed towards a quiet instrument display: one ink colour per screen, hairlines, the sun and moon as light, tracked by a bracket and tag, with rise and set marked on the horizon. Pick a state; arrow keys step through them.</p>
+  <p>v7 pushed towards a quiet instrument display: the view fills the whole screen with thin read-outs laid over it: one ink colour per screen, hairlines, the sun and moon as light on a centred path, controls along the bottom. Pick a state; arrow keys step through them.</p>
 </nav>
 
 <script>
 "use strict";
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
-const HZ = 376;                                        // the sea's horizon
+const HZ = 388;                                        // the sea's horizon
 const SHOW_ARC = new URLSearchParams(location.search).has("arc");   // the drawn line of the sun and moon's path: off unless ?arc is in the address
 const HUD = !new URLSearchParams(location.search).has("nohud");   // the bracket, tag, and horizon marks: ?nohud hides them
-const PANEL = { x: 329, y: 302, w: 45, h: 149, r: 3 };  // behind the three buttons at the right
-const PATH = { x: 62 + 101, half: 101, top: 100 };     // left of centre and narrower than the screen: its ends are placed so the very large rising and setting sun or moon clears the left edge and the button panel
+const PATH = { x: W / 2, half: 134.5, top: 96 };          // centred, and as wide as the very large rising and setting sun or moon allows: nothing stands on the horizon any more
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
 
 /* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
@@ -205,6 +209,7 @@ const bits = {
   clouds: list(9, () => ({ x: wrnd(), y: -.62 + wrnd() * .75, w: .35 + wrnd() * .45, h: .07 + wrnd() * .08, sp: .006 + wrnd() * .012 })),
   rain: list(64, () => ({ x: wrnd(), y: wrnd(), sp: .5 + wrnd() * .4 })),
   snow: list(56, () => ({ x: wrnd(), y: wrnd(), sp: .03 + wrnd() * .04, r: .6 + wrnd() * .9, ph: wrnd() * TAU })),
+  swell: list(170, () => ({ x: grnd(), d: grnd(), ph: grnd() * TAU, s: grnd() })),      // the near sea: faint wave lights all the way down the screen
   glints: list(110, () => ({ x: grnd(), y: Math.pow(grnd(), 1.6), ph: grnd() * TAU, s: .5 + grnd() * 1.2, v: grnd() < .08 })),
 };
 let state, look;
@@ -400,8 +405,8 @@ function draw(t) {
         glow(sx * (rad * Math.cos(ang) + ox), rad * Math.sin(ang) + oy, sz, sz * (.55 + .5 * hash(k * 1.1 + j)), "58,72,98", .2, .6);
       }
     }
-    for (let k = 0; k < 17; k++) {                                                   // craters: lumpy outlines, each tilted and squashed differently, some with a broken pale rim
-      const ang = hash(k * 3.7 + 9) * TAU, rad = R * .9 * Math.sqrt(hash(k * 6.3 + 5)), cr = (.45 + hash(k * 4.4) * 1.25) * u, al = .2 + .3 * hash(k * 7.3);
+    for (let k = 0; k < 17; k++) {                                                   // craters: lumpy outlines, each tilted and squashed differently, all soft
+      const ang = hash(k * 3.7 + 9) * TAU, rad = R * .9 * Math.sqrt(hash(k * 6.3 + 5)), cr = (.45 + hash(k * 4.4) * 1.25) * u, al = .1 + .16 * hash(k * 7.3);
       ctx.save(); ctx.translate(sx * rad * Math.cos(ang), rad * Math.sin(ang)); ctx.rotate(hash(k * 2.9) * PI); ctx.scale(1, .55 + .45 * hash(k * 9.1));
       const pt = j => { const q = j / 8 * TAU, rr = cr * (.62 + .7 * hash(k * 13.7 + (j % 8) * 4.1)); return [rr * Math.cos(q), rr * Math.sin(q)]; };
       const mid = j => { const p0 = pt(j), p1 = pt(j + 1); return [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2]; };
@@ -409,7 +414,6 @@ function draw(t) {
       for (let j = 1; j <= 8; j++) ctx.quadraticCurveTo(...pt(j), ...mid(j));
       ctx.fillStyle = col("46,58,84", al); ctx.fill();
       glow(0, 0, cr * 1.7, cr * 1.7, "46,58,84", al * .7, .55);
-      if (hash(k * 5.3) > .45) { const q0 = hash(k * 8.9) * TAU; ctx.beginPath(); ctx.arc(0, 0, cr * 1.02, q0, q0 + .8 + hash(k * 3.1) * 1.3); ctx.lineWidth = .28 * u; ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.stroke(); }
       ctx.restore();
     }
     for (let k = 0; k < 70; k++) {                                                   // fine pitting and pale flecks
@@ -425,7 +429,7 @@ function draw(t) {
     ctx.globalAlpha = .26; ctx.drawImage(grain, 96, 60, 22, 22, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
     ctx.filter = "none"; ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
     ctx.globalCompositeOperation = "lighter";
-    ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.lineWidth = .6; ctx.strokeStyle = col(SILVER, .55); ctx.stroke();
+    ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.lineWidth = .6; ctx.strokeStyle = col(SILVER, .22); ctx.stroke();
   }
   ctx.restore();
   ctx.globalCompositeOperation = "lighter";
@@ -449,7 +453,7 @@ function draw(t) {
     for (let i = 0; i <= hours; i++) { const px = pathAt(i / hours)[0], end = i === 0 || i === hours; hair(px, HZ + 2, px, HZ + (end ? 9 : 5), "255,255,255", end ? .7 : .42); }
     if (state.turn > .05 && state.turn < .95) { ctx.fillStyle = col(ink, .95); ctx.fillRect(bx - 2, HZ + 1.5, 4, 4); }   // not when it is on the horizon, where the square is lost in the glare
     /* corner brackets round the sun or moon, and a short leader to its tag */
-    const hb = R + 8, arm = Math.min(9, 4 + R * .1), flip = bx > 190 ? -1 : 1;
+    const hb = R + 8, arm = Math.min(9, 4 + R * .1), flip = bx > W / 2 + 1 ? -1 : 1;
     for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
       const cx = bx + sx * hb, cy = by + sy * hb; if (cy > HZ - 3) continue;   // only the corners above the horizon
       ctx.beginPath(); ctx.moveTo(cx - sx * arm, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy - sy * arm); ctx.lineWidth = .7; ctx.strokeStyle = "rgba(255,255,255,.72)"; ctx.stroke();
@@ -458,28 +462,28 @@ function draw(t) {
     const lx = bx + flip * hb, ly = by - hb;
     ctx.beginPath(); ctx.moveTo(lx + flip * 3, ly - 3); ctx.lineTo(lx + flip * 11, ly - 11); ctx.lineTo(lx + flip * 19, ly - 11); ctx.lineWidth = .6; ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.stroke();
   }
-  /* the frame behind the three buttons: a flat dark plate with a hairline edge and short brighter corners */
-  if (!document.body.classList.contains("nobtn")) {
-    const p = PANEL;
-    ctx.fillStyle = "rgba(2,5,12,.5)"; ctx.fillRect(p.x, p.y, p.w, p.h);
-    ctx.lineWidth = .6; ctx.strokeStyle = "rgba(255,255,255,.2)"; ctx.strokeRect(p.x, p.y, p.w, p.h);
-    for (const sx of [0, 1]) for (const sy of [0, 1]) {
-      const cx = p.x + sx * p.w, cy = p.y + sy * p.h, dx = sx ? -1 : 1, dy = sy ? -1 : 1;
-      ctx.beginPath(); ctx.moveTo(cx + dx * 7, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + dy * 7); ctx.lineWidth = .8; ctx.strokeStyle = col(ink, .85); ctx.stroke();
-    }
-    hair(p.x + 6, p.y + 50, p.x + p.w - 6, p.y + 50, "255,255,255", .14); hair(p.x + 6, p.y + 99, p.x + p.w - 6, p.y + 99, "255,255,255", .14);
-  }
   ctx.globalCompositeOperation = "lighter";
-  const gx = Math.floor(hash(Math.floor(t * 24)) * 180), gy = Math.floor(hash(Math.floor(t * 24) + 9.1) * 180);
+  /* ---- the view fills the screen. Dark is laid over the top of the sky and over the sea so the words read, but not to black:
+          stars still show behind the header, and the sea carries faint wave lights all the way down, brighter under the sun or moon ---- */
+  ctx.globalCompositeOperation = "source-over";
+  const top = ctx.createLinearGradient(0, 0, 0, 290); top.addColorStop(0, "rgba(0,0,0,.92)"); top.addColorStop(.4, "rgba(0,0,0,.74)"); top.addColorStop(.62, "rgba(0,0,0,.46)"); top.addColorStop(.8, "rgba(0,0,0,.2)"); top.addColorStop(.92, "rgba(0,0,0,.05)"); top.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = top; ctx.fillRect(0, 0, W, 290);
+  const low = ctx.createLinearGradient(0, HZ + 30, 0, HZ + 110); low.addColorStop(0, "rgba(0,0,0,0)"); low.addColorStop(1, "rgba(0,0,0,.9)");
+  ctx.fillStyle = low; ctx.fillRect(0, HZ + 30, W, H - HZ - 30);
+  ctx.globalCompositeOperation = "lighter";
+  const deep = ctx.createLinearGradient(0, HZ + 60, 0, H); deep.addColorStop(0, col(tint, 0)); deep.addColorStop(.3, col(look.night ? "40,60,90" : "30,50,84", .16)); deep.addColorStop(1, col("10,20,40", .1));
+  ctx.fillStyle = deep; ctx.fillRect(0, HZ + 60, W, H - HZ - 60);
+  for (const g of bits.swell) {
+    const d = g.d, gy = HZ + 44 + Math.pow(d, 1.5) * (H - HZ - 44), len = 3 + d * 15, gx = ((g.x + t * .003 * (.4 + d)) % 1) * (W + 40) - 30;
+    const lane = Math.exp(-Math.pow((gx + len / 2 - bx) / (50 + d * 150), 2));                      // the lane of light under the sun or moon, widening toward the viewer
+    const a = Math.pow(.5 + .5 * Math.sin(t * (.9 + g.s) + g.ph), 2) * (.1 + .24 * lane * (1 - .6 * d)) * (.5 + .5 * P);
+    ctx.fillStyle = col(lane > .4 ? tint : SILVER, a); ctx.fillRect(gx, gy, len, .5 + d * .5);
+  }
+  /* film grain over the whole view */
+  const nx = Math.floor(hash(Math.floor(t * 24)) * 180), ny = Math.floor(hash(Math.floor(t * 24) + 9.1) * 180);
   ctx.globalAlpha = .11;
-  for (let yy = -gy; yy < HZ + 110; yy += 180) for (let xx = -gx; xx < W; xx += 180) ctx.drawImage(grain, xx, yy, 180, 180);
+  for (let yy = -ny; yy < H; yy += 180) for (let xx = -nx; xx < W; xx += 180) { ctx.globalAlpha = yy + 90 > HZ + 110 ? .07 : .11; ctx.drawImage(grain, xx, yy, 180, 180); }
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
-  ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "rgba(255,255,255,.16)"; ctx.fillRect(0, HZ + 92, 30, .6); ctx.fillRect(W - 30, HZ + 92, 30, .6);
-  /* dark behind the words */
-  const top = ctx.createLinearGradient(0, 0, 0, 200); top.addColorStop(0, "rgba(0,0,0,1)"); top.addColorStop(.7, "rgba(0,0,0,.8)"); top.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = top; ctx.fillRect(0, 0, W, 200);
-  const low = ctx.createLinearGradient(0, HZ + 34, 0, HZ + 100); low.addColorStop(0, "rgba(0,0,0,0)"); low.addColorStop(1, "rgba(0,0,0,.92)");
-  ctx.fillStyle = low; ctx.fillRect(0, HZ + 34, W, H - HZ - 34);
 }
 
 /* ---------- choosing a state ---------- */
@@ -499,7 +503,7 @@ function show(id) {
   document.getElementById("clock").textContent = state.time.replace(/^0/, "");
   for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
   /* the tag: what it is (and how much of the moon is lit), then the wind, and the cloud cover when there is any; the marks: when it rises and sets */
-  const [tx, ty] = pathAt(state.turn), low2 = Math.pow(Math.max(0, 1 - (HZ - ty) / PATH.top), 2), hb = 12 * (1 + 3.2 * low2) + 8, flip = tx > 190;
+  const [tx, ty] = pathAt(state.turn), low2 = Math.pow(Math.max(0, 1 - (HZ - ty) / PATH.top), 2), hb = 12 * (1 + 3.2 * low2) + 8, flip = tx > W / 2 + 1;
   const tag = document.getElementById("tag"), lit = state.phase == null ? null : Math.round((1 - Math.cos(TAU * state.phase)) / 2 * 100);
   const edge = state.turn < .05 ? "rise" : state.turn > .95 ? "set" : null;        // on the horizon: the tag gives the time, and the mark under it (lost in the glare) is hidden
   document.getElementById("tag1").textContent = edge ? (lit == null ? "Sun" : "Moon") + edge + " " + state[edge] : lit == null ? "Sun" : "Moon " + lit + "%";
@@ -520,11 +524,6 @@ addEventListener("keydown", e => {
   show(STATES[(STATES.indexOf(state) + step + STATES.length) % STATES.length].id);
 });
 ((document.fonts && document.fonts.ready) || Promise.resolve()).then(() => {
-  /* make the day name exactly as wide as the date (each ends with one letter-space, which is left out of both widths) */
-  const dateEl = document.getElementById("date"), dayEl = document.getElementById("day"), wide = (el, gap) => el.getBoundingClientRect().width - gap;
-  const want = wide(dateEl, 9 * .26), got = wide(dayEl, 28 * .03);
-  if (got > 0) { const size = 28 * want / got; dayEl.parentNode.style.fontSize = size + "px"; dayEl.parentNode.style.lineHeight = size * 1.08 + "px";
-    document.querySelector(".now").style.top = 109.8 + size * 1.08 + 7 + "px"; }   // these offsets put the block's top and bottom level with the events' text (date top with the first event's text top, temperature bottom with the last event's text bottom: y 75.7 to 151.7), with equal gaps above and below the day name; measured on a still
   show(params.get("state") || "mid-day");
   if (still) { document.title = "ready"; return; }
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
