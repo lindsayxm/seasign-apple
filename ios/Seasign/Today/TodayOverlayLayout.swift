@@ -315,6 +315,31 @@ struct TodayOverlayLayout {
         return TodayType.dayName(size)
     }
 
+    // MARK: Pull spinners
+
+    /// The frame of each pull's spinner, in points (not scaled).
+    static let spinnerSide: CGFloat = 20
+
+    /// The calendar pull's spinner: in the events box's upper right corner,
+    /// inside its padding, level with the first event line. Placed from the
+    /// mockup's box, so it has a place even when there is no box.
+    var calendarSpinnerCenter: CGPoint {
+        CGPoint(
+            x: spinnerCenterX,
+            y: (Mockup.boxTop + Mockup.boxPadding + Mockup.line / 2) * scale
+        )
+    }
+
+    /// The headline pull's spinner: at the upper right of the headlines,
+    /// level with the first title line, under the calendar one.
+    var headlineSpinnerCenter: CGPoint {
+        CGPoint(x: spinnerCenterX, y: headlinesTop + titleLineHeight / 2)
+    }
+
+    private var spinnerCenterX: CGFloat {
+        (Mockup.boxRight - Mockup.boxPadding) * scale - Self.spinnerSide / 2
+    }
+
     // MARK: Article rows
 
     /// The top of article row `index`.

@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-1
 depends_on: []
 created: 2026-11-19T16:59:34Z
-updated: 2026-11-19T16:59:34Z
+updated: 2026-11-19T17:01:52Z
 ---
 
 ## Goal
@@ -35,3 +35,4 @@ User, 2026-11-19: keep calendar and headline refresh separate. Pulling down on t
 
 - 2026-11-19T16:59:34Z [lead] created (todo)
 - 2026-11-19T16:59:34Z [implementer-1] status: todo → in-progress — claimed by implementer-1
+- 2026-11-19T17:01:52Z [implementer-1] Lead additions (2026-11-19, treated as criteria): (1) the headline pull calls feed.refresh(force: true) so the 15-min gate does not skip it, but unlike Settings' forced refresh it must send nothing during a 429 delay; fix that for the pull path only, with a test; no AI. (2) the sky pull calls model.refresh(force: true), honouring any 429 delay. Lead is changing api/src/routes/sky.ts cache time separately; api/ not touched here.

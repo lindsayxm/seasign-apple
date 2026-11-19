@@ -112,6 +112,28 @@ private let rateLimitDelays: [(String?, Int)] = [
         #expect(model.retryNotBefore == nil)
     }
 
+    /// The calendar pull forces a sky refresh, which still waits out a 429.
+    @Test func aForcedSkyRefreshWaitsOutTheDelay() async throws {
+        let transport = RateLimitTransport(SkyStubTransport())
+        let model = today(try inMemoryContext(), transport)
+        try await model.saveZip("10001")
+
+        transport.limit(retryAfter: "60")
+        await model.refresh(force: true)
+        #expect(transport.count("getSky") == 2)
+        #expect(model.retryNotBefore != nil)
+
+        clock.advance(30)
+        await model.refresh(force: true)
+        #expect(transport.count("getSky") == 2)
+
+        transport.lift()
+        clock.advance(30)
+        await model.refresh(force: true)
+        #expect(transport.count("getSky") == 3)
+        #expect(model.retryNotBefore == nil)
+    }
+
     /// The zip check in Settings says what happened, not "couldn't find
     /// that zip", and keeps the previous zip and sky.
     @Test func theZipCheckSaysTooManyRequests() async throws {
@@ -251,6 +273,49 @@ private let rateLimitDelays: [(String?, Int)] = [
         clock.advance(61)
         await model.refresh()
         #expect(transport.count("postFeed") == asked + 3)
+        #expect(model.retryNotBefore == nil)
+    }
+
+    /// The headline pull on Today (task 151) asks at once even when the
+    /// headlines are fresh, but never during a 429's delay; Settings'
+    /// "Refresh headlines now" still does.
+    @Test func theHeadlinePullWaitsOutTheDelay() async throws {
+        let stub = FeedStub()
+        followedScience(stub)
+        let transport = RateLimitTransport(stub)
+        let model = feed(try inMemoryContext(), transport)
+        try await model.add(address: "news.example.com/science/", category: "Sci")
+        // A full refresh, so the headlines count as fresh.
+        await model.refresh()
+        let asked = transport.count("postFeed")
+
+        // Fresh: an ordinary refresh skips, the pull is sent.
+        await model.refresh()
+        #expect(transport.count("postFeed") == asked)
+        await model.refresh(force: true, waitsOutDelay: true)
+        #expect(transport.count("postFeed") == asked + 1)
+
+        transport.limit(retryAfter: "60")
+        await model.refresh(force: true, waitsOutDelay: true)
+        #expect(transport.count("postFeed") == asked + 2)
+        #expect(model.retryNotBefore != nil)
+
+        // Within the delay: the pull sends nothing, Settings' button does.
+        clock.advance(30)
+        await model.refresh(force: true, waitsOutDelay: true)
+        #expect(transport.count("postFeed") == asked + 2)
+        await model.refresh(force: true)
+        #expect(transport.count("postFeed") == asked + 3)
+
+        // That tap was refused too and set a new delay; once it has passed,
+        // the pull is sent.
+        transport.lift()
+        clock.advance(59)
+        await model.refresh(force: true, waitsOutDelay: true)
+        #expect(transport.count("postFeed") == asked + 3)
+        clock.advance(1)
+        await model.refresh(force: true, waitsOutDelay: true)
+        #expect(transport.count("postFeed") == asked + 4)
         #expect(model.retryNotBefore == nil)
     }
 

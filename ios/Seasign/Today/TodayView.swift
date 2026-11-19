@@ -19,8 +19,11 @@ struct TodayView: View {
     @State private var destination: Destination?
     /// The headline open in the reading view.
     @State private var reading: FeedEntry?
-    /// A pull to refresh is running; another pull does nothing until it ends.
-    @State private var isPulling = false
+    /// A calendar pull (events and sky) is running; another one does
+    /// nothing until it ends. Independent of the headline pull.
+    @State private var isPullingCalendar = false
+    /// A headline pull is running; another one does nothing until it ends.
+    @State private var isPullingHeadlines = false
 
     #if DEBUG
     @AppStorage(SceneDebugOverride.timeKey) private var debugTime = ""
@@ -32,6 +35,9 @@ struct TodayView: View {
     /// `-debugEventTitles "Dentist|A long title…"`: other titles for those
     /// events, one to three, separated by `|`; `none` for none.
     @AppStorage("debugEventTitles") private var debugEventTitles = ""
+    /// `-debugPullSpinner 5`: each pull's spinner stays up at least this
+    /// many seconds, for screenshots.
+    @AppStorage("debugPullSpinner") private var debugPullSpinner = 0.0
     #endif
 
     enum Destination: String, Identifiable {
@@ -103,36 +109,77 @@ struct TodayView: View {
         }
     }
 
-    /// The pull on Today: the events are asked for at once, even when fresh
-    /// (a 429's delay still holds them back); the sky and headlines refresh
-    /// under their usual rules. It never starts an AI search, which spends
-    /// the user's daily allowance and key.
-    private func pull() async {
-        async let calendar: Void = events.refresh(force: true)
-        async let sky: Void = model.refresh()
-        async let headlines: Void = feed.refresh()
-        _ = await (calendar, sky, headlines)
-    }
-
-    /// Starts `pull()` with the spinner up, unless one is already running.
-    private func startPull() {
-        guard !isPulling else { return }
-        isPulling = true
-        Task {
-            async let shown: Void = { try? await Task.sleep(for: TodayPull.minimumSpinner) }()
-            await pull()
-            await shown
-            isPulling = false
+    /// A pull on Today (see `TodayPull`). Neither ever starts an AI
+    /// search, which spends the user's daily allowance and key.
+    ///
+    /// - Calendar: the events and the sky are asked for at once, even when
+    ///   fresh; a 429's delay still holds either back. No headlines.
+    /// - Headlines: the followed sites are asked for at once, even when
+    ///   fresh, but not during a 429's delay (unlike "Refresh headlines
+    ///   now" in Settings). No events or sky.
+    private func pull(_ target: TodayPull.Target) async {
+        switch target {
+        case .calendar:
+            async let calendar: Void = events.refresh(force: true)
+            async let sky: Void = model.refresh(force: true)
+            _ = await (calendar, sky)
+        case .headlines:
+            await feed.refresh(force: true, waitsOutDelay: true)
         }
     }
 
+    /// Starts `pull(target)` with its spinner up, unless that pull is
+    /// already running. The other pull is not held up.
+    private func startPull(_ target: TodayPull.Target) {
+        switch target {
+        case .calendar:
+            guard !isPullingCalendar else { return }
+            isPullingCalendar = true
+        case .headlines:
+            guard !isPullingHeadlines else { return }
+            isPullingHeadlines = true
+        }
+        let minimum = spinnerMinimum
+        Task {
+            async let shown: Void = { try? await Task.sleep(for: minimum) }()
+            await pull(target)
+            await shown
+            switch target {
+            case .calendar: isPullingCalendar = false
+            case .headlines: isPullingHeadlines = false
+            }
+        }
+    }
+
+    /// How long a pull's spinner stays up at least.
+    private var spinnerMinimum: Duration {
+        #if DEBUG
+        if debugPullSpinner > 0 { return max(TodayPull.minimumSpinner, .seconds(debugPullSpinner)) }
+        #endif
+        return TodayPull.minimumSpinner
+    }
+
     /// See `TodayPull`. Decided only when the finger lifts, so the screen is
-    /// not redrawn during the drag.
-    private var pullGesture: some Gesture {
+    /// not redrawn during the drag; where the finger went down picks the pull.
+    private func pullGesture(horizonY: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: TodayPull.minimumDistance)
             .onEnded { drag in
-                if TodayPull.isPull(drag.translation) { startPull() }
+                if let target = TodayPull.target(start: drag.startLocation, translation: drag.translation, horizonY: horizonY) {
+                    startPull(target)
+                }
             }
+    }
+
+    /// A pull's spinner, centred on `center`; nothing is drawn at rest.
+    private func spinner(_ center: CGPoint, label: String) -> some View {
+        let side = TodayOverlayLayout.spinnerSide
+        return ProgressView()
+            .controlSize(.small)
+            .tint(Palette.todayText)
+            .frame(width: side, height: side)
+            .allowsHitTesting(false)
+            .accessibilityLabel(label)
+            .placed(x: center.x - side / 2, y: center.y - side / 2)
     }
 
     /// The sky and clock to draw: the real ones, or the debug override's.
@@ -200,7 +247,8 @@ struct TodayView: View {
                     followsNoSites: feed.sites.isEmpty,
                     ink: ink,
                     open: { reading = $0 },
-                    openSettings: { destination = .settings }
+                    openSettings: { destination = .settings },
+                    refresh: { startPull(.headlines) }
                 )
 
                 // ∀, for all publications: the 7-day history.
@@ -214,19 +262,19 @@ struct TodayView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Last 7 days")
+                // The headline pull, for VoiceOver, also when the sea is empty.
+                .accessibilityAction(named: Text(TodayPull.headlinesActionName)) { startPull(.headlines) }
                 .placed(x: layout.allRect.midX - 22, y: layout.allRect.midY - 22)
 
-                // The pull's spinner, in the open sky between the wind line
-                // and the buttons; nothing is drawn there at rest.
-                if isPulling {
-                    ProgressView()
-                        .tint(Palette.todayText)
-                        .frame(width: 44, height: 44)
-                        .accessibilityLabel("Refreshing")
-                        .placed(x: proxy.size.width / 2 - 22, y: layout.windBaseline - 22)
+                // The pulls' spinners, one for each; nothing at rest.
+                if isPullingCalendar {
+                    spinner(layout.calendarSpinnerCenter, label: "Refreshing calendar and weather")
+                }
+                if isPullingHeadlines {
+                    spinner(layout.headlineSpinnerCenter, label: "Refreshing headlines")
                 }
             }
-            .simultaneousGesture(pullGesture)
+            .simultaneousGesture(pullGesture(horizonY: SceneLayout(size: proxy.size).horizonY))
         }
         .ignoresSafeArea()
     }
@@ -266,8 +314,8 @@ struct TodayView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: headerLabel(date: date, state: state)))
         .accessibilityAddTraits(.isHeader)
-        // The pull, for VoiceOver, which keeps drags for itself.
-        .accessibilityAction(named: Text("Refresh")) { startPull() }
+        // The calendar pull, for VoiceOver, which keeps drags for itself.
+        .accessibilityAction(named: Text(TodayPull.calendarActionName)) { startPull(.calendar) }
         .placed(x: layout.leftX, y: top)
     }
 
@@ -336,7 +384,18 @@ struct TodayView: View {
 /// the refresh starts when a long, mostly downward drag is let go. (A
 /// `.refreshable` scroll view laid under the overlay took the drag but never
 /// refreshed; see task 150.)
+///
+/// Where the finger went down picks what is refreshed (task 151): above the
+/// horizon (the header, the events box, the sky) the calendar and the sky;
+/// at or below it (the sea and the article titles) the headlines only.
 enum TodayPull {
+    enum Target: Equatable {
+        /// Events and the sky (temperature, conditions).
+        case calendar
+        /// The followed sites' headlines.
+        case headlines
+    }
+
     /// A drag shorter than this is not watched at all, so taps are never held up.
     static let minimumDistance: CGFloat = 20
     /// How far down the finger must travel before letting go.
@@ -344,10 +403,22 @@ enum TodayPull {
     /// The spinner stays at least this long, so a quick answer does not flash.
     static let minimumSpinner: Duration = .milliseconds(600)
 
+    /// The VoiceOver actions that stand in for the two pulls.
+    static let calendarActionName = "Refresh calendar and weather"
+    static let headlinesActionName = "Refresh headlines"
+
     /// Whether a drag that ended with this translation is a pull: at least
     /// `distance` down and more down than sideways (twice as much).
     static func isPull(_ translation: CGSize) -> Bool {
         translation.height >= distance && translation.height >= 2 * abs(translation.width)
+    }
+
+    /// Which pull a drag that started at `start` (screen points) and ended
+    /// with `translation` is: nil when it is not a pull; `.calendar` when it
+    /// started above `horizonY`; `.headlines` when at or below it.
+    static func target(start: CGPoint, translation: CGSize, horizonY: CGFloat) -> Target? {
+        guard isPull(translation) else { return nil }
+        return start.y < horizonY ? .calendar : .headlines
     }
 }
 

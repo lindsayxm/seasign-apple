@@ -150,8 +150,10 @@ final class FeedModel {
     /// than `refreshInterval` and every site has been read. If the request
     /// fails as a whole, the cached items stay; a site that fails keeps its
     /// items and shows its problem in Settings. After the API's rate limit
-    /// (429), only a forced refresh is sent before its delay has passed.
-    func refresh(force: Bool = false) async {
+    /// (429), only a forced refresh is sent before its delay has passed,
+    /// and only when `waitsOutDelay` is false: "Refresh headlines now" in
+    /// Settings is sent anyway, the pull on Today is not.
+    func refresh(force: Bool = false, waitsOutDelay: Bool = false) async {
         guard !isFrozen, !isRefreshing else { return }
         let current = now()
         store.prune(now: current, keepingSites: Set(sites.map(\.id)))
@@ -162,7 +164,7 @@ final class FeedModel {
            current >= last, current.timeIntervalSince(last) < Self.refreshInterval {
             return
         }
-        if !force, let retryNotBefore, current < retryNotBefore { return }
+        if !force || waitsOutDelay, let retryNotBefore, current < retryNotBefore { return }
         isRefreshing = true
         defer { isRefreshing = false }
         await fetch(sites, isFullRefresh: true)

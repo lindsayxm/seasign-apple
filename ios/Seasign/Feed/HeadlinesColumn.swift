@@ -28,6 +28,9 @@ struct HeadlinesColumn: View {
     var ink: Color
     var open: (FeedEntry) -> Void
     var openSettings: () -> Void
+    /// The headline pull, offered to VoiceOver on each row (VoiceOver keeps
+    /// drags for itself).
+    var refresh: () -> Void = {}
 
     private static let maxLines = 2
     private var s: CGFloat { layout.scale }
@@ -49,6 +52,7 @@ struct HeadlinesColumn: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Opens Settings")
+                .accessibilityAction(named: Text(TodayPull.headlinesActionName), refresh)
                 .placed(x: layout.leftX, y: layout.headlinesTop)
             } else {
                 let rows = fittingRows
@@ -101,6 +105,7 @@ struct HeadlinesColumn: View {
         // Plain strings, so nothing a site wrote is read as markup.
         .accessibilityLabel(AILabel.accessibility(title: row.entry.title, isAI: row.entry.isAI) + ", " + row.entry.source)
         .accessibilityHint("Opens the article's summary")
+        .accessibilityAction(named: Text(TodayPull.headlinesActionName), refresh)
     }
 
     /// The width a title's lines may take: the column, for every title.

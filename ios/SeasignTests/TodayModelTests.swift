@@ -145,6 +145,54 @@ import UIKit
         #expect(stale.snapshot?.current.temperatureF == 51.0)
         #expect(stale.snapshot?.fetchedAt == later)
     }
+
+    /// The calendar pull on Today asks for the sky even when it is fresh.
+    @Test func aForcedRefreshFetchesAFreshSky() async throws {
+        let context = try inMemoryContext()
+        let first = model(context: context)
+        try await first.saveZip("10001")
+
+        let warmer = skyJSON10001.replacingOccurrences(of: "43.4", with: "51.0")
+        let model = model(context: context, transport: SkyStubTransport(responses: ["10001": warmer]))
+        await model.refresh()
+        #expect(model.snapshot?.current.temperatureF == 43.4)
+        await model.refresh(force: true)
+        #expect(model.snapshot?.current.temperatureF == 51.0)
+    }
+}
+
+/// A clock the cadence test can move.
+private final class CadenceClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = instant("2026-11-15T23:05:00Z")
+    var now: Date { lock.withLock { value } }
+    func advance(_ seconds: TimeInterval) { lock.withLock { value = value.addingTimeInterval(seconds) } }
+}
+
+/// Task 151: the sky refreshes by itself every 10 minutes while Today is
+/// open, through Today's one-minute loop and `refreshInterval`.
+@Suite @MainActor struct SkyCadenceTests {
+    @Test func theSkyIsFreshForTenMinutes() {
+        #expect(TodayModel.refreshInterval == 10 * 60)
+    }
+
+    /// An hour of the one-minute loop sends six requests, one every 10 minutes.
+    @Test func anOpenAppAsksForTheSkyEveryTenMinutes() async throws {
+        let clock = CadenceClock()
+        let transport = RateLimitTransport(SkyStubTransport())
+        let model = TodayModel(api: stubbedAPI(transport), context: try inMemoryContext(), now: { clock.now })
+        try await model.saveZip("10001")
+        #expect(transport.count("getSky") == 1)
+
+        var sent: [Int] = []
+        for minute in 1...60 {
+            clock.advance(60)
+            let before = transport.count("getSky")
+            await model.refresh()
+            if transport.count("getSky") > before { sent.append(minute) }
+        }
+        #expect(sent == [10, 20, 30, 40, 50, 60])
+    }
 }
 
 @Suite struct DesignTests {
