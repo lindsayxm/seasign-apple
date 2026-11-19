@@ -68,3 +68,5 @@ The boxed date and place labels were then moved below the day and temperature at
 Then (#105) the user had the right column stacked as boxed date, boxed place, temperature, with the coordinates removed; the day name and its week/day note stay at the top left.
 
 Then (#106): the large temperature went; the place box reads `CHICAGO · 55°F`, and the date and place boxes together are exactly as tall as the day name. Events moved up to y 118.
+
+Then (#107, #108): the second control is labelled `LIST`; the button bar moved from the bottom to just under the events, the horizon went down to y 404 (path top 88) to clear it, and the list shows seven titles.

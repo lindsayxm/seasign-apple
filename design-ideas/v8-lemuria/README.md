@@ -29,6 +29,10 @@ The user asked for the part above the horizontal bar to look more technical. It 
 - **Current arrangement (supersedes the lines above where they differ):** the day name with its week and day-of-year note is at the top left. At the top right are two boxes of equal width, one above the other: the date (`2026 · NOV 16`, ink) and the place with the temperature (`CHICAGO · 55°F`, white). Together the two boxes are exactly as tall as the day name's letters (y 64.7 to 93). The large temperature read-out, the state (`IL`) and the latitude and longitude note were removed at the user's request. The events start at y 118, 22 points under the header.
 - There is no bar under the header. A hairline, and then a ruler of the week (seven segments, today in ink), were tried there; the user had the ruler removed. The events sit 6 points higher to close the gap.
 
+## Button bar under the events (2026-11-18)
+
+At the user's request the row of four controls moved from the bottom of the screen to just under the calendar events (y 218), to leave more room for article titles. This supersedes rule 2 above where it says the controls are along the bottom. To keep the bar clear of the sun and moon's tag, the horizon moved down 16 points to y 404 and the top of the path is now 88 above it. The article list starts at y 504 and shows seven titles instead of six.
+
 ## What changed from v7 (first pass)
 
 - **One ink colour per screen.** The date, day name, event times, buttons and the tag's first line share one colour; everything else is white. Soft yellow by day and in weather, pale yellow at sunrise, pale peach at sunset, pale aqua at night. v7 used three colours per screen. The glow behind the day name is gone.

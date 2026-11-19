@@ -52,8 +52,8 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* the four controls: one row along the bottom, within thumb reach, hung from a hairline with ink corners; each has its name under it */
-  .bar { left: 34px; top: 772px; width: 325px; height: 46px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: .5px solid rgba(255,255,255,.26); }
+  /* the four controls: one row just under the events (it was along the bottom at first), hung from a hairline with ink corners; each has its name under it */
+  .bar { left: 34px; top: 218px; width: 325px; height: 46px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: .5px solid rgba(255,255,255,.26); }
   .bar::before, .bar::after { content: ""; position: absolute; top: -1px; width: 7px; height: 7px; border-top: 1px solid rgb(var(--amber)); }
   .bar::before { left: 0; border-left: 1px solid rgb(var(--amber)); }
   .bar::after { right: 0; border-right: 1px solid rgb(var(--amber)); }
@@ -63,7 +63,7 @@
   .bar span { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 7px; line-height: 8px; letter-spacing: .18em; margin-right: -.18em; color: rgba(238,240,240,.62); }
   body.nobtn .bar { display: none; }   /* ?nobtn: a frame without the controls */
 
-  .feed { left: 34px; top: 486px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
+  .feed { left: 34px; top: 504px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
   .feed li { height: 44px; text-shadow: 0 0 6px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.7); }
   /* article titles: a humanist serif in sentence case (Iowan Old Style, then Charter; both ship with iOS and macOS) */
   .feed span { font-family: "Iowan Old Style", "Charter", ui-serif, Georgia, serif; text-transform: none; letter-spacing: .01em; color: rgb(244, 242, 236); font-size: 13.5px; line-height: 17.5px; }
@@ -129,6 +129,7 @@
       <li><span>What the Great Lakes remember about last winter</span></li>
       <li><span>The quiet return of the paper map</span></li>
       <li><span>Why lighthouse keepers kept such careful weather diaries</span></li>
+      <li><span>The cartographers redrawing the ocean floor</span></li>
     </ul>
     <div class="bar">
       <div><svg class="line"><use href="#i-settings"/></svg><span>Settings</span></div>
@@ -148,10 +149,10 @@
 <script>
 "use strict";
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
-const HZ = 388;                                        // the sea's horizon
+const HZ = 404;                                        // the sea's horizon
 const SHOW_ARC = new URLSearchParams(location.search).has("arc");   // the drawn line of the sun and moon's path: off unless ?arc is in the address
 const HUD = !new URLSearchParams(location.search).has("nohud");   // the bracket, tag, and horizon marks: ?nohud hides them
-const PATH = { x: W / 2, half: 134.5, top: 96 };          // centred, and as wide as the very large rising and setting sun or moon allows: nothing stands on the horizon any more
+const PATH = { x: W / 2, half: 134.5, top: 88 };          // centred, and as wide as the very large rising and setting sun or moon allows: nothing stands on the horizon any more
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
 
 /* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
