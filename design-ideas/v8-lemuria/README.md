@@ -18,6 +18,15 @@ Also in this pass: the moon is softer (fainter craters, no pale rims, a fainter 
 
 Given up on purpose from v7's settled layout, since the user invited a rethink: the date block beside the events, the day name sized to the date's width, the button column, `∀` in the lower right corner (it is now the fourth control), and the place name is added. Kept: serif titles without numbers, 12-hour times, no condition word or symbol at the top, the path line off, the sky gradients.
 
+## The header as an instrument read-out (third pass, 2026-11-18)
+
+The user asked for the part above the horizontal bar to look more technical. It replaces the header described in rule 3 above; the events under the bar are unchanged.
+
+- The date (`2026 · NOV 16`, in ink) and the place (`CHICAGO · IL`, in white) are small mono labels in hairline boxes.
+- The day name and the temperature are large light mono read-outs (the thin condensed face is gone).
+- Each has a small two-line note beside it: week and day of the year next to the day (`WK 47`, `DAY 320`), latitude and longitude next to the temperature. All four come from what the app has: the date, and the place found from the zip code.
+- The bar is now a ruler of the week: seven segments, Monday first, with a small tick in the middle of each, and today's segment drawn thick in ink.
+
 ## What changed from v7 (first pass)
 
 - **One ink colour per screen.** The date, day name, event times, buttons and the tag's first line share one colour; everything else is white. Soft yellow by day and in weather, pale yellow at sunrise, pale peach at sunset, pale aqua at night. v7 used three colours per screen. The glow behind the day name is gone.
