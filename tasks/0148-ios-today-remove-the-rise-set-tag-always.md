@@ -1,11 +1,11 @@
 ---
 id: 148
 title: iOS Today: remove the rise/set tag, always show the wind line, remove the AI mark from Today titles
-status: in-progress
+status: review
 owner: implementer-1
 depends_on: []
 created: 2026-11-19T14:06:20Z
-updated: 2026-11-19T14:12:53Z
+updated: 2026-11-19T14:14:23Z
 ---
 
 ## Goal
@@ -35,3 +35,5 @@ User, 2026-11-19: remove the text call-out on the sun/moon at rise and set; alwa
 - 2026-11-19T14:06:20Z [lead] created (todo)
 - 2026-11-19T14:06:36Z [implementer-1] status: todo → in-progress — claimed by implementer-1
 - 2026-11-19T14:12:53Z [implementer-1] Removed the rise/set tag: SceneMarks.Tag, SceneMarks.tag, SceneState.tagLines and showsTag, and the leader/tag drawing in SceneRenderer.drawMarks. tagEdge renamed hiddenTimeEdge (same rule: body within 5 % of an end whose instant is known); riseMark/setMark still hide that end's time. TodayView: wind line is now 'if let wind = state.windLabel' (windMph is nil in the neutral and stale scene). HeadlinesColumn: no AIMark, no indent, full column width for every title; AILabel.accessibility still says AI-found. Palette and SkyMath comments no longer mention the tag. VoiceOver choice: accessibilityDescription(clock:) now always says 'Sunrise 6:41 AM, sunset 4:31 PM.' from markedPass (so the time hidden at the end is still spoken) and no longer speaks the wind, because the wind line is always shown with its own label 'Wind N miles per hour' and would otherwise be spoken twice. AIMark.fixed / AIMark.fixedWidth are now unused (left in place). Tests: tagStandsAbove... removed, tag assertions replaced by hiddenTimeEdge/riseMark/setMark/riseTime/setTime/windLabel checks, spoken tests rewritten incl. a near-end and moonset case. 432 tests in 62 suites pass on iPhone 16 / iOS 18.3.1 and iPhone 17 / iOS 27.2 (433 before, less the deleted tag-position test).
+- 2026-11-19T14:14:23Z [implementer-1] Screenshots on iPhone 17 / iOS 27.2 (simulator 993C00FB, not the iPhone 16), launched with xcrun simctl launch and launch arguments only (-debugTime sunrise|sunset|moonrise|moonset|midday, -debugMoon 0.6 for the moon, -debugWeather clear, -debugMockupEvents YES, -debugAI YES for the AI shot); the three mockup sample events were on screen in each. That simulator has no zip, so the override draws the neutral 06:00-18:00 day as live. Seen: sunrise and sunset, no tag or leader, WIND 4 MPH under the hairline, the body's end time hidden and the other end shown (6:00 PM / 6:00 AM); moonrise (10:24 AM shown at the set end) and moonset (9:36 AM shown at the rise end) likewise; midday with -debugAI: rows 02 and 04 are the sample AI titles, no AI mark, same indent and width as rows 01/03/05. Files: /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/shots/148-sunrise.png, 148-sunset.png, 148-moonrise.png, 148-moonset.png, 148-ai.png. XcodeBuildMCP session defaults point at the iPhone 16, so I used simctl to avoid changing them. Not verified: VoiceOver running (wording checked by tests only). Left in place: AIMark's fixed: parameter and AIMark.fixedWidth, now unused.
+- 2026-11-19T14:14:23Z [implementer-1] status: in-progress → review
