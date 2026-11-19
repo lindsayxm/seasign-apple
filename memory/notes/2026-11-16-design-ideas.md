@@ -13,7 +13,8 @@ Look-only mockups of the Today screen. Nothing here is in the app; an idea is bu
 | `v7-firmament/` | v6 without the ring and beams: open sky of slowly wheeling stars, sun and moon on a tall arc that rises from and sets into the sea | refined over many rounds on 2026-11-17 (section below); saved as it stood on 2026-11-18; base for v8 |
 | `v8-lemuria/` | v7 pushed towards a restrained HUD: one ink colour per screen, hairline button frame, sun and moon as light, bracket and tag on the body, rise and set marks on the horizon | refined through #100–#122 on 2026-11-18; the user then said "this one is done" |
 | `v9-pangea/` | clean slate: vintage machine screen (segment read-outs, ruled tables, wire-mesh scope, meters, keycaps) from the user's references in its `ref-img/` | first pass 2026-11-18 (#123) |
-| `v10-simplify/` | clean slate: very simplified Japanese-print look (paper, flat red sun or cream moon, solid indigo sea with wave lines, upright date column, red seal) | first pass 2026-11-18 (#124) |
+| `v10-simplify/` | clean slate: very simplified Japanese-print look (paper, flat red sun or cream moon, solid indigo sea with wave lines, upright date column, red seal) | two rounds 2026-11-18 (#124–#126) |
+| `v11-artemis/` | copy of v8 with v7's header (date, day, temperature, events box) | started 2026-11-18 (#131); the version the user is iterating on |
 | `v0-version-landing-page/` | index page: a thumbnail per version that opens it | made 2026-11-17 |
 
 How the mockups are made, so the next session can continue:
@@ -92,3 +93,7 @@ After calling v8 done the user asked for "a few more designs first" and a clean-
 "ok one more - v10 - look at the reference images - make a very simplified japanese art inspired version". First pass built (#124); see its README for what is shown and what was left out on purpose.
 
 Second round on v10 (#125): bolder, larger bottom marks; titles higher; fainter wave lines that roll like waves; rain and snow start below the events and are more see-through; events in the medium weight.
+
+## 2026-11-18: back to v7, then v11-artemis
+
+After v10 the user went back to v7 for small changes (#127–#130: no stars at mid-day, muted panel buttons, panel almost solid, extra glow round the panel at sunset), then asked to copy v8 into v11 "and then we'll iterate on it there", with v7's date/day/temperature and calendar layout at the top (#131). v11 is now the working version.
