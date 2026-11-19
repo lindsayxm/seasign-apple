@@ -52,15 +52,14 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* the four controls: one row just under the events (it was along the bottom at first), hung from a hairline with ink corners; each has its name under it */
-  .bar { left: 34px; top: 218px; width: 325px; height: 46px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: .5px solid rgba(255,255,255,.26); }
+  /* the four controls: one row just under the events (it was along the bottom at first), hung from a hairline with ink corners (their names were under them at first; the user had those removed) */
+  .bar { left: 34px; top: 218px; width: 325px; height: 31px; display: grid; grid-template-columns: repeat(4, 1fr); border-top: .5px solid rgba(255,255,255,.26); }
   .bar::before, .bar::after { content: ""; position: absolute; top: -1px; width: 7px; height: 7px; border-top: 1px solid rgb(var(--amber)); }
   .bar::before { left: 0; border-left: 1px solid rgb(var(--amber)); }
   .bar::after { right: 0; border-right: 1px solid rgb(var(--amber)); }
   .bar div { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 7px; }
   .bar svg { width: 19px; height: 19px; stroke: rgb(var(--btn)); stroke-width: .09; }
   .bar svg.all { width: 15px; height: 15px; margin-bottom: 2px; stroke-width: .12; }
-  .bar span { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 7px; line-height: 8px; letter-spacing: .18em; margin-right: -.18em; color: rgba(238,240,240,.62); }
   body.nobtn .bar { display: none; }   /* ?nobtn: a frame without the controls */
 
   .feed { left: 34px; top: 504px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
@@ -132,10 +131,10 @@
       <li><span>The cartographers redrawing the ocean floor</span></li>
     </ul>
     <div class="bar">
-      <div><svg class="line"><use href="#i-settings"/></svg><span>Settings</span></div>
-      <div><svg class="line"><use href="#i-list"/></svg><span>List</span></div>
-      <div><svg class="line"><use href="#i-saved"/></svg><span>Saved</span></div>
-      <div><svg class="line all"><use href="#i-more"/></svg><span>All</span></div>
+      <div><svg class="line"><use href="#i-settings"/></svg></div>
+      <div><svg class="line"><use href="#i-list"/></svg></div>
+      <div><svg class="line"><use href="#i-saved"/></svg></div>
+      <div><svg class="line all"><use href="#i-more"/></svg></div>
     </div>
     <div class="home"></div>
   </div>
