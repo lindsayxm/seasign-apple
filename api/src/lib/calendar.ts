@@ -764,7 +764,14 @@ function zoneOffset(zone: FileZone, wall: number, budget: Budget): number {
 
 function titleOf(component: Component): string {
   const summary = component.getFirstPropertyValue("summary");
-  const text = typeof summary === "string" ? summary : "";
+  return cleanTitle(typeof summary === "string" ? summary : "");
+}
+
+/**
+ * An event title as it is answered: white space collapsed, trimmed, at most
+ * 200 characters. Also used for Google Calendar events (routes/google.ts).
+ */
+export function cleanTitle(text: string): string {
   const title = text.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_LENGTH);
   // A copy of its own: a slice can keep the whole string it was cut from
   // alive, and the titles are kept (and a request holds every link's) after

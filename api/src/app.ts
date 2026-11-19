@@ -3,6 +3,7 @@ import { rateLimit } from "./lib/rate-limit.ts";
 import { calendar } from "./routes/calendar.ts";
 import { discover } from "./routes/discover.ts";
 import { feed } from "./routes/feed.ts";
+import { google } from "./routes/google.ts";
 import { health } from "./routes/health.ts";
 import { sites } from "./routes/sites.ts";
 import { sky } from "./routes/sky.ts";
@@ -10,6 +11,14 @@ import { sky } from "./routes/sky.ts";
 // The app is built here, free of runtime-only imports, so that
 // scripts/openapi.ts can load it in Node to write the spec.
 export const app = new OpenAPIHono<{ Bindings: CloudflareBindings }>();
+
+// Every answer of the Google routes, the limiter's and the body limit's
+// included, says not to cache it: it is read with the user's token and is
+// meant to be fresh. Registered first so that it wraps all of them.
+app.use("/v1/google/*", async (c, next) => {
+  await next();
+  c.res.headers.set("Cache-Control", "no-store");
+});
 
 // Per-client-IP limits on the open routes (src/lib/rate-limit.ts). They are
 // registered first so that a refused request costs no body read, no outbound
@@ -19,6 +28,7 @@ app.use("/v1/calendar/events", rateLimit("calendar"));
 app.use("/v1/sites/resolve", rateLimit("resolve"));
 app.use("/v1/feed", rateLimit("feed"));
 app.use("/v1/discover", rateLimit("discover"));
+app.use("/v1/google/*", rateLimit("google"));
 
 /**
  * The largest request body any route reads. The biggest honest one is a
@@ -67,6 +77,7 @@ app.route("/", calendar);
 app.route("/", sites);
 app.route("/", feed);
 app.route("/", discover);
+app.route("/", google);
 
 export const openAPIConfig = {
   openapi: "3.0.3",

@@ -249,7 +249,7 @@
         "properties": {
           "calendar": {
             "type": "integer",
-            "description": "Index of the link in the request this event came from",
+            "description": "Index in the request of the calendar this event came from: of the link for /v1/calendar/events, of the calendar id for /v1/google/events",
             "example": 0
           },
           "title": {
@@ -774,6 +774,165 @@
           "provider",
           "interests"
         ]
+      },
+      "GoogleCalendars": {
+        "type": "object",
+        "properties": {
+          "calendars": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoogleCalendar"
+            },
+            "description": "The calendars on the user's Google calendar list, hidden and deleted ones left out, the primary calendar first, then in Google's order"
+          }
+        },
+        "required": [
+          "calendars"
+        ]
+      },
+      "GoogleCalendar": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Google's calendar id; send it back in /v1/google/events",
+            "example": "user@example.com"
+          },
+          "name": {
+            "type": "string",
+            "description": "The user's own name for the calendar if set, else its title; empty when it has neither",
+            "example": "Family"
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "True for the user's primary calendar"
+          },
+          "selected": {
+            "type": "boolean",
+            "description": "True when the calendar is shown in Google Calendar's own app"
+          },
+          "color": {
+            "type": "string",
+            "description": "The calendar's colour in Google Calendar as #rrggbb, when Google gives one",
+            "example": "#0088aa"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "primary",
+          "selected"
+        ]
+      },
+      "GoogleError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "google_auth",
+              "google_forbidden",
+              "google_unavailable",
+              "rate_limited",
+              "internal_error"
+            ],
+            "description": "Machine-readable reason"
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed human-readable text for the code; never Google's own words"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "GoogleEvents": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalendarEvent"
+            },
+            "description": "Events that have not ended and start within the next 7 days, soonest first, at most 50. Cancelled events are left out"
+          },
+          "calendars": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoogleCalendarStatus"
+            },
+            "description": "One entry per calendar id, in request order"
+          }
+        },
+        "required": [
+          "events",
+          "calendars"
+        ]
+      },
+      "GoogleCalendarStatus": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Index of the calendar id in the request",
+            "example": 0
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "True when the calendar was read"
+          },
+          "partial": {
+            "type": "boolean",
+            "description": "True when the calendar was read but some of it was left out: an event that could not be read, or more events than are read. Always false when `ok` is false"
+          },
+          "error": {
+            "type": "string",
+            "enum": [
+              "forbidden",
+              "not_found",
+              "rate_limited",
+              "fetch_failed",
+              "timeout",
+              "too_large"
+            ],
+            "description": "Why the calendar could not be read: forbidden (Google refused access to it, or the token lacks the scope), not_found (no such calendar for this user), rate_limited (Google is limiting requests; try later), fetch_failed (Google unreachable, an error status or an unreadable answer), timeout, too_large"
+          }
+        },
+        "required": [
+          "index",
+          "ok",
+          "partial"
+        ]
+      },
+      "GoogleEventsRequest": {
+        "type": "object",
+        "properties": {
+          "calendars": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Google calendar ids from /v1/google/calendars (or \"primary\"): 1 to 10, each 1 to 512 printable ASCII characters",
+            "example": [
+              "primary"
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA time zone of the device. Decides when all-day events start and end. Defaults to UTC",
+            "example": "America/New_York"
+          }
+        },
+        "required": [
+          "calendars"
+        ]
       }
     },
     "parameters": {}
@@ -1200,6 +1359,204 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DiscoverError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/google/calendars": {
+      "get": {
+        "operationId": "getGoogleCalendars",
+        "summary": "The user's Google calendars, read with their own access token",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 2048,
+              "pattern": "^[A-Za-z0-9\\-._~+/]+=*$",
+              "description": "The user's Google OAuth access token, without \"Bearer \". Used for this request's calls to the Google Calendar API and never stored or logged. 16 to 2048 characters of the RFC 6750 token alphabet",
+              "example": "ya29.example-token-not-real"
+            },
+            "required": true,
+            "description": "The user's Google OAuth access token, without \"Bearer \". Used for this request's calls to the Google Calendar API and never stored or logged. 16 to 2048 characters of the RFC 6750 token alphabet",
+            "name": "x-google-token",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user's calendar list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleCalendars"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request: no X-Google-Token header, or one of the wrong shape",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "google_auth: Google did not accept the token (expired or revoked). Refresh the access token and ask again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "google_forbidden: Google refused the calendar list for a reason other than the token being invalid, usually because the token lacks the calendar list scope. Refreshing will not help; the user must connect again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many requests from this network; wait Retry-After seconds",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal_error: something went wrong in the API",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "google_unavailable: Google failed, is limiting requests, took more than 8 seconds, or answered in a way that could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/google/events": {
+      "post": {
+        "operationId": "postGoogleEvents",
+        "summary": "Upcoming events from the user's Google calendars, read with their own access token",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 2048,
+              "pattern": "^[A-Za-z0-9\\-._~+/]+=*$",
+              "description": "The user's Google OAuth access token, without \"Bearer \". Used for this request's calls to the Google Calendar API and never stored or logged. 16 to 2048 characters of the RFC 6750 token alphabet",
+              "example": "ya29.example-token-not-real"
+            },
+            "required": true,
+            "description": "The user's Google OAuth access token, without \"Bearer \". Used for this request's calls to the Google Calendar API and never stored or logged. 16 to 2048 characters of the RFC 6750 token alphabet",
+            "name": "x-google-token",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleEventsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upcoming events from the calendars that could be read, and the state of each calendar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleEvents"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request: no X-Google-Token header or one of the wrong shape, a body that is not JSON or not sent as application/json, no calendar ids or more than 10, an id of the wrong shape, or an unknown time zone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "google_auth: Google did not accept the token (expired or revoked). Refresh the access token and ask again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many requests from this network; wait Retry-After seconds",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal_error: something went wrong in the API",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleError"
                 }
               }
             }

@@ -20,6 +20,7 @@ const routes: [string, (padding: string) => unknown, Record<string, string>, [nu
   ["/v1/sites/resolve", (padding) => ({ url: "https://news.example.com/", padding }), {}, [200, "fetch_failed"]],
   ["/v1/feed", (padding) => ({ sites: [{ url: "https://news.example.com/", mode: "links" }], padding }), {}, [200, "fetch_failed"]],
   ["/v1/discover", (padding) => ({ provider: "openai", interests: ["tide pools"], padding }), { "x-llm-key": FAKE_KEY }, [502, "provider_error"]],
+  ["/v1/google/events", (padding) => ({ calendars: ["primary"], padding }), { "x-google-token": "ya29.fake-google-token-for-tests" }, [200, "fetch_failed"]],
 ];
 
 const send = (path: string, body: BodyInit, headers: Record<string, string> = {}) =>

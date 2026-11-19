@@ -9,6 +9,8 @@ startWorker();
 
 /** An obviously fake LLM key, for the route that needs one. */
 const FAKE_KEY = "fake-llm-key-for-tests-0000";
+/** An obviously fake Google access token, for the Google routes. */
+const FAKE_GOOGLE_TOKEN = "ya29.fake-google-token-for-tests";
 
 /**
  * One request per limited route that would be served normally: valid, with
@@ -24,6 +26,7 @@ const ROUTES: Record<RateLimitGroup, { path: string; init: () => RequestInit }> 
     path: "/v1/discover",
     init: () => json({ provider: "openai", interests: ["tide pools"] }, { "x-llm-key": FAKE_KEY }),
   },
+  google: { path: "/v1/google/events", init: () => json({ calendars: ["primary"] }, { "x-google-token": FAKE_GOOGLE_TOKEN }) },
 };
 
 /** The same routes with a request each one refuses with a 400 before any fetch: cheap to send in bulk. */
@@ -33,6 +36,7 @@ const INVALID: Record<RateLimitGroup, { path: string; init: () => RequestInit }>
   resolve: { path: "/v1/sites/resolve", init: () => json({}) },
   feed: { path: "/v1/feed", init: () => json({ sites: [] }) },
   discover: { path: "/v1/discover", init: () => json({ provider: "openai", interests: [] }, { "x-llm-key": FAKE_KEY }) },
+  google: { path: "/v1/google/events", init: () => json({ calendars: [] }, { "x-google-token": FAKE_GOOGLE_TOKEN }) },
 };
 
 const GROUPS = Object.keys(RATE_LIMITS) as RateLimitGroup[];
@@ -146,6 +150,13 @@ describe("the limits", () => {
     expect(calendar.limit).toBeGreaterThanOrEqual(feed.limit);
     expect(feed.limit).toBeGreaterThan(resolve.limit);
     expect(resolve.limit).toBeGreaterThan(discover.limit);
+  });
+
+  it("let the Google routes be polled every 5 seconds with room for a shared address", () => {
+    const { google } = RATE_LIMITS;
+    expect(google.period).toBe(60);
+    // 12 a minute is one phone polling every 5 seconds.
+    expect(google.limit).toBeGreaterThanOrEqual(5 * 12);
   });
 });
 

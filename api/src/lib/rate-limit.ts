@@ -32,6 +32,14 @@ export const RATE_LIMITS = {
   resolve: { binding: "RATE_LIMIT_RESOLVE", namespaceId: "19004", limit: 10, period: 60 },
   /** Relays the user's paid key, and its 401 says whether a key works. */
   discover: { binding: "RATE_LIMIT_DISCOVER", namespaceId: "19005", limit: 5, period: 60 },
+  /**
+   * Both /v1/google routes. Until push exists the app polls events about
+   * every 5 seconds while Today is open (12 a minute); 120 leaves room for
+   * about ten such phones behind one shared address. Each request is up to 10
+   * calendars of at most 4 pages, short JSON, against the caller's own Google
+   * quota.
+   */
+  google: { binding: "RATE_LIMIT_GOOGLE", namespaceId: "19006", limit: 120, period: 60 },
 } as const satisfies Record<string, { binding: keyof CloudflareBindings; namespaceId: string; limit: number; period: 10 | 60 }>;
 
 export type RateLimitGroup = keyof typeof RATE_LIMITS;

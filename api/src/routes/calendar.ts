@@ -61,9 +61,13 @@ const CalendarEventsRequestSchema = z
   })
   .openapi("CalendarEventsRequest");
 
-const CalendarEventSchema = z
+/** Shared with routes/google.ts, so clients get one event type. */
+export const CalendarEventSchema = z
   .object({
-    calendar: z.number().int().openapi({ description: "Index of the link in the request this event came from", example: 0 }),
+    calendar: z.number().int().openapi({
+      description: "Index in the request of the calendar this event came from: of the link for /v1/calendar/events, of the calendar id for /v1/google/events",
+      example: 0,
+    }),
     title: z.string().openapi({ description: "The event's summary; empty when it has none", example: "Dentist" }),
     start: instant("Start as a UTC instant. For an all-day event, midnight at the start of `date` in the request's time zone"),
     end: instant("End as a UTC instant. Equal to `start` for an event without a length"),
