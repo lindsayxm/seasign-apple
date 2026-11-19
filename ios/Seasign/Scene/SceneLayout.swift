@@ -53,13 +53,21 @@ struct SceneLayout: Equatable, Sendable {
             center: bodyCenter(body.placement, radius: radius),
             radius: radius,
             lowness: SkyPath.lowness(progress: progress),
-            progress: progress
+            progress: progress,
+            light: 1 - min(1, max(0, body.placement.sunk))
         )
     }
 
-    /// The centre the weather gathers round with no body up: the top of the
-    /// path.
-    var pathTop: CGPoint { pathPoint(progress: 0.5) }
+    /// The centre the weather gathers round: the body, or with no body up
+    /// the top of the path.
+    func weatherCenter(_ body: DrawnBody?) -> CGPoint {
+        body?.center ?? pathPoint(progress: 0.5)
+    }
+
+    /// Where the glints on the water centre: under the body, or mid-sea.
+    func glintCenterX(_ body: DrawnBody?) -> CGFloat {
+        body?.center.x ?? centerX
+    }
 
     /// Whether the dotted drop line shows: when the body's lower edge is more
     /// than 14 points above the horizon.
@@ -76,6 +84,10 @@ struct DrawnBody: Equatable, Sendable {
     /// 1 on the horizon, 0 at the top of the path.
     var lowness: Double
     var progress: Double
+    /// How much of its light it gives: 1 on the path, fading to 0 as the
+    /// disc goes under the waterline, so its glow, reflection and sky colour
+    /// do not vanish all at once when it is gone.
+    var light: Double
 }
 
 /// Everything drawn from the sun, moon or horizon, resolved to positions and

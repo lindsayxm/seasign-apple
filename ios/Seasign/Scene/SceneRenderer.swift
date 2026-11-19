@@ -82,6 +82,7 @@ struct SceneRenderer: Sendable {
         let by = body.map { Double($0.center.y) }
         let radius = body.map { Double($0.radius) } ?? 12
         let lowness = body?.lowness ?? 0
+        let light = body?.light ?? 1
         let clouds = state.cloudAmount
         let raining = state.isRaining
         let veil = raining ? 0.7 : clouds > 0 ? 0.85 : 1
@@ -90,16 +91,19 @@ struct SceneRenderer: Sendable {
         // Everything that gives light, in one layer brightened by the
         // mockup's bloom: its two blurred copies of the frame, added back at
         // .26 and .24, make smooth light about 1.56 times as bright.
-        context.drawLayer { light in
-            light.addFilter(.colorMatrix(Self.bloomGain))
-            light.fill(Path(CGRect(x: 0, y: 0, width: w, height: h)), with: .color(.black))
-            let context = light
+        context.drawLayer { glowing in
+            glowing.addFilter(.colorMatrix(Self.bloomGain))
+            glowing.fill(Path(CGRect(x: 0, y: 0, width: w, height: h)), with: .color(.black))
+            let context = glowing
             var add = context
             add.blendMode = .plusLighter
 
             // By day the sky is blue: lightest on the horizon, falling quickly to
             // near black above the top of the path.
             if !look.isNight {
+                // It fades with the light of a sun going under the water.
+                var warmth = add
+                warmth.opacity = light
                 let warm = look == .sunrise || look == .sunset
                 let k = (0.45 + 0.55 * paint.power) * (warm ? 0.16 : 0.5)
                 let grey = raining ? 0.55 : clouds > 0 ? 0.25 : 0
@@ -107,39 +111,39 @@ struct SceneRenderer: Sendable {
                     let mean = (r + g + b) / 3
                     return (SceneRGB(r + (mean - r) * grey, g + (mean - g) * grey, b + (mean - b) * grey), a * k)
                 }
-                vertical(&add, from: hz, to: hz - 290, width: w, stops: [
+                vertical(&warmth, from: hz, to: hz - 290, width: w, stops: [
                     (blue(70, 128, 214, 0.8), 0), (blue(56, 110, 200, 0.68), 0.1), (blue(40, 84, 160, 0.5), 0.26),
                     (blue(20, 48, 112, 0.32), 0.42), (blue(8, 20, 56, 0.14), 0.7), (blue(4, 8, 24, 0), 1),
                 ])
-                vertical(&add, from: hz, to: hz + 96, width: w, stops: [(blue(64, 112, 176, 0.42), 0), (blue(20, 40, 90, 0), 1)])
+                vertical(&warmth, from: hz, to: hz + 96, width: w, stops: [(blue(64, 112, 176, 0.42), 0), (blue(20, 40, 90, 0), 1)])
                 if look == .sunrise, let bx {
                     // Yellow on the horizon, peach and a little pink above, then light blue.
-                    vertical(&add, from: hz, to: hz - 230, width: w, stops: [
+                    vertical(&warmth, from: hz, to: hz - 230, width: w, stops: [
                         ((SceneRGB(255, 218, 96), 0.34), 0), ((SceneRGB(255, 180, 92), 0.25), 0.13),
                         ((SceneRGB(244, 140, 150), 0.13), 0.3), ((SceneRGB(120, 184, 240), 0.2), 0.5),
                         ((SceneRGB(70, 130, 214), 0.1), 0.75), ((SceneRGB(40, 80, 170), 0), 1),
                     ])
-                    glow(&add, bx, hz, 250, 70, SceneRGB(255, 214, 70), 0.22, mid: 0.45)
-                    glow(&add, bx, hz - 30, 280, 120, SceneRGB(255, 170, 90), 0.12, mid: 0.5)
-                    glow(&add, cx + 40, hz - 120, 330, 120, SceneRGB(130, 196, 250), 0.14, mid: 0.55)
-                    glow(&add, bx, hz + 22, 230, 56, SceneRGB(255, 206, 110), 0.1, mid: 0.45)
+                    glow(&warmth, bx, hz, 250, 70, SceneRGB(255, 214, 70), 0.22, mid: 0.45)
+                    glow(&warmth, bx, hz - 30, 280, 120, SceneRGB(255, 170, 90), 0.12, mid: 0.5)
+                    glow(&warmth, cx + 40, hz - 120, 330, 120, SceneRGB(130, 196, 250), 0.14, mid: 0.55)
+                    glow(&warmth, bx, hz + 22, 230, 56, SceneRGB(255, 206, 110), 0.1, mid: 0.45)
                 } else if look == .sunset, let bx {
                     // Orange on the horizon, red and pink above, strongest on the sun's side.
-                    vertical(&add, from: hz, to: hz - 190, width: w, stops: [
+                    vertical(&warmth, from: hz, to: hz - 190, width: w, stops: [
                         ((SceneRGB(255, 134, 40), 0.3), 0), ((SceneRGB(250, 92, 44), 0.26), 0.16),
                         ((SceneRGB(232, 60, 84), 0.17), 0.4), ((SceneRGB(200, 84, 130), 0.07), 0.7),
                         ((SceneRGB(120, 70, 150), 0), 1),
                     ])
-                    glow(&add, bx, hz, 250, 70, SceneRGB(255, 124, 30), 0.2, mid: 0.45)
-                    glow(&add, bx, hz - 34, 290, 130, SceneRGB(244, 62, 56), 0.15, mid: 0.5)
-                    glow(&add, bx + (bx < cx ? 70 : -70), hz - 86, 300, 120, SceneRGB(236, 90, 150), 0.1, mid: 0.55)
-                    glow(&add, bx, hz + 22, 230, 56, SceneRGB(255, 120, 76), 0.1, mid: 0.45)
+                    glow(&warmth, bx, hz, 250, 70, SceneRGB(255, 124, 30), 0.2, mid: 0.45)
+                    glow(&warmth, bx, hz - 34, 290, 130, SceneRGB(244, 62, 56), 0.15, mid: 0.5)
+                    glow(&warmth, bx + (bx < cx ? 70 : -70), hz - 86, 300, 120, SceneRGB(236, 90, 150), 0.1, mid: 0.55)
+                    glow(&warmth, bx, hz + 22, 230, 56, SceneRGB(255, 120, 76), 0.1, mid: 0.45)
                 }
             }
 
             // Light in the sky: a wide haze round the body and a low one along the horizon.
             if let bx, let by {
-                glow(&add, bx, by, 210, 210, Self.mist, 0.46 * (0.5 + 0.5 * power), mid: 0.5)
+                glow(&add, bx, by, 210, 210, Self.mist, 0.46 * (0.5 + 0.5 * power) * light, mid: 0.5)
             }
             glow(&add, cx, hz, w * 0.95, 130, Self.mist, 0.3 * (0.5 + 0.5 * power), mid: 0.5)
 
@@ -149,10 +153,10 @@ struct SceneRenderer: Sendable {
             ])
             glow(&add, cx, hz, w * 0.75, 5, Self.silver, 0.5 * power, mid: 0.3)
             if let bx {
-                glow(&add, bx, hz + 30, 120, 60, paint.tint, 0.2 * power, mid: 0.4)
-                glow(&add, bx, hz + 16, 18 + radius * 0.7, 40 + radius * 0.6, paint.halo, 0.55 * power * lowness, mid: 0.4)
+                glow(&add, bx, hz + 30, 120, 60, paint.tint, 0.2 * power * light, mid: 0.4)
+                glow(&add, bx, hz + 16, 18 + radius * 0.7, 40 + radius * 0.6, paint.halo, 0.55 * power * lowness * light, mid: 0.4)
             }
-            let glintCenter = bx ?? cx
+            let glintCenter = Double(layout.glintCenterX(body))
             for g in SceneBits.shared.glints {
                 let gy = hz + 3 + g.y * 78
                 let spread = 40 + g.y * 220
@@ -177,20 +181,21 @@ struct SceneRenderer: Sendable {
             }
 
             // Weather, gathered round the body (or the top of the path).
-            let wx = bx ?? Double(layout.pathTop.x)
-            let wy = by ?? Double(layout.pathTop.y)
+            let weatherCenter = layout.weatherCenter(body)
+            let wx = Double(weatherCenter.x)
+            let wy = Double(weatherCenter.y)
             drawWeather(in: &firmament, wx: wx, wy: wy, t: t)
 
             // The sun or the moon; the horizon hides whatever part is under the water.
             if let body, let bx, let by {
                 let spread = radius * (4.2 - 2.2 * lowness)
-                glow(&add, bx, by, spread, spread, paint.halo, 0.55 * power * veil, mid: 0.3)
+                glow(&add, bx, by, spread, spread, paint.halo, 0.55 * power * veil * light, mid: 0.3)
 
                 // Soft light round the bright body and the horizon line (the
                 // mockup's whole-frame bloom, kept to what is bright).
                 add.drawLayer { layer in
                     layer.addFilter(.blur(radius: 9 * s))
-                    layer.opacity = 0.45 * veil
+                    layer.opacity = 0.45 * veil * light
                     var clipped = layer
                     clipped.clip(to: Path(skyRect))
                     let lit = body.kind == .sun ? 1 : 0.35 + 0.5 * state.moonPhase.illuminatedFraction
@@ -256,7 +261,7 @@ struct SceneRenderer: Sendable {
             var lane = 0.0
             if let bx {
                 let off: Double = (gx + length / 2 - bx) / (50 + d * 150)
-                lane = exp(-off * off)
+                lane = exp(-off * off) * light
             }
             let wave: Double = 0.5 + 0.5 * sin(t * (0.9 + g.speed) + g.phase)
             let a: Double = wave * wave * (0.1 + 0.24 * lane * (1 - 0.6 * d)) * (0.5 + 0.5 * power)

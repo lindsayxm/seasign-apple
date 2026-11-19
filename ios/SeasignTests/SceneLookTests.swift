@@ -260,6 +260,27 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         #expect(low.dropLine == nil)
     }
 
+    @Test func lightFadesAsTheDiscGoesUnder() throws {
+        let layout = SceneLayout(size: CGSize(width: 393, height: 852))
+        let up = try #require(scene().body.map(layout.drawnBody))
+        #expect(up.light == 1)
+        // Ten of the fifteen minutes after sunset: two thirds under, a third of its light.
+        let sinking = try #require(scene(sun: .down(sinceSet: 600, untilRise: 50_000)).body.map(layout.drawnBody))
+        #expect(abs(sinking.light - 1.0 / 3) < 1e-9)
+        #expect(sinking.progress == 1)
+        #expect(sinking.center.y > layout.horizonY)
+    }
+
+    @Test func weatherAndGlintsCentreOnTheBodyOrThePath() throws {
+        let layout = SceneLayout(size: CGSize(width: 393, height: 852))
+        let body = try #require(scene(sun: .up(progress: 0.3)).body.map(layout.drawnBody))
+        #expect(layout.weatherCenter(body) == body.center)
+        #expect(layout.glintCenterX(body) == body.center.x)
+        // No body up: the top of the path, and mid-sea.
+        #expect(layout.weatherCenter(nil) == CGPoint(x: 196.5, y: 298))
+        #expect(layout.glintCenterX(nil) == 196.5)
+    }
+
     @Test func tagStandsAboveTheBodyOnTheInsideOfThePath() throws {
         let layout = SceneLayout(size: CGSize(width: 393, height: 852))
         let sunrise = SceneMarks(state: scene(sun: .up(progress: 0)), layout: layout, clock: .twelveHour)
