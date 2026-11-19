@@ -48,6 +48,19 @@ Google (console.cloud.google.com):
 
 Cloudflare: nothing to do by hand; the lead asks before each `wrangler` command that creates a resource or deploys, and the user types the three `wrangler secret put` commands.
 
+## Values from the user (2026-11-19; none is a secret)
+
+| value | |
+|---|---|
+| Bundle ID | `technology.artisan.seasign` |
+| Apple Team ID | `Q79NR2FCR9` |
+| APNs key ID | `Z9TZFF5FAF` (the key file itself stays with the user, outside the project; it reaches Cloudflare only by the user typing `wrangler secret put`) |
+| Google iOS OAuth client ID | `347928684020-vs0cht1ik72su6d4fl4skogak6odtl82.apps.googleusercontent.com` (redirect scheme: `com.googleusercontent.apps.347928684020-vs0cht1ik72su6d4fl4skogak6odtl82`) |
+| Cloudflare | the user has an account and is logged in with wrangler on this Mac |
+| Deployed address | `workers.dev` to start (the user did not name a domain); revisit if Google requires a verified domain |
+
+The bundle ID and team go into `app-identity.xcconfig` and `api/wrangler.jsonc` in task B (not while task #153 is editing `api/`). A new bundle ID installs as a new app: Settings entered under `com.example.seasign` on any Simulator do not carry over.
+
 ## Tasks (to create after approval), in order
 
 | # | task | notes |
