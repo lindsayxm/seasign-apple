@@ -439,6 +439,14 @@ function draw(t) {
       ctx.shadowColor = rgba; ctx.shadowBlur = blur * DPR; ctx.shadowOffsetX = 2000 * DPR; ctx.shadowOffsetY = off * DPR;
       ctx.beginPath(); ctx.roundRect(p.x - 2000, top, p.w, 28, p.r); ctx.fillStyle = "#000"; ctx.fill(); ctx.restore();   // the caster is off screen; only its light or shade lands here
     }
+    if (dusk) {                                                                     // at sunset only: a soft warm glow all round the panel, strongest toward the top, so it lifts off the bright sky
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.roundRect(p.x, p.y, p.w, p.h, p.r); ctx.clip("evenodd");
+      for (const [h, rgba, blur] of [[p.h, "rgba(255,150,140,.5)", 16], [p.h * .55, "rgba(255,170,150,.55)", 10]]) {
+        ctx.shadowColor = rgba; ctx.shadowBlur = blur * DPR; ctx.shadowOffsetX = 2000 * DPR; ctx.shadowOffsetY = 0;
+        ctx.beginPath(); ctx.roundRect(p.x - 2000, p.y, p.w, h, p.r); ctx.fillStyle = "#000"; ctx.fill();
+      }
+      ctx.restore();
+    }
     const pg = ctx.createLinearGradient(0, p.y, 0, p.y + p.h);
     pg.addColorStop(0, "rgba(30,54,108,.93)"); pg.addColorStop(.45, "rgba(12,24,58,.93)"); pg.addColorStop(1, "rgba(2,5,14,.93)");   // almost solid (it was 58%; the user asked)
     shape(0); ctx.fillStyle = pg; ctx.fill();
