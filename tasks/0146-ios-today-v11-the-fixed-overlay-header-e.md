@@ -1,11 +1,11 @@
 ---
 id: 146
 title: iOS: Today v11 — the fixed overlay: header, events box, hairline, wind line, buttons, titles, ∀
-status: review
+status: done
 owner: implementer-2
 depends_on: [145]
 created: 2026-11-19T03:09:05Z
-updated: 2026-11-19T05:52:54Z
+updated: 2026-11-19T05:53:31Z
 ---
 
 ## Goal
@@ -14,8 +14,8 @@ Read plans/2026-11-18-today-v11.md first (section 'Fixed overlay'), then design-
 
 ## Acceptance criteria
 
-- [ ] Twelve iPhone 16 Simulator screenshots, one per v11 state, are saved with paths in the task log; header, events, hairline, wind line, buttons, titles and ∀ match the positions, type and colours of the matching still
-- [ ] Real-text cases are checked with screenshots: no zip (prompt), no sites (prompt), one event, a long event title that wraps, an AI-found item, a 24-hour phone; nothing overlaps or clips
+- [x] Twelve iPhone 16 Simulator screenshots, one per v11 state, are saved with paths in the task log; header, events, hairline, wind line, buttons, titles and ∀ match the positions, type and colours of the matching still
+- [x] Real-text cases are checked with screenshots: no zip (prompt), no sites (prompt), one event, a long event title that wraps, an AI-found item, a 24-hour phone; nothing overlaps or clips
 - [x] A second screen size (smaller or larger iPhone) is checked; nothing overlaps or clips, and ∀ clears the home bar
 - [x] All tests pass on iPhone 16 / iOS 18.3 and iPhone 17 / iOS 27.2; VoiceOver labels for the header, events, buttons, titles and ∀ are present
 
@@ -55,3 +55,7 @@ Read plans/2026-11-18-today-v11.md first (section 'Fixed overlay'), then design-
 - 2026-11-19T05:52:54Z [implementer-2] Review fixes. (1) Over-wide words: CapsWrapper.wrap has a new breakingLongWords option, off by default so the old behaviour and its tests are unchanged. With it on, a word wider than the line is cut between characters (graphemes) and the final ellipsis is shortened by characters until it fits. Today's event titles, the zip prompt and the article titles all use it. As a backstop, every drawn line is also held to its column (lineLimit 1, tail truncation, frame width = column + 2 pt, inside the box padding) instead of fixedSize. Tests: CapsWrapperTests.aLongWordIsBrokenBetweenCharactersWhenAsked (Latin word, Japanese, link), TodayOverlayLayoutTests.anUnbreakableTitleStaysInsideTheBox (zoom URL and Japanese, every line measured within the title width) and anUnbreakableArticleTitleStaysInsideItsColumn (URL and Japanese in Iowan). Screens, iPhone 16, DEBUG titles only: /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/s146/fix/f1-url-and-cjk-titles.png and /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/s146/fix/f2-url-and-cjk-with-prompt-free-3-long.png (sunset-60, three long titles), crop /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/s146/fix/f-sheet.png. Both titles stay inside the box and end in an ellipsis on line 2. (2) Day name clamped to Mockup.dayNameSizes = 20...28 pt x scale, in TodayOverlayLayout.dayFont (one constant). Test theDayNameSizeIsClamped: MON on JUL 1 = 20, FRI on NOV 20 = 28, both on 393 and 440 wide; MON on NOV 16 still tracks the date's width.
 - 2026-11-19T05:52:54Z [implementer-2] (3) Zip prompt: the button's label is now a 44-pt-tall frame with the 16-pt row in its middle, placed 14 pt above the row (no negative-inset contentShape). axe on the SE read the button frame as x 91.5, y 129, w 268, h 44; the Settings button starts at y 174, so the two do not overlap. The XcodeBuildMCP element tap hit its centre (y 151) and Settings opened. NOT verified: taps 2 pt inside the top and bottom edges. After the first edge tap, axe tap and describe-ui stopped answering on the SE (empty output or hang, also after a simulator reboot), so I could not get coordinate taps. (4) Tests added: aTwentyFourHourPhoneHasOneTimeColumn, aLargeScreenScalesEverything (440x956), thePromptAndThreeEventsAlwaysFit. The event-drop branch is removed: the prompt now wraps to one line, so three one-line events plus the prompt take 94 of the 100-pt cap, and cutting titles to one line always makes room; no event is ever dropped. (5) Time-column widths are measured over labels.prefix(3), which are exactly the rows shown, since none is dropped now. Tests: 422/422 on iPhone 16 / iOS 18.3 (XcodeBuildMCP) and 422/422 on iPhone 17 / iOS 27.2 (xcodebuild). The unreferenced symbols are left in place as asked.
 - 2026-11-19T05:52:54Z [implementer-2] status: in-progress → review
+- 2026-11-19T05:53:31Z [lead] criterion 1 met: Twelve iPhone 16 Simulator screenshots, one per v11 state, are saved with paths in the task log; header, events, hairline, wind line, buttons, titles and ∀ match the positions, type and colours of the matching still
+- 2026-11-19T05:53:31Z [lead] criterion 2 met: Real-text cases are checked with screenshots: no zip (prompt), no sites (prompt), one event, a long event title that wraps, an AI-found item, a 24-hour phone; nothing overlaps or clips
+- 2026-11-19T05:53:31Z [lead] Lead: checked the fix for the blocking finding on the implementer's crop (scratchpad/s146/fix/f-sheet.png): a zoom link and a Japanese title both wrap inside the events box and end in an ellipsis. Criterion 1 ticked on my twelve-state comparison, criterion 2 on the real-text screenshots plus this fix. Accepted without a second reviewer pass. Not verified by anyone: taps near the top and bottom edge of the zip prompt (its 44-pt frame was read by the accessibility tool and a centre tap works); a long unbroken article title on screen (unit tests only); VoiceOver itself.
+- 2026-11-19T05:53:31Z [lead] status: review → done

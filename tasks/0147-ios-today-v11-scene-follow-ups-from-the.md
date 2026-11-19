@@ -1,11 +1,11 @@
 ---
 id: 147
 title: iOS: Today v11 scene — follow-ups from the review of #145
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [146]
 created: 2026-11-19T04:00:43Z
-updated: 2026-11-19T04:00:43Z
+updated: 2026-11-19T05:53:31Z
 ---
 
 ## Goal
@@ -30,3 +30,4 @@ From the reviewer's report on #145 (see that task's log). (1) SkyMath.swift Rise
 ## Log
 
 - 2026-11-19T04:00:43Z [lead] created (todo)
+- 2026-11-19T05:53:31Z [implementer-1] status: todo → in-progress — claimed by implementer-1
