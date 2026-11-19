@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-1
 depends_on: []
 created: 2026-11-19T14:06:20Z
-updated: 2026-11-19T14:06:36Z
+updated: 2026-11-19T14:12:53Z
 ---
 
 ## Goal
@@ -34,3 +34,4 @@ User, 2026-11-19: remove the text call-out on the sun/moon at rise and set; alwa
 
 - 2026-11-19T14:06:20Z [lead] created (todo)
 - 2026-11-19T14:06:36Z [implementer-1] status: todo → in-progress — claimed by implementer-1
+- 2026-11-19T14:12:53Z [implementer-1] Removed the rise/set tag: SceneMarks.Tag, SceneMarks.tag, SceneState.tagLines and showsTag, and the leader/tag drawing in SceneRenderer.drawMarks. tagEdge renamed hiddenTimeEdge (same rule: body within 5 % of an end whose instant is known); riseMark/setMark still hide that end's time. TodayView: wind line is now 'if let wind = state.windLabel' (windMph is nil in the neutral and stale scene). HeadlinesColumn: no AIMark, no indent, full column width for every title; AILabel.accessibility still says AI-found. Palette and SkyMath comments no longer mention the tag. VoiceOver choice: accessibilityDescription(clock:) now always says 'Sunrise 6:41 AM, sunset 4:31 PM.' from markedPass (so the time hidden at the end is still spoken) and no longer speaks the wind, because the wind line is always shown with its own label 'Wind N miles per hour' and would otherwise be spoken twice. AIMark.fixed / AIMark.fixedWidth are now unused (left in place). Tests: tagStandsAbove... removed, tag assertions replaced by hiddenTimeEdge/riseMark/setMark/riseTime/setTime/windLabel checks, spoken tests rewritten incl. a near-end and moonset case. 432 tests in 62 suites pass on iPhone 16 / iOS 18.3.1 and iPhone 17 / iOS 27.2 (433 before, less the deleted tag-position test).

@@ -145,8 +145,8 @@ struct TodayView: View {
                     .placed(x: layout.hairlineX.lowerBound, y: layout.hairlineY - 0.25)
                     .accessibilityHidden(true)
 
-                // The wind, while the sun or moon has no tag to carry it.
-                if !state.showsTag, let wind = state.windLabel {
+                // The wind, whenever there is a fresh reading.
+                if let wind = state.windLabel {
                     Text(today: wind, font: layout.fonts.wind, tracking: TodayOverlayLayout.Fonts.windTracking)
                         .foregroundStyle(Palette.todayWind)
                         .shadow(color: .black, radius: 2.5)

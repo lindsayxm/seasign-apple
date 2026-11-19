@@ -128,14 +128,18 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
 }
 
 @Suite struct SceneMarkRulesTests {
-    @Test func tagOnlyAtTheEnds() {
-        #expect(scene(sun: .up(progress: 0.049)).tagEdge == .rise)
-        #expect(scene(sun: .up(progress: 0.05)).tagEdge == nil)
-        #expect(scene(sun: .up(progress: 0.5)).tagEdge == nil)
-        #expect(scene(sun: .up(progress: 0.95)).tagEdge == nil)
-        #expect(scene(sun: .up(progress: 0.951)).tagEdge == .set)
-        #expect(scene(sun: .up(progress: 0.99)).showsTag)
-        #expect(!scene().showsTag)
+    @Test func aTimeIsHiddenOnlyAtItsEnd() {
+        #expect(scene(sun: .up(progress: 0.049)).hiddenTimeEdge == .rise)
+        #expect(scene(sun: .up(progress: 0.05)).hiddenTimeEdge == nil)
+        #expect(scene(sun: .up(progress: 0.5)).hiddenTimeEdge == nil)
+        #expect(scene(sun: .up(progress: 0.95)).hiddenTimeEdge == nil)
+        #expect(scene(sun: .up(progress: 0.951)).hiddenTimeEdge == .set)
+        #expect(scene().hiddenTimeEdge == nil)
+        // The written times follow the same bounds.
+        #expect(scene(sun: .up(progress: 0.049)).riseMark == nil)
+        #expect(scene(sun: .up(progress: 0.05)).riseMark == rise)
+        #expect(scene(sun: .up(progress: 0.95)).setMark == set)
+        #expect(scene(sun: .up(progress: 0.951)).setMark == nil)
     }
 
     @Test func squareOnlyAwayFromTheEnds() {
@@ -146,7 +150,7 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         #expect(!scene(sun: night).showsSquare)
     }
 
-    @Test func theTimeUnderTheTagIsHidden() {
+    @Test func theTimeUnderTheBodyIsHidden() {
         let sunrise = scene(sun: .up(progress: 0.01))
         #expect(sunrise.riseMark == nil)
         #expect(sunrise.setMark == set)
@@ -178,34 +182,38 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         #expect(SceneState.markTime(midnight, timeZone: newYork, clock: .twelveHour) == "12:05 AM")
         #expect(SceneState.markTime(midnight, timeZone: newYork, clock: .twentyFourHour) == "00:05")
 
-        let sunrise = scene(sun: .up(progress: 0.01), wind: 6.4)
-        #expect(sunrise.tagLines(clock: .twelveHour)?.title == "SUNRISE 6:41 AM")
-        #expect(sunrise.tagLines(clock: .twelveHour)?.wind == "WIND 6 MPH")
-        #expect(scene(sun: .up(progress: 0.99)).tagLines(clock: .twentyFourHour)?.title == "SUNSET 16:31")
+        // At the ends the body's own time is hidden and the other end's is
+        // written, in the phone's clock style.
+        let layout = SceneLayout(size: CGSize(width: 393, height: 852))
+        let sunset = SceneMarks(state: scene(sun: .up(progress: 0.99)), layout: layout, clock: .twentyFourHour)
+        #expect(sunset.riseTime?.text == "06:41")
+        #expect(sunset.setTime == nil)
         let moonset = scene(
             sun: night, moon: .up(progress: 0.99), wind: 10.5,
             moonPass: SkyPass(rise: instant("2026-11-15T22:12:00Z"), set: instant("2026-11-16T12:03:00Z"))
         )
-        #expect(moonset.tagLines(clock: .twelveHour)?.title == "MOONSET 7:03 AM")
-        #expect(moonset.tagLines(clock: .twelveHour)?.wind == "WIND 11 MPH")
+        let moonsetMarks = SceneMarks(state: moonset, layout: layout, clock: .twelveHour)
+        #expect(moonsetMarks.riseTime?.text == "5:12 PM")
+        #expect(moonsetMarks.setTime == nil)
         let moonrise = scene(sun: night, moon: .up(progress: 0.0), moonPass: SkyPass(rise: instant("2026-11-15T22:12:00Z"), set: nil))
-        #expect(moonrise.tagLines(clock: .twelveHour)?.title == "MOONRISE 5:12 PM")
+        #expect(moonrise.hiddenTimeEdge == .rise)
+        #expect(SceneMarks(state: moonrise, layout: layout, clock: .twelveHour).riseTime == nil)
     }
 
     @Test func windIsLeftOutWithoutAFreshReading() {
         #expect(scene(wind: 8.4).windLabel == "WIND 8 MPH")
         #expect(scene(wind: 8.5).windLabel == "WIND 9 MPH")
+        // At the ends too: the wind line no longer gives way to anything.
+        #expect(scene(sun: .up(progress: 0.01), wind: 6.4).windLabel == "WIND 6 MPH")
+        #expect(scene(sun: night, moon: .up(progress: 0.99), wind: 10.5).windLabel == "WIND 11 MPH")
         let stale = scene(sun: .up(progress: 0.01), wind: nil)
         #expect(stale.windLabel == nil)
-        #expect(stale.showsTag)
-        #expect(stale.tagLines(clock: .twelveHour)?.wind == nil)
     }
 
-    @Test func aMissingRiseLeavesOutItsTickTimeAndTag() {
+    @Test func aMissingRiseLeavesOutItsTickAndTime() {
         let noRise = SkyPass(rise: nil, set: set)
         let early = scene(sun: .up(progress: 0.01), sunPass: noRise)
-        #expect(early.tagEdge == nil)
-        #expect(!early.showsTag)
+        #expect(early.hiddenTimeEdge == nil)
         #expect(early.riseMark == nil)
         #expect(early.setMark == set)
         #expect(early.tickCount == nil)
@@ -214,10 +222,9 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         #expect(marks.ticks == [SceneMarks.Tick(x: 331, isEnd: true)])
         #expect(marks.riseTime == nil)
         #expect(marks.setTime?.text == "4:31 PM")
-        #expect(marks.tag == nil)
 
         let noSet = scene(sun: .up(progress: 0.99), sunPass: SkyPass(rise: rise, set: nil))
-        #expect(!noSet.showsTag)
+        #expect(noSet.hiddenTimeEdge == nil)
         let late = SceneMarks(state: noSet, layout: layout, clock: .twelveHour)
         #expect(late.ticks == [SceneMarks.Tick(x: 62, isEnd: true)])
         #expect(late.riseTime?.text == "6:41 AM")
@@ -225,11 +232,11 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
 
         let neither = SceneMarks(state: scene(sunPass: .unknown), layout: layout, clock: .twelveHour)
         #expect(neither.ticks.isEmpty)
-        #expect(neither.riseTime == nil && neither.setTime == nil && neither.tag == nil)
+        #expect(neither.riseTime == nil && neither.setTime == nil)
         #expect(neither.square != nil)
     }
 
-    @Test func theNeutralSceneHasNoTicksTimesTagOrWind() {
+    @Test func theNeutralSceneHasNoTicksTimesOrWind() {
         let neutral = SceneState.make(snapshot: nil, now: instant("2026-11-16T12:05:00Z"), deviceTimeZone: newYork)
         // 07:05 on the 06–18 stand-in day: the sun is up near its rise.
         #expect(neutral.body?.kind == .sun)
@@ -237,18 +244,17 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         #expect(neutral.windMph == nil)
         #expect(neutral.windLabel == nil)
         #expect(neutral.tickCount == nil)
-        #expect(!neutral.showsTag)
+        #expect(neutral.hiddenTimeEdge == nil)
         #expect(neutral.riseMark == nil && neutral.setMark == nil)
         let atRise = SceneState.make(snapshot: nil, now: instant("2026-11-16T11:00:30Z"), deviceTimeZone: newYork)
-        #expect(!atRise.showsTag)
+        #expect(atRise.hiddenTimeEdge == nil)
         let marks = SceneMarks(state: atRise, layout: SceneLayout(size: CGSize(width: 393, height: 852)), clock: .twelveHour)
         #expect(marks.ticks.isEmpty)
-        #expect(marks.tag == nil)
         #expect(marks.riseTime == nil && marks.setTime == nil)
         // A night with no body draws no marks at all.
         let dark = SceneMarks(state: scene(sun: night), layout: SceneLayout(size: CGSize(width: 393, height: 852)), clock: .twelveHour)
         #expect(dark == SceneMarks(state: scene(sun: night, sunPass: .unknown), layout: SceneLayout(size: CGSize(width: 393, height: 852)), clock: .twelveHour))
-        #expect(dark.ticks.isEmpty && dark.square == nil && dark.dropLine == nil && dark.tag == nil)
+        #expect(dark.ticks.isEmpty && dark.square == nil && dark.dropLine == nil)
     }
 
     @Test func dropLineOnlyWhenTheBodyIsWellAboveTheHorizon() {
@@ -279,21 +285,6 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         // No body up: the top of the path, and mid-sea.
         #expect(layout.weatherCenter(nil) == CGPoint(x: 196.5, y: 298))
         #expect(layout.glintCenterX(nil) == 196.5)
-    }
-
-    @Test func tagStandsAboveTheBodyOnTheInsideOfThePath() throws {
-        let layout = SceneLayout(size: CGSize(width: 393, height: 852))
-        let sunrise = SceneMarks(state: scene(sun: .up(progress: 0)), layout: layout, clock: .twelveHour)
-        let tag = try #require(sunrise.tag)
-        #expect(!tag.flipped)
-        // The mockup: radius 50.4, so 58.4 to the corner of the leader, the
-        // text 23 further out and 20 above.
-        #expect(abs(tag.corner.x - (62 + 58.4 + 23)) < 1e-9)
-        #expect(abs(tag.corner.y - (386 - 58.4 - 20)) < 1e-9)
-        #expect(tag.leader.count == 3)
-        let sunset = SceneMarks(state: scene(sun: .up(progress: 1)), layout: layout, clock: .twelveHour)
-        #expect(sunset.tag?.flipped == true)
-        #expect(abs((sunset.tag?.corner.x ?? 0) - (331 - 58.4 - 23)) < 1e-9)
     }
 }
 
@@ -407,7 +398,6 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         #expect(marks.ticks.count == 11)
         #expect(marks.riseTime?.text == "6:42 AM")
         #expect(marks.setTime?.text == "4:37 PM")
-        #expect(marks.tag == nil)
         #expect(marks.square != nil)
         #expect(marks.dropLine != nil)
         #expect(state.windLabel == "WIND 9 MPH")
@@ -416,9 +406,10 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
     @Test func justAfterSunrise() async throws {
         let (state, marks) = try await marks(at: "2026-11-15T11:44:00Z", fetched: "2026-11-15T11:30:00Z")
         #expect(state.look == .sunrise)
-        #expect(marks.tag?.title == "SUNRISE 6:42 AM")
-        #expect(marks.tag?.wind == "WIND 9 MPH")
-        #expect(marks.tag?.flipped == false)
+        // The sunrise time is hidden while the sun sits on it; the wind
+        // line still shows.
+        #expect(state.hiddenTimeEdge == .rise)
+        #expect(state.windLabel == "WIND 9 MPH")
         #expect(marks.riseTime == nil)
         #expect(marks.setTime?.text == "4:37 PM")
         #expect(marks.square == nil)
@@ -432,13 +423,13 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         #expect(state.tickCount == 10)
         #expect(marks.riseTime?.text == "12:01 PM")
         #expect(marks.setTime?.text == "9:49 PM")
-        #expect(marks.tag == nil)
+        #expect(state.hiddenTimeEdge == nil)
 
         // 21:47 EST, two minutes before the moon sets (02:49Z on the 16th).
         let (late, lateMarks) = try await self.marks(at: "2026-11-16T02:47:00Z", fetched: "2026-11-16T02:00:00Z")
         #expect(late.body?.kind == .moon)
-        #expect(lateMarks.tag?.title == "MOONSET 9:49 PM")
-        #expect(lateMarks.tag?.flipped == true)
+        #expect(late.hiddenTimeEdge == .set)
+        #expect(late.windLabel != nil)
         #expect(lateMarks.riseTime?.text == "12:01 PM")
         #expect(lateMarks.setTime == nil)
     }
@@ -448,7 +439,7 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         let (night, nightMarks) = try await marks(at: "2026-11-16T05:10:00Z", fetched: "2026-11-16T05:00:00Z")
         #expect(night.body == nil)
         #expect(nightMarks == SceneMarks(state: night, layout: layout, clock: .twentyFourHour))
-        #expect(nightMarks.ticks.isEmpty && nightMarks.tag == nil && nightMarks.riseTime == nil)
+        #expect(nightMarks.ticks.isEmpty && nightMarks.riseTime == nil)
         // 13:00 EST on the 16th: that day's sunrise and sunset, 24-hour.
         let sky = try await snapshot(fetchedAt: instant("2026-11-16T17:30:00Z"))
         let day = SceneState.make(snapshot: sky, now: instant("2026-11-16T18:00:00Z"), deviceTimeZone: newYork)
@@ -459,7 +450,8 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
     }
 }
 
-/// Task 147, item 5: VoiceOver hears the rise and set times, and the tag.
+/// Task 147, item 5: VoiceOver hears the rise and set times. Task 148: in
+/// every position, with no tag; the wind line speaks the wind itself.
 @Suite struct SceneSpokenMarksTests {
     @Test func timesAreSpokenAwayFromTheEnds() {
         #expect(scene().accessibilityDescription(clock: .twelveHour)
@@ -468,14 +460,21 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
             == "The sun is up, clear sky over the water. Sunrise 06:41, sunset 16:31.")
     }
 
-    @Test func theTagIsSpokenWithItsWind() {
+    @Test func bothTimesAreSpokenAtTheEndsToo() {
+        // The time hidden under the body is still spoken; the wind is not
+        // (the wind line under the header has its own label).
         #expect(scene(sun: .up(progress: 0.01), wind: 6.4).accessibilityDescription(clock: .twelveHour)
-            == "The sun is up, clear sky over the water. Sunrise at 6:41 AM, wind 6 miles per hour. Sunset at 4:31 PM.")
+            == "The sun is up, clear sky over the water. Sunrise 6:41 AM, sunset 4:31 PM.")
         #expect(scene(sun: .up(progress: 0.99)).accessibilityDescription(clock: .twentyFourHour)
-            == "The sun is up, clear sky over the water. Sunset at 16:31, wind 8 miles per hour. Sunrise was at 06:41.")
-        // Without a fresh reading there is no wind to speak.
+            == "The sun is up, clear sky over the water. Sunrise 06:41, sunset 16:31.")
         #expect(scene(sun: .up(progress: 0.99), wind: nil).accessibilityDescription(clock: .twelveHour)
-            == "The sun is up over the water. Sunset at 4:31 PM. Sunrise was at 6:41 AM.")
+            == "The sun is up over the water. Sunrise 6:41 AM, sunset 4:31 PM.")
+        let moonset = scene(
+            sun: night, moon: .up(progress: 0.99), phase: 0.3, wind: 10.5,
+            moonPass: SkyPass(rise: instant("2026-11-15T22:12:00Z"), set: instant("2026-11-16T12:03:00Z"))
+        )
+        #expect(moonset.accessibilityDescription(clock: .twelveHour)
+            == "Night, waxing gibbous moon, clear sky over the water. Moonrise 5:12 PM, moonset 7:03 AM.")
     }
 
     @Test func unknownTimesAndTheNeutralSceneAreNotSpoken() {

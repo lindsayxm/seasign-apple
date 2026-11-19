@@ -207,7 +207,7 @@ struct RiseSetTimeline: Sendable {
     /// - Down at the setting end: the pass that ended with the last set.
     ///
     /// An end that `state` only estimated (a rise or set missing from the
-    /// data) is nil, so no time or tag is shown for it.
+    /// data) is nil, so no tick or time is shown for it.
     func pass(at now: Date, state: SkyBodyState) -> SkyPass {
         let previousIndex = events.lastIndex { $0.date <= now }
         let nextIndex = events.firstIndex { $0.date > now }

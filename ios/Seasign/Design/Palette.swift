@@ -32,8 +32,7 @@ enum Palette {
     /// Today's white (design v11): the date, day name, temperature and
     /// event titles (the mockup's 238, 240, 240).
     static let todayText = Color(.sRGB, red: 238 / 255, green: 240 / 255, blue: 240 / 255, opacity: 1)
-    /// The wind line under Today's hairline: 244, 246, 246 at 92 %, as the
-    /// wind in the scene's rise and set tag.
+    /// The wind line under Today's hairline: 244, 246, 246 at 92 %.
     static let todayWind = Color(.sRGB, red: 244 / 255, green: 246 / 255, blue: 246 / 255, opacity: 0.92)
     /// The hairline that closes Today's header: white at 34 %.
     static let todayHairline = Color.white.opacity(0.34)

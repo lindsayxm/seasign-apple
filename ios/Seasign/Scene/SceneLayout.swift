@@ -106,17 +106,6 @@ struct SceneMarks: Equatable, Sendable {
         var text: String
     }
 
-    struct Tag: Equatable, Sendable {
-        var title: String
-        var wind: String?
-        /// The text's outer top corner: its top-left, or its top-right when
-        /// `flipped` (a setting body, whose tag stands to its left).
-        var corner: CGPoint
-        var flipped: Bool
-        /// The bent leader from the body up and out to the tag.
-        var leader: [CGPoint]
-    }
-
     var ticks: [Tick] = []
     var riseTime: Label?
     var setTime: Label?
@@ -124,7 +113,6 @@ struct SceneMarks: Equatable, Sendable {
     var square: CGRect?
     /// The dotted drop line from just under the body to the horizon.
     var dropLine: DropLine?
-    var tag: Tag?
 
     struct DropLine: Equatable, Sendable {
         var x: CGFloat
@@ -176,25 +164,6 @@ struct SceneMarks: Equatable, Sendable {
         let reach = body.radius + 8 * s
         if layout.showsDropLine(body) {
             dropLine = DropLine(x: body.center.x, top: body.center.y + reach + 3 * s, bottom: horizon - 1 * s)
-        }
-
-        if let lines = state.tagLines(clock: clock) {
-            // To the right of a body at the left of the path, to the left of
-            // one at the right.
-            let flip: CGFloat = body.center.x > layout.centerX + 1 * s ? -1 : 1
-            let lx = body.center.x + flip * reach
-            let ly = body.center.y - reach
-            tag = Tag(
-                title: lines.title,
-                wind: lines.wind,
-                corner: CGPoint(x: body.center.x + flip * (reach + 23 * s), y: ly - 20 * s),
-                flipped: flip < 0,
-                leader: [
-                    CGPoint(x: lx + flip * 3 * s, y: ly - 3 * s),
-                    CGPoint(x: lx + flip * 11 * s, y: ly - 11 * s),
-                    CGPoint(x: lx + flip * 19 * s, y: ly - 11 * s),
-                ]
-            )
         }
     }
 }

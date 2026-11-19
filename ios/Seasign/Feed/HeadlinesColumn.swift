@@ -12,8 +12,8 @@ import SwiftUI
 /// takes the longest run from the first whose last row's text ends above
 /// `∀`'s target.
 ///
-/// An AI-found title carries the "AI" mark before its first line and is
-/// wrapped in what is left of the width, so the count above stays exact.
+/// An AI-found title looks like any other here (no "AI" mark, the same
+/// width); VoiceOver still says it was AI-found.
 ///
 /// With no site followed and nothing to show, one quiet line points to
 /// Settings. With sites but nothing new since yesterday, the sea stays empty.
@@ -32,9 +32,6 @@ struct HeadlinesColumn: View {
     private static let maxLines = 2
     private var s: CGFloat { layout.scale }
     private var color: Color { Palette.seaText }
-    private var markSize: CGFloat { 7.5 * s }
-    /// The mark and the gap after it.
-    private var markWidth: CGFloat { AIMark.fixedWidth(size: markSize) + 7 * s }
     private var rowWidth: CGFloat { TodayOverlayLayout.Mockup.feedWidth * s }
 
     var body: some View {
@@ -73,7 +70,6 @@ struct HeadlinesColumn: View {
         // The row's whole height is the target, at least 44 points.
         let height = min(layout.headlinePitch, max(44, textHeight))
         let titleX = layout.headlineTitleX - layout.leftX
-        let textX = titleX + (row.entry.isAI ? markWidth : 0)
         let font = layout.fonts.title
         return Button {
             open(row.entry)
@@ -85,11 +81,6 @@ struct HeadlinesColumn: View {
                     .foregroundStyle(ink.opacity(0.85))
                     .fixedSize()
                     .placed(x: 0, baseline: layout.numberBaseline)
-                if row.entry.isAI {
-                    AIMark(size: markSize, color: color, fixed: true)
-                        .frame(height: layout.titleLineHeight)
-                        .placed(x: titleX, y: 0)
-                }
                 ForEach(Array(row.lines.enumerated()), id: \.offset) { lineIndex, text in
                     // Verbatim: titles come from websites and are never read as markup.
                     Text(today: text, font: font, tracking: TodayOverlayLayout.Fonts.titleTracking)
@@ -98,8 +89,8 @@ struct HeadlinesColumn: View {
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
                         // A backstop: the wrap already keeps lines this narrow.
-                        .frame(width: textWidth(row.entry) + 2 * s, alignment: .leading)
-                        .placed(x: textX, baseline: CGFloat(lineIndex) * layout.titleLineHeight + layout.titleBaseline)
+                        .frame(width: textWidth + 2 * s, alignment: .leading)
+                        .placed(x: titleX, baseline: CGFloat(lineIndex) * layout.titleLineHeight + layout.titleBaseline)
                 }
             }
             .shadow(color: .black.opacity(0.9), radius: 3)
@@ -112,9 +103,9 @@ struct HeadlinesColumn: View {
         .accessibilityHint("Opens the article's summary")
     }
 
-    /// The width a title's lines may take: the column, less the AI mark.
-    private func textWidth(_ entry: FeedEntry) -> CGFloat {
-        max(0, layout.headlineTitleWidth - (entry.isAI ? markWidth : 0))
+    /// The width a title's lines may take: the column, for every title.
+    private var textWidth: CGFloat {
+        max(0, layout.headlineTitleWidth)
     }
 
     /// The candidates that fit, with their lines. A word wider than the
@@ -127,7 +118,7 @@ struct HeadlinesColumn: View {
         }
         let rows = candidates.prefix(HeadlineFit.maxCount).map { entry in
             Row(entry: entry, lines: CapsWrapper.wrap(
-                entry.title, width: textWidth(entry), maxLines: Self.maxLines, breakingLongWords: true, measure: measure
+                entry.title, width: textWidth, maxLines: Self.maxLines, breakingLongWords: true, measure: measure
             ))
         }
         let count = HeadlineFit.count(

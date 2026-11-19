@@ -127,7 +127,7 @@ struct SceneState: Equatable, Sendable {
     // MARK: Marks on the horizon
 
     /// The pass the horizon marks describe: the drawn body's, in a live
-    /// scene only (the neutral scene has no ticks, times or tag).
+    /// scene only (the neutral scene has no ticks or times).
     var markedPass: SkyPass {
         guard isLive, let body else { return .unknown }
         return body.pass
@@ -139,20 +139,15 @@ struct SceneState: Equatable, Sendable {
         markedPass.hourCount
     }
 
-    /// The end of the path the tag is at: only within 5 % of either end, and
-    /// only when that end's instant is known.
-    var tagEdge: SkyEdge? {
+    /// The end of the path whose time is not written under its tick: the
+    /// end the body is at, within 5 % of it, while that end's instant is
+    /// known. The time comes back as the body moves away from the end.
+    var hiddenTimeEdge: SkyEdge? {
         guard let progress = body?.placement.progress else { return nil }
         let pass = markedPass
         if progress < 0.05, pass.rise != nil { return .rise }
         if progress > 0.95, pass.set != nil { return .set }
         return nil
-    }
-
-    /// Whether the rise or set tag beside the body is showing. While it is,
-    /// the wind is written in it, not under the header.
-    var showsTag: Bool {
-        tagEdge != nil
     }
 
     /// The small square on the horizon under the body, away from the ends.
@@ -162,34 +157,19 @@ struct SceneState: Equatable, Sendable {
     }
 
     /// The time written under the rise end; nil when unknown or while the
-    /// tag carries it.
+    /// body is at that end (`hiddenTimeEdge`).
     var riseMark: Date? {
-        tagEdge == .rise ? nil : markedPass.rise
+        hiddenTimeEdge == .rise ? nil : markedPass.rise
     }
 
     var setMark: Date? {
-        tagEdge == .set ? nil : markedPass.set
+        hiddenTimeEdge == .set ? nil : markedPass.set
     }
 
-    /// `WIND 8 MPH`, or nil without a fresh reading.
+    /// `WIND 8 MPH`, the line under Today's hairline, or nil without a
+    /// fresh reading.
     var windLabel: String? {
         windMph.map { "WIND \(Int($0.rounded())) MPH" }
-    }
-
-    /// The tag's two lines: `SUNRISE 6:41 AM` (in the ink colour) and the
-    /// wind, which is left out without a fresh reading. Nil when no tag shows.
-    func tagLines(clock: ClockStyle) -> (title: String, wind: String?)? {
-        guard let edge = tagEdge, let body else { return nil }
-        let instant = edge == .rise ? markedPass.rise : markedPass.set
-        guard let instant else { return nil }
-        let name: String =
-            switch (body.kind, edge) {
-            case (.sun, .rise): "SUNRISE"
-            case (.sun, .set): "SUNSET"
-            case (.moon, .rise): "MOONRISE"
-            case (.moon, .set): "MOONSET"
-            }
-        return (name + " " + Self.markTime(instant, timeZone: timeZone, clock: clock), windLabel)
     }
 
     /// A rise or set time as the marks write it, on the scene's clock:
@@ -276,39 +256,25 @@ struct SceneState: Equatable, Sendable {
         }
     }
 
-    /// What VoiceOver says for the scene: the sentence below, then what the
-    /// marks on the horizon show. While the tag shows it is spoken first,
-    /// with the wind it carries (the wind line under the header is hidden
-    /// then): "Sunset at 4:31 PM, wind 11 miles per hour. Sunrise was at
-    /// 6:41 AM." Otherwise the two times: "Sunrise 6:41 AM, sunset 4:31 PM."
-    /// Unknown times, and the neutral scene's, are not spoken.
+    /// What VoiceOver says for the scene: the sentence below, then the rise
+    /// and set times of the drawn body's pass: "Sunrise 6:41 AM, sunset
+    /// 4:31 PM." Both are spoken in every position, including the time that
+    /// is not written while the body sits at its end. Unknown times, and
+    /// the neutral scene's, are not spoken. The wind is not spoken here:
+    /// the wind line under the header carries its own label.
     func accessibilityDescription(clock: ClockStyle) -> String {
         var sentences = [accessibilityDescription]
         guard let body else { return sentences[0] }
         let pass = markedPass
         let (riseName, setName) = body.kind == .sun ? ("Sunrise", "Sunset") : ("Moonrise", "Moonset")
         func time(_ date: Date) -> String { Self.markTime(date, timeZone: timeZone, clock: clock) }
-        if let edge = tagEdge {
-            let (name, instant) = edge == .rise ? (riseName, pass.rise) : (setName, pass.set)
-            if let instant {
-                var tag = "\(name) at \(time(instant))"
-                if let windMph { tag += ", wind \(Int(windMph.rounded())) miles per hour" }
-                sentences.append(tag + ".")
-            }
-            if edge == .rise, let set = pass.set {
-                sentences.append("\(setName) at \(time(set)).")
-            } else if edge == .set, let rise = pass.rise {
-                sentences.append("\(riseName) was at \(time(rise)).")
-            }
-        } else {
-            let times = [
-                pass.rise.map { "\(riseName) \(time($0))" },
-                pass.set.map { "\(setName.lowercased()) \(time($0))" },
-            ].compactMap { $0 }
-            if !times.isEmpty {
-                let joined = times.joined(separator: ", ")
-                sentences.append(joined.prefix(1).uppercased() + joined.dropFirst() + ".")
-            }
+        let times = [
+            pass.rise.map { "\(riseName) \(time($0))" },
+            pass.set.map { "\(setName.lowercased()) \(time($0))" },
+        ].compactMap { $0 }
+        if !times.isEmpty {
+            let joined = times.joined(separator: ", ")
+            sentences.append(joined.prefix(1).uppercased() + joined.dropFirst() + ".")
         }
         return sentences.joined(separator: " ")
     }

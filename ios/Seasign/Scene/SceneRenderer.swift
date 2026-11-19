@@ -535,18 +535,6 @@ struct SceneRenderer: Sendable {
         for label in [marks.riseTime, marks.setTime].compactMap({ $0 }) {
             text.draw(mono(label.text, tracking: 0.1, color: markColor), at: label.center, anchor: .center)
         }
-        if let tag = marks.tag {
-            var leader = Path()
-            leader.addLines(tag.leader)
-            context.stroke(leader, with: .color(.white.opacity(0.6)), lineWidth: hairWidth)
-            let anchor: UnitPoint = tag.flipped ? .trailing : .leading
-            text.draw(mono(tag.title, tracking: 0.14, color: state.ink.color),
-                      at: CGPoint(x: tag.corner.x, y: tag.corner.y + 6), anchor: anchor)
-            if let wind = tag.wind {
-                text.draw(mono(wind, tracking: 0.14, color: SceneRGB(244, 246, 246).color(0.92)),
-                          at: CGPoint(x: tag.corner.x, y: tag.corner.y + 18), anchor: anchor)
-            }
-        }
     }
 
     // MARK: Drawing helpers
