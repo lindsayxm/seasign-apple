@@ -67,6 +67,11 @@ struct TodayOverlayLayout {
         static let titleLine: CGFloat = 17.5
         static let numberColumn: CGFloat = 23
         static let feedWidth: CGFloat = 332
+        /// The day name's size is kept within this range (points before
+        /// scaling); as wide as the date it would swing from about 15 (MON on
+        /// JUL 1) to 38 (FRI on NOV 20). The lead's choice until the user
+        /// decides; the stills show about 22.8.
+        static let dayNameSizes: ClosedRange<CGFloat> = 20...28
         /// The 1-point drop of the number's line box under the title's.
         static let numberDrop: CGFloat = 1
     }
@@ -193,8 +198,11 @@ struct TodayOverlayLayout {
         // narrower than the mockup's (5.6 characters, then the rest of 66); at
         // least a character between the columns and one and a half before the title.
         let digit = TodayType.width("0", font: fonts.time, tracking: 0)
-        let leadWidths = labels.map { TodayType.width($0.timeLead, font: fonts.time, tracking: Fonts.timeTracking) }
-        let tailWidths = labels.compactMap { $0.timeTail }.map {
+        // Over the rows shown: at most three, and no event is ever dropped
+        // after this (see the cap below).
+        let shown = Array(labels.prefix(3))
+        let leadWidths = shown.map { TodayType.width($0.timeLead, font: fonts.time, tracking: Fonts.timeTracking) }
+        let tailWidths = shown.compactMap { $0.timeTail }.map {
             TodayType.width($0, font: fonts.time, tracking: Fonts.timeTracking)
         }
         let widestLead = leadWidths.max() ?? 0
@@ -213,18 +221,24 @@ struct TodayOverlayLayout {
 
         let eventFont = fonts.event
         let measure: (String) -> CGFloat = { TodayType.width($0, font: eventFont, tracking: Fonts.eventTracking) }
-        var wrapped = labels.prefix(3).map { label in
-            (label, CapsWrapper.wrap(label.title.uppercased(), width: titleSpace, maxLines: 2, measure: measure))
+        func lines(_ label: EventLabel, maxLines: Int) -> [String] {
+            CapsWrapper.wrap(
+                label.title.uppercased(), width: titleSpace, maxLines: maxLines, breakingLongWords: true, measure: measure
+            )
         }
+        var wrapped = shown.map { ($0, lines($0, maxLines: 2)) }
+        // One line, so three one-line events and the prompt always fit the
+        // cap below (3 + 1 lines and three gaps: 94 of 100 points).
         let promptLines = showsZipPrompt
-            ? CapsWrapper.wrap(Self.zipPromptText, width: textRight - timeX, maxLines: 2, measure: measure)
+            ? CapsWrapper.wrap(Self.zipPromptText, width: textRight - timeX, maxLines: 1, breakingLongWords: true, measure: measure)
             : []
 
         // Never taller than five lines of rows, so the button column hung
         // from the hairline stays clear of a low sun or moon at the right
         // of the path. Over that, the last two-line title is cut to one
-        // line (from the last event up); only if every title is on one line
-        // already is the last event dropped.
+        // line, from the last event up. That always fits (three one-line
+        // events and the one-line prompt take 94 points), so no event is
+        // ever dropped.
         func height(_ lineCounts: [Int]) -> CGFloat {
             let lines = lineCounts.reduce(0, +)
             return CGFloat(lines) * line + CGFloat(max(0, lineCounts.count - 1)) * Mockup.rowGap * s
@@ -233,13 +247,8 @@ struct TodayOverlayLayout {
         func tooTall() -> Bool {
             height(wrapped.map { max(1, $0.1.count) } + promptCount) > Mockup.maxRowsHeight * s + 0.5
         }
-        while !wrapped.isEmpty, tooTall() {
-            if let index = wrapped.lastIndex(where: { $0.1.count > 1 }) {
-                let label = wrapped[index].0
-                wrapped[index].1 = CapsWrapper.wrap(label.title.uppercased(), width: titleSpace, maxLines: 1, measure: measure)
-            } else {
-                wrapped.removeLast()
-            }
+        while tooTall(), let index = wrapped.lastIndex(where: { $0.1.count > 1 }) {
+            wrapped[index].1 = lines(wrapped[index].0, maxLines: 1)
         }
 
         var y = (Mockup.boxTop + Mockup.boxPadding) * s
@@ -295,13 +304,15 @@ struct TodayOverlayLayout {
     }
 
     /// The day name's face at the size that makes `day` as wide as `date`
-    /// (each without the letter-space after its last letter).
+    /// (each without the letter-space after its last letter), kept within
+    /// `Mockup.dayNameSizes`.
     static func dayFont(day: String, date: String, dateFont: UIFont, scale: CGFloat) -> UIFont {
         let reference = 28 * scale
         let want = TodayType.width(date, font: dateFont, tracking: Fonts.dateTracking)
         let got = TodayType.width(day, font: TodayType.dayName(reference), tracking: Fonts.dayTracking)
         guard want > 0, got > 0 else { return TodayType.dayName(reference) }
-        return TodayType.dayName(reference * want / got)
+        let size = min(max(reference * want / got, Mockup.dayNameSizes.lowerBound * scale), Mockup.dayNameSizes.upperBound * scale)
+        return TodayType.dayName(size)
     }
 
     // MARK: Article rows

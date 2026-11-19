@@ -41,15 +41,26 @@ struct WrappedCaps: View {
 enum CapsWrapper {
     /// Breaks `text` at spaces into at most `maxLines` lines no wider than
     /// `width`, as measured by `measure`. Text that does not fit ends in "…".
-    /// A single word wider than the line is kept whole on its own line.
+    ///
+    /// A single word wider than the line is kept whole on its own line,
+    /// unless `breakingLongWords` is set: then it is broken between
+    /// characters (graphemes) wherever the line is full, so a pasted link or
+    /// a title in a language written without spaces never runs past `width`,
+    /// and the ellipsis is made to fit by cutting characters if need be.
     static func wrap(
         _ text: String,
         width: CGFloat,
         maxLines: Int,
+        breakingLongWords: Bool = false,
         measure: (String) -> CGFloat
     ) -> [String] {
-        let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        var words = text.split(whereSeparator: \.isWhitespace).map(String.init)
         guard maxLines > 0, !words.isEmpty else { return [] }
+        if breakingLongWords {
+            words = words.flatMap { word in
+                measure(word) <= width ? [word] : pieces(of: word, width: width, measure: measure)
+            }
+        }
 
         var lines: [String] = []
         var current = ""
@@ -73,10 +84,35 @@ enum CapsWrapper {
             while kept.count > 1, measure(kept.joined(separator: " ") + "…") > width {
                 kept.removeLast()
             }
-            current = kept.joined(separator: " ") + "…"
+            current = kept.joined(separator: " ")
+            if breakingLongWords {
+                // One piece left that still leaves no room for the ellipsis.
+                while current.count > 1, measure(current + "…") > width {
+                    current.removeLast()
+                }
+            }
+            current += "…"
         }
         lines.append(current)
         return lines
+    }
+
+    /// `word` cut between characters into pieces no wider than `width`
+    /// (each at least one character), filling each piece as far as it goes.
+    static func pieces(of word: String, width: CGFloat, measure: (String) -> CGFloat) -> [String] {
+        var pieces: [String] = []
+        var current = ""
+        for character in word {
+            let candidate = current + String(character)
+            if !current.isEmpty, measure(candidate) > width {
+                pieces.append(current)
+                current = String(character)
+            } else {
+                current = candidate
+            }
+        }
+        if !current.isEmpty { pieces.append(current) }
+        return pieces
     }
 
     /// Width of one line of Jost Book (or Medium) at `size` with the given tracking.

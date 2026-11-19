@@ -95,7 +95,10 @@ struct HeadlinesColumn: View {
                     Text(today: text, font: font, tracking: TodayOverlayLayout.Fonts.titleTracking)
                         .foregroundStyle(color)
                         .lineLimit(1)
-                        .fixedSize()
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        // A backstop: the wrap already keeps lines this narrow.
+                        .frame(width: textWidth(row.entry) + 2 * s, alignment: .leading)
                         .placed(x: textX, baseline: CGFloat(lineIndex) * layout.titleLineHeight + layout.titleBaseline)
                 }
             }
@@ -109,15 +112,23 @@ struct HeadlinesColumn: View {
         .accessibilityHint("Opens the article's summary")
     }
 
-    /// The candidates that fit, with their lines.
+    /// The width a title's lines may take: the column, less the AI mark.
+    private func textWidth(_ entry: FeedEntry) -> CGFloat {
+        max(0, layout.headlineTitleWidth - (entry.isAI ? markWidth : 0))
+    }
+
+    /// The candidates that fit, with their lines. A word wider than the
+    /// column (a pasted link, a title written without spaces) is broken
+    /// between characters, so no line runs past it.
     private var fittingRows: [Row] {
         let font = layout.fonts.title
         let measure: (String) -> CGFloat = {
             TodayType.width($0, font: font, tracking: TodayOverlayLayout.Fonts.titleTracking)
         }
         let rows = candidates.prefix(HeadlineFit.maxCount).map { entry in
-            let width = layout.headlineTitleWidth - (entry.isAI ? markWidth : 0)
-            return Row(entry: entry, lines: CapsWrapper.wrap(entry.title, width: max(0, width), maxLines: Self.maxLines, measure: measure))
+            Row(entry: entry, lines: CapsWrapper.wrap(
+                entry.title, width: textWidth(entry), maxLines: Self.maxLines, breakingLongWords: true, measure: measure
+            ))
         }
         let count = HeadlineFit.count(
             textHeights: rows.map { CGFloat(max(1, $0.lines.count)) * layout.titleLineHeight },

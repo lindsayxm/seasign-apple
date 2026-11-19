@@ -202,6 +202,24 @@ import UIKit
         #expect(wrap("SUPERCALIFRAGILISTIC OK", width: 5) == ["SUPERCALIFRAGILISTIC", "OK"])
     }
 
+    @Test func aLongWordIsBrokenBetweenCharactersWhenAsked() {
+        func wrap(_ text: String, width: CGFloat, maxLines: Int) -> [String] {
+            CapsWrapper.wrap(text, width: width, maxLines: maxLines, breakingLongWords: true) { CGFloat($0.count) }
+        }
+        #expect(wrap("SUPERCALIFRAGILISTIC OK", width: 5, maxLines: 5) == ["SUPER", "CALIF", "RAGIL", "ISTIC", "OK"])
+        // Out of lines inside the word: the ellipsis still fits.
+        #expect(wrap("SUPERCALIFRAGILISTIC OK", width: 5, maxLines: 2) == ["SUPER", "CALI…"])
+        // Text written without spaces.
+        let japanese = wrap("東京都の天気予報と週間予報", width: 4, maxLines: 2)
+        #expect(japanese == ["東京都の", "天気予…"])
+        // A link after a short word starts its own line.
+        let link = wrap("SEE HTTPS://ZOOM.US/J/8123456789", width: 10, maxLines: 3)
+        #expect(link.first == "SEE")
+        for lines in [japanese, link] {
+            #expect(lines.allSatisfy { $0.count <= 10 })
+        }
+    }
+
     @Test func emptyTextHasNoLines() {
         #expect(wrap("   ", width: 10).isEmpty)
         #expect(wrap("WORD", width: 10, maxLines: 0).isEmpty)

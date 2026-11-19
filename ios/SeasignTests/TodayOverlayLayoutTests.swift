@@ -115,18 +115,99 @@ import UIKit
         #expect(lastBottom <= 311.5)
     }
 
-    @Test func eventsAreDroppedOnlyWhenEveryTitleIsOneLine() {
-        // A two-line prompt is not reachable at 393 wide, so check the
-        // budget directly: three one-line events and the prompt fit.
-        let short = layout(["A", "B", "C"], prompt: true)
-        #expect(short.rows.count == 3)
-        #expect(short.prompt != nil)
+    @Test func thePromptAndThreeEventsAlwaysFit() {
+        // No event is ever dropped: cutting titles to one line always makes
+        // room for the one-line prompt.
+        let long = Array(repeating: "A very long event title that will need two lines here", count: 3)
+        for titles in [["A", "B", "C"], long] {
+            let layout = layout(titles, prompt: true)
+            #expect(layout.rows.count == 3)
+            #expect(layout.prompt?.lines.count == 1)
+            #expect(layout.hairlineY <= 184)
+        }
+    }
+
+    /// A pasted link or a title written without spaces never runs past the
+    /// title column.
+    @Test func anUnbreakableTitleStaysInsideTheBox() {
+        let titles = [
+            "https://us02web.zoom.us/j/81234567890?pwd=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+            "東京都の天気予報と週間予報のお知らせ会議の資料を準備する",
+            "Standup",
+        ]
+        let layout = layout(titles)
+        #expect(layout.rows.count == 3)
+        for row in layout.rows {
+            #expect(!row.lines.isEmpty && row.lines.count <= 2)
+            for line in row.lines {
+                let width = TodayType.width(line, font: layout.fonts.event, tracking: TodayOverlayLayout.Fonts.eventTracking)
+                #expect(width <= layout.titleWidth + 0.5, "\(line): \(width)")
+                #expect(layout.titleX + width <= 377 - 8 + 0.5)
+            }
+        }
+        #expect(layout.rows[0].lines.last?.hasSuffix("…") == true)
+    }
+
+    /// The same for article titles, measured as `HeadlinesColumn` measures them.
+    @Test func anUnbreakableArticleTitleStaysInsideItsColumn() {
+        let layout = layout([])
+        let font = layout.fonts.title
+        let measure: (String) -> CGFloat = { TodayType.width($0, font: font, tracking: TodayOverlayLayout.Fonts.titleTracking) }
+        for title in ["https://example.com/a/very/long/path/that/never/has/a/space/in/it/at/all/index.html",
+                      "気象庁は今週末にかけて広い範囲で大雨となる見込みだと発表しました"] {
+            let lines = CapsWrapper.wrap(title, width: layout.headlineTitleWidth, maxLines: 2, breakingLongWords: true, measure: measure)
+            #expect(lines.count == 2)
+            #expect(lines.allSatisfy { measure($0) <= layout.headlineTitleWidth + 0.5 })
+        }
+    }
+
+    @Test func aTwentyFourHourPhoneHasOneTimeColumn() {
+        let labels = sample.enumerated().map { index, title in
+            let start = now.addingTimeInterval(Double(index + 1) * 3600)
+            let event = UpcomingEvent(link: UUID(), title: title, start: start, end: start.addingTimeInterval(1800), allDay: false)
+            return EventLabel(event: event, now: now, timeZone: zone, clock: .twentyFourHour)
+        }
+        #expect(labels.allSatisfy { $0.timeTail == nil })
+        let layout = TodayOverlayLayout(size: iPhone16, labels: labels, showsZipPrompt: false, date: "NOV 16", weekday: "Mon")
+        // `12:36`: the title keeps the mockup's x 178.
+        #expect(abs(layout.titleX - 178) < 0.01)
+        let leadWidth = TodayType.width("12:36", font: layout.fonts.time, tracking: TodayOverlayLayout.Fonts.timeTracking)
+        #expect(layout.tailX == layout.timeX + leadWidth)
+    }
+
+    @Test func aLargeScreenScalesEverything() {
+        let proMax = CGSize(width: 440, height: 956)
+        let layout = layout(sample, size: proMax)
+        let s = 440.0 / 393.0
+        #expect(abs(layout.scale - s) < 0.0001)
+        #expect(abs(layout.hairlineY - 168 * s) < 0.5)
+        #expect(abs(layout.timeX - 112 * s) < 0.01)
+        #expect(layout.buttonCenters.allSatisfy { abs($0.x - 331 * s) < 0.01 })
+        #expect(abs(layout.allRect.minY - (956 - 58 * s)) < 0.01)
+        #expect(abs(layout.allRect.midX - 220) < 0.01)
+        // Five two-line article rows fit above ∀'s target.
+        let available = layout.headlinesBottom - layout.headlinesTop
+        let twoLines = Array(repeating: 2 * layout.titleLineHeight, count: 5)
+        #expect(HeadlineFit.count(textHeights: twoLines, pitch: layout.headlinePitch, available: available) == 5)
+    }
+
+    /// The day name is clamped to 20 to 28 points (times the scale).
+    @Test func theDayNameSizeIsClamped() {
+        func size(_ day: String, _ date: String, _ screen: CGSize? = nil) -> CGFloat {
+            TodayOverlayLayout(size: screen ?? iPhone16, labels: [], showsZipPrompt: false, date: date, weekday: day).dayFont.pointSize
+        }
+        #expect(abs(size("Mon", "JUL 1") - 20) < 0.01)
+        #expect(abs(size("Fri", "NOV 20") - 28) < 0.01)
+        let s = 440.0 / 393.0
+        #expect(abs(size("Mon", "JUL 1", CGSize(width: 440, height: 956)) - 20 * s) < 0.01)
+        #expect(abs(size("Fri", "NOV 20", CGSize(width: 440, height: 956)) - 28 * s) < 0.01)
+        // In between it is still as wide as the date (the mockup's MON / NOV 16).
+        let mid = size("Mon", "NOV 16")
+        #expect(mid > 20 && mid < 28)
     }
 
     /// Every weekday at the widest and narrowest dates: the day name stays
-    /// clear of the date and the temperature. Its size follows the date's
-    /// width, as the plan asks, so it swings widely: about 14.7 pt (MON on
-    /// JUL 1) to 38.4 pt (FRI on NOV 20) against the mockup's 28.
+    /// clear of the date and the temperature, within its clamp.
     @Test func everyDayNameFitsBetweenTheDateAndTheTemperature() {
         let months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
         let fonts = TodayOverlayLayout.Fonts(scale: 1)
@@ -140,7 +221,7 @@ import UIKit
             for day in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] {
                 let layout = TodayOverlayLayout(size: iPhone16, labels: [], showsZipPrompt: false, date: date, weekday: day)
                 let size = layout.dayFont.pointSize
-                #expect(size > 12 && size < 42, "\(day) on \(date): \(size)")
+                #expect(size >= 20 - 0.01 && size <= 28 + 0.01, "\(day) on \(date): \(size)")
                 let above = layout.dayBaseline - layout.dayFont.capHeight - layout.dateBaseline
                 let below = layout.temperatureBaseline - layout.fonts.temperature.capHeight - layout.dayBaseline
                 #expect(above > 6 && below > 6, "\(day) on \(date): \(above), \(below)")
