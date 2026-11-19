@@ -47,10 +47,11 @@
   .link { left: 163px; top: 92.5px; width: 91.3px; height: 0; border-top: .5px solid rgba(255,255,255,.34); }
   .hero small em { font-style: normal; color: rgba(238,240,240,.95); }
   .events { left: 34px; top: 118px; width: 280px; margin: 0; padding: 0; list-style: none; font-size: 11px; letter-spacing: .13em; line-height: 16px; text-shadow: 0 0 5px rgba(0,0,0,.9); }
-  .events li { display: grid; grid-template-columns: 70px 1fr; margin-bottom: 8px; }
-  /* the time is two fixed columns: the hour (or the day, for an all-day event), then AM, PM or ALL, so those always start at the same place */
-  .events time { color: rgb(var(--teal)); font-size: 10px; letter-spacing: .04em; display: grid; grid-template-columns: 5.6ch auto; justify-content: start; }
-  .events time b { font-weight: inherit; }
+  .events li { display: grid; grid-template-columns: 38px 1fr; margin-bottom: 8px; }
+  /* the time is stacked to keep its column narrow: the hour (or the day, for an all-day event) over a smaller AM, PM or ALL; the two lines together are one line of title text tall */
+  .events time { color: rgb(var(--teal)); display: flex; flex-direction: column; height: 16px; justify-content: center; text-shadow: none; }
+  .events time b { font-weight: inherit; font-size: 9px; line-height: 9px; letter-spacing: .03em; }
+  .events time b + b { font-size: 6.5px; line-height: 7px; letter-spacing: .14em; opacity: .8; }
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
