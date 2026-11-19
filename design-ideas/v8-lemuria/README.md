@@ -43,9 +43,9 @@ At the user's request the row of four buttons was split. Settings, list and save
 
 Each title has a small mono number before it (`01`, `02`, …) in the ink colour, like a bullet; the titles start 23 points further right. v7 had dropped numbers at the user's request; the user asked for them back here in this smaller form.
 
-## Stacked event times (2026-11-18)
+## Short event times (2026-11-18)
 
-To give the event titles more width, each time is stacked: the hour (or the day, for an all-day event) over a smaller `AM`, `PM` or `ALL`, in the manner of the week and day note beside the day name. The time column went from 70 to 38 points. The user chose this over `6:45p` on one line and over a time line above each title.
+To give the event titles more width, each time is one short word: the hour with a small `a` or `p` straight after it (`6:45p`), and just the day (`TUE`) for an all-day event, which no longer says `ALL`. The time column went from 70 to 46 points. A stacked form (hour over a small `PM`, 38 points) was tried first; the user preferred this one.
 
 ## Tags on the sun and moon (2026-11-18, supersedes the tag description in the first pass below)
 

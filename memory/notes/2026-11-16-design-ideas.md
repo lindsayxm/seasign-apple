@@ -76,3 +76,5 @@ Then (#109–#111): control labels removed; a hairline from the day number to th
 Then (#112, #113): the header line stops short of the place box; away from the horizon the sun's tag drops the word SUN and every tag sits level with the body (never above it); rise and set tags unchanged.
 
 Then (#114): settings, list, saved became a column at the right of the events; a smaller `∀` went to the lower left corner; horizon back up to y 386.
+
+Then (#115–#120): bare button column, muted to 38%, 36 points apart, centred on x 331 above the setting sun or moon; small numbers `01`… before the article titles (the user asked for them back); event times shortened to `6:45p` / `TUE` (a stacked hour-over-PM form was tried and dropped).
