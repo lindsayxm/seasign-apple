@@ -61,7 +61,7 @@
   body.nobtn .col, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the controls */
 
   .feed { left: 34px; top: 486px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; counter-reset: n; }
-  .feed li { height: 44px; text-shadow: 0 0 6px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.7); display: grid; grid-template-columns: 23px 1fr; align-items: start; counter-increment: n; }
+  .feed li { height: 57px; text-shadow: 0 0 6px rgba(0,0,0,.9), 0 0 2px rgba(0,0,0,.7); display: grid; grid-template-columns: 23px 1fr; align-items: start; counter-increment: n; }
   /* a small number before each title (01, 02, …), like a bullet, in the ink colour */
   .feed li::before { content: counter(n, decimal-leading-zero); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8px; line-height: 17.5px; letter-spacing: .08em; color: rgba(var(--amber), .85); padding-top: 1px; }
   /* article titles: a humanist serif in sentence case (Iowan Old Style, then Charter; both ship with iOS and macOS) */
