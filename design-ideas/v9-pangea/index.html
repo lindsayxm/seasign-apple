@@ -55,9 +55,9 @@
   #index .row > :first-child { font-weight: 500; letter-spacing: .04em; }
 
   /* inside the scope: which weather lamp is lit (the others stay faintly visible, as on a glass display), and what is being tracked */
-  .lamps { left: 32px; top: 232px; display: flex; gap: 9px; font: 400 7.5px/9px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .16em; color: rgba(var(--ink), .2); }
+  .lamps { left: 32px; top: 240px; display: flex; gap: 9px; font: 400 7.5px/9px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .16em; color: rgba(var(--ink), .2); }
   .lamps .on { color: rgb(var(--ink)); text-shadow: 0 0 6px rgba(var(--ink), .7); }
-  .track { right: 32px; top: 232px; font: 400 7.5px/9px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .16em; color: rgb(var(--ink)); text-shadow: 0 0 6px rgba(var(--ink), .7); text-transform: uppercase; }
+  .track { right: 32px; top: 240px; font: 400 7.5px/9px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .16em; color: rgb(var(--ink)); text-shadow: 0 0 6px rgba(var(--ink), .7); text-transform: uppercase; }
 
   /* meters under the scope: how far the sun or moon is along its path, the wind, the cloud cover */
   .meter { left: 20px; font: 400 7.5px/9px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .16em; color: rgb(var(--teal)); text-transform: uppercase; text-shadow: 0 0 5px rgba(var(--teal), .45); white-space: nowrap; }
@@ -166,8 +166,8 @@
 <script>
 "use strict";
 const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
-const SCOPE = { x: 20, y: 222, w: 353, h: 232, r: 16 };   // the scope's glass
-const HZ = SCOPE.y + 150;                                 // the sea's horizon, inside the scope
+const SCOPE = { x: 20, y: 230, w: 353, h: 224, r: 16 };   // the scope's glass
+const HZ = SCOPE.y + 146;                                 // the sea's horizon, inside the scope
 const PATH = { x: W / 2, half: 132, top: 92 };            // the sun and moon's path: the top of a circle whose centre is under the horizon
 PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
 
@@ -356,7 +356,7 @@ function show(id) {
   const moon = state.phase != null, lit = moon ? Math.round((1 - Math.cos(TAU * state.phase)) / 2 * 100) : null, cloud = Math.round((state.clouds || 0) * 100);
   const lamp = state.snow ? "snow" : state.rain ? "rain" : state.clouds ? "cloud" : "clear";
   for (const el of document.querySelectorAll("#lamps span")) el.classList.toggle("on", el.dataset.k === lamp);
-  document.getElementById("track").textContent = state.turn < .05 ? (moon ? "Moonrise" : "Sunrise") : state.turn > .95 ? (moon ? "Moonset" : "Sunset") : moon ? "Moon " + lit + "%" : "Sun";
+  document.getElementById("track").textContent = state.turn < .05 ? (moon ? "Moonrise" : "Sunrise") : state.turn > .95 ? (moon ? "Moonset" : "Sunset") : moon ? "Moon " + lit + "%" : "";   // a high sun needs no name (the user said so of v8)
   document.getElementById("m1name").textContent = moon ? "Moon up" : "Daylight";
   fill(document.getElementById("daysegs"), 30, Math.max(1, Math.round(state.turn * 30)), 26);       // the last four segments are red: nearly set
   document.getElementById("rise").textContent = state.rise; document.getElementById("set").textContent = state.set;

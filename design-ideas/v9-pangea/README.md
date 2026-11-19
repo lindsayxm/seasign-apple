@@ -14,7 +14,7 @@ Open `index.html`. Address switches: `?state=<id>` (the same twelve ids as the o
    - The sun is a lit disc in a ring with short turning rays. The moon is an outlined disc, lit part filled, dark part hatched.
    - The sea is a wire mesh running to the horizon, its lines rising and falling, brighter in a lane under the sun or moon.
    - Clouds are stacked strokes, rain is dashes, snow is small crosses, stars are points and crosses (night; a few at sunrise and sunset; none by day).
-   - Top left: four weather lamps, `CLEAR CLOUD RAIN SNOW`; one is lit and the others stay faintly visible. Top right: what is tracked (`SUN`, `MOON 50%`, `SUNRISE`, `MOONSET` …).
+   - Top left: four weather lamps, `CLEAR CLOUD RAIN SNOW`; one is lit and the others stay faintly visible. Top right: what is tracked (`MOON 50%`, `SUNRISE`, `MOONSET` …); nothing for a high sun, which needs no name.
    - The trace colour is the only thing that changes with the time and weather: yellow-green by day, amber at sunrise, red-orange at sunset, paler in cloud, grey-blue in rain, near white in snow, teal at night.
 5. **Meters**: a thirty-segment bar for how far the sun or moon is along its path (`DAYLIGHT` or `MOON UP`), amber with the last four segments red, and the rise and set times under its ends. Then two small teal bars: wind (full scale 30 mph) and cloud cover.
 6. **Reading table**: seven numbered article titles in a ruled table, Jost in sentence case.
