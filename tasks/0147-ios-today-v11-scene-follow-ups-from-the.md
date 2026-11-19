@@ -1,11 +1,11 @@
 ---
 id: 147
 title: iOS: Today v11 scene — follow-ups from the review of #145
-status: review
+status: done
 owner: implementer-1
 depends_on: [146]
 created: 2026-11-19T04:00:43Z
-updated: 2026-11-19T06:00:32Z
+updated: 2026-11-19T06:01:48Z
 ---
 
 ## Goal
@@ -14,9 +14,9 @@ From the reviewer's report on #145 (see that task's log). (1) SkyMath.swift Rise
 
 ## Acceptance criteria
 
-- [ ] The two missing-event cases show the right time or no tag, with tests
-- [ ] The render test fails if nothing is drawn; a snapshot-to-marks test exists
-- [ ] Tick count is capped; VoiceOver description includes rise and set times; all tests pass on iOS 18.3 and 27.2
+- [x] The two missing-event cases show the right time or no tag, with tests
+- [x] The render test fails if nothing is drawn; a snapshot-to-marks test exists
+- [x] Tick count is capped; VoiceOver description includes rise and set times; all tests pass on iOS 18.3 and 27.2
 
 ## Relevant files
 
@@ -33,3 +33,8 @@ From the reviewer's report on #145 (see that task's log). (1) SkyMath.swift Rise
 - 2026-11-19T05:53:31Z [implementer-1] status: todo → in-progress — claimed by implementer-1
 - 2026-11-19T06:00:32Z [implementer-1] Changed: (1) RiseSetTimeline.pass(at:state:) now takes the state SceneState draws (sun's sighting rule or moon's rule) and follows it: up = rise before/set after; down at the rising end = the pass starting with the coming rise (rise nil if the next event is a set, i.e. the rise is only estimated); down at the setting end = the pass ending with the last set (set nil if the last event is a rise). Tests: [set1,set2] five minutes after set1 -> (rise0 or nil, set1), so MOONSET shows set1; [rise1,rise2] five minutes before rise2 -> (rise2, set2), and just after rise1's estimated set -> (rise1, nil), no tag; sun rule too. (2) SceneRenderTests.skiesWithAMissingEndAreDrawn renders missing-rise and missing-set sun and moon skies and checks more than half of the low sky (y 290-384) is lit and the disc is bright where SceneLayout puts it; checked that it fails (0 of 9259 lit, disc 0) with drawing removed, then reverted. (3) SnapshotToMarksTests: skyJSON10001 through SceneState.make to SceneMarks at NY midday, just after sunrise (tag SUNRISE 6:42 AM, WIND 9 MPH), the moon at 17:05 and two minutes before moonset (MOONSET 9:49 PM), after midnight (nothing up, no marks) and the 16th's own times in 24-hour. (4) SkyPass.maxHourCount = 24: any pass up to a day (the longest US sun is about 22 h, in Alaska) keeps one tick an hour, at least 11 pt apart on a 393 pt screen; a pass of days (polar day with both ends in the data) gets 24 evenly spaced ticks instead of hundreds. (5) SceneState.accessibilityDescription(clock:) used by SceneView: the old sentence plus 'Sunrise 6:41 AM, sunset 4:31 PM.', or with the tag 'Sunset at 4:31 PM, wind 11 miles per hour. Sunrise was at 6:41 AM.'; unknown times and the neutral scene are not spoken. (6) markTime builds on ClockStyle.columns. Verified: 433/433 on iPhone 16 / iOS 18.3 (XcodeBuildMCP) and iPhone 17 / iOS 27.2 (xcodebuild). No visual change expected; per the lead I did not run or screenshot the app on the iPhone 16 (real zip and calendar), and did not view it elsewhere either. VoiceOver text is checked by tests only, not with VoiceOver running.
 - 2026-11-19T06:00:32Z [implementer-1] status: in-progress → review
+- 2026-11-19T06:01:47Z [lead] criterion 1 met: The two missing-event cases show the right time or no tag, with tests
+- 2026-11-19T06:01:48Z [lead] criterion 2 met: The render test fails if nothing is drawn; a snapshot-to-marks test exists
+- 2026-11-19T06:01:48Z [lead] criterion 3 met: Tick count is capped; VoiceOver description includes rise and set times; all tests pass on iOS 18.3 and 27.2
+- 2026-11-19T06:01:48Z [lead] Lead: ran the suite myself on iPhone 17 / iOS 27.2: 433 tests in 62 suites passed. Read the commit's scope (SkyMath, SceneState, SceneView, tests only). Accepted on the implementer's report plus that run, without a separate reviewer; the iOS 18.3 result (433 passing) is the implementer's. Not verified: the VoiceOver text with VoiceOver running; no Simulator screenshot after this change (no visual change expected).
+- 2026-11-19T06:01:48Z [lead] status: review → done
