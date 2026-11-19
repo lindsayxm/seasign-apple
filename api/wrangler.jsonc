@@ -17,7 +17,7 @@
 	"vars": {
 		// Must equal APP_BUNDLE_ID in ../app-identity.xcconfig.
 		// `npm test` runs scripts/check-identity.mjs and fails when they differ.
-		"APPLE_APP_BUNDLE_ID": "com.example.seasign"
+		"APPLE_APP_BUNDLE_ID": "technology.artisan.seasign"
 	},
 	// Placeholder IDs: enough for `wrangler dev` and the tests, which run locally.
 	// The real resources are created only with the user's go-ahead (see AGENTS.md).

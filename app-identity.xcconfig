@@ -1,7 +1,7 @@
 // App identity for Seasign. The one place the bundle ID and Apple team ID are set.
-// These are test values until the Apple Developer account is approved; then replace both.
+// The user's own values (Apple Developer account approved 2026-11-18; set in task 154).
 // ios/project.yml loads this file. api/wrangler.jsonc repeats the bundle ID, and
 // `npm test` in api/ fails if the two differ.
 
-APP_BUNDLE_ID = com.example.seasign
-DEVELOPMENT_TEAM =
+APP_BUNDLE_ID = technology.artisan.seasign
+DEVELOPMENT_TEAM = Q79NR2FCR9
