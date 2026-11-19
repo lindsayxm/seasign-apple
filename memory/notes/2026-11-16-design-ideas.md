@@ -97,3 +97,8 @@ Second round on v10 (#125): bolder, larger bottom marks; titles higher; fainter 
 ## 2026-11-18: back to v7, then v11-artemis
 
 After v10 the user went back to v7 for small changes (#127–#130: no stars at mid-day, muted panel buttons, panel almost solid, extra glow round the panel at sunset), then asked to copy v8 into v11 "and then we'll iterate on it there", with v7's date/day/temperature and calendar layout at the top (#131). v11 is now the working version.
+
+## 2026-11-19: v11 after the app build
+
+- The user had the rise and set tags removed (mockup and app, tasks #148 and #149); the wind line now shows on every screen. v11 stills `01`, `03`, `07`, `12` re-rendered.
+- The mockup helper was rewritten once more: a loop over the twelve state ids calling headless Chrome with `--headless=new --hide-scrollbars --force-device-scale-factor=3 --window-size=393,852 --virtual-time-budget=4000 --screenshot=<folder>/NN-<state>.png "file://<folder>/index.html?state=<state>&bare&still"`. Unchanged screens render byte-identical, so `git status` shows exactly which stills a change touched.

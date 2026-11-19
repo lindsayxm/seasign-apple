@@ -24,3 +24,7 @@ Open `index.html`. Same address switches as v8: `?state=<id>`, `&bare`, `&still`
 Kept from v8: the full-screen sky and sea, the sun and moon as light on a centred path with bracket and tag, the rise and set marks on the horizon, one ink colour per screen, the numbered serif titles, no stars at mid-day.
 
 Stills `01-sunrise.png` … `12-moon-set.png` are rendered at 3× with headless Chrome, as for the other versions.
+
+## 2026-11-19: no tags at all, wind on every screen
+
+After v11 was built in the app the user asked for the call-out on the sun and moon at rise and set to go as well ("it's ok that we cant see the time directly under the sun/moon"). The tag and its leader are now drawn on no screen, and the wind line under the temperature shows on all twelve. The time mark under a rising or setting sun or moon stays hidden, as it was while the tag showed; the mark at the other end stays. Stills `01`, `03`, `07` and `12` were re-rendered; the other eight came out byte-identical. Earlier paragraphs above that describe tags at rise and set are superseded by this one.

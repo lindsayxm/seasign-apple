@@ -55,7 +55,7 @@
      the fourth, ∀ for all publications, is small in the lower left corner under the article list */
   /* a hairline closes the header: from the left margin to the right edge of the events box, along the box's bottom edge */
   .under { left: 34px; top: 168px; width: 343px; height: 0; border-top: .5px solid rgba(255,255,255,.34); }
-  /* the wind, under the temperature and just under the hairline, in the same small mono type as the wind in the rise and set tags; shown only when the sun or moon has no tag to carry it */
+  /* the wind, under the temperature and just under the hairline, in small mono type; shown on every screen */
   .wind { left: 34px; top: 183.3px; height: 12px; display: flex; align-items: center; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8.5px; line-height: 12px; letter-spacing: .14em; white-space: nowrap; color: rgba(244,246,246,.92); text-shadow: 0 0 5px rgba(0,0,0,1), 0 0 2px rgba(0,0,0,1), 0 0 1px rgba(0,0,0,1); }
   .col { left: 321.5px; top: 186px; display: flex; flex-direction: column; gap: 26px; }   /* moved under the events box, which now runs to the right edge; a tighter step keeps it clear of the sun and moon's tag */
   .col svg { display: block; width: 19px; height: 19px; stroke: rgba(var(--btn), .38); stroke-width: .09; }   /* much quieter than the ∀, which keeps the full ink colour */
@@ -121,7 +121,6 @@
       <li><time class="mono"><b>Tue</b><b>All</b></time><span>Brush pets teeth</span></li>
     </ul>
 
-    <div class="tag" id="tag"><b id="tag1">Sun</b><span id="tag2">Wind 8 mph</span></div>
     <div class="mark" id="rise">6:41 AM</div>
     <div class="mark" id="set">4:31 PM</div>
 
@@ -451,15 +450,11 @@ function draw(t) {
     const hours = look.night ? 14 : 10;
     for (let i = 0; i <= hours; i++) { const px = pathAt(i / hours)[0], end = i === 0 || i === hours; hair(px, HZ + 2, px, HZ + (end ? 9 : 5), "255,255,255", end ? .7 : .42); }
     if (state.turn > .05 && state.turn < .95) { ctx.fillStyle = col(ink, .95); ctx.fillRect(bx - 2, HZ + 1.5, 4, 4); }   // not when it is on the horizon, where the square is lost in the glare
-    /* corner brackets round the sun or moon, and a short leader to its tag */
+    /* the drop line; the brackets, tag and leader are gone */
     const hb = R + 8, arm = Math.min(9, 4 + R * .1), flip = bx > W / 2 + 1 ? -1 : 1;
-    // the corner brackets round the sun or moon were removed at the user's request (v11); hb still places the drop line and the rise and set tag
+    // the corner brackets round the sun or moon were removed at the user's request (v11); hb still places the drop line
     if (by + hb < HZ - 6) for (let yy = by + hb + 3; yy < HZ - 1; yy += 4) hair(bx, yy, bx, yy + 1.6, "255,255,255", .4);   // a dotted drop line to the horizon when it is high
-    const lx = bx + flip * hb, ly = by - hb;
-    ctx.beginPath();
-    if (state.turn < .05 || state.turn > .95) { ctx.moveTo(lx + flip * 3, ly - 3); ctx.lineTo(lx + flip * 11, ly - 11); ctx.lineTo(lx + flip * 19, ly - 11); }   // on the horizon: up and out to a tag above
-    // away from the horizon there is no tag and no leader (the user had them removed in v11); the brackets stay
-    ctx.lineWidth = .6; ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.stroke();
+    // no tag and no leader on any screen (the user had the rise and set tags removed too, 2026-11-19)
   }
   ctx.globalCompositeOperation = "lighter";
   /* ---- the view fills the screen. Dark is laid over the top of the sky and over the sea so the words read, but not to black:
@@ -504,16 +499,9 @@ function show(id) {
   for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
   document.getElementById("clock").textContent = state.time.replace(/^0/, "");
   for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
-  /* the tag: what it is (and how much of the moon is lit), then the wind, and the cloud cover when there is any; the marks: when it rises and sets */
-  const [tx, ty] = pathAt(state.turn), low2 = Math.pow(Math.max(0, 1 - (HZ - ty) / PATH.top), 2), hb = 12 * (1 + 3.2 * low2) + 8, flip = tx > W / 2 + 1;
-  const tag = document.getElementById("tag"), lit = state.phase == null ? null : Math.round((1 - Math.cos(TAU * state.phase)) / 2 * 100);
-  const edge = state.turn < .05 ? "rise" : state.turn > .95 ? "set" : null;        // on the horizon: the tag gives the time, and the mark under it (lost in the glare) is hidden
-  document.getElementById("tag1").style.display = edge || lit != null ? "block" : "none";   // away from the horizon the sun's tag does not say SUN; the moon's keeps its name and lit share
-  document.getElementById("tag1").textContent = edge ? (lit == null ? "Sun" : "Moon") + edge + " " + state[edge] : lit == null ? "Sun" : "Moon " + lit + "%";
-  document.getElementById("tag2").textContent = (state.snow ? "Snow · " : state.rain ? "Rain · " : state.clouds ? "Cloud " + Math.round(state.clouds * 100) + "% · " : "") + "Wind " + state.wind + " mph";
-  tag.style.display = edge ? "block" : "none";
-  const windEl = document.getElementById("wind"); windEl.style.display = edge ? "none" : "flex"; windEl.textContent = "Wind " + state.wind + " mph";
-  tag.classList.toggle("flip", flip); tag.style.left = tx + (flip ? -1 : 1) * (hb + 23) + "px"; tag.style.top = (edge ? ty - hb - 11 - 9 : ty - (lit == null ? 6 : 12)) + "px";   // on the horizon the tag is above; otherwise it is centred level with the sun or moon
+  /* no tag beside the sun or moon on any screen; the wind is always written under the temperature. The marks: when it rises and sets */
+  const edge = state.turn < .05 ? "rise" : state.turn > .95 ? "set" : null;        // on the horizon the mark under the sun or moon (lost in the glare) is hidden
+  const windEl = document.getElementById("wind"); windEl.textContent = "Wind " + state.wind + " mph";
   for (const [id, u] of [["rise", 0], ["set", 1]]) { const el = document.getElementById(id); el.textContent = state[id]; el.style.left = pathAt(u)[0] + "px"; el.style.top = HZ + 13 + "px"; el.style.visibility = id === edge ? "hidden" : "visible"; }
   if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : "") + (params.has("arc") ? "&arc" : ""));
 }
