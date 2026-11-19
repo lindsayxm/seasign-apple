@@ -196,6 +196,35 @@ struct RiseSetTimeline: Sendable {
         return .up(progress: 0.5)
     }
 
+    /// The rise and set instants of the pass around `now`, as far as they are
+    /// known: while the body is up, the rise before `now` and the set after it;
+    /// while it is down, the pass at the nearer end (about to rise, or just
+    /// set), which is the one a disc crossing the waterline belongs to. An end
+    /// that `state(at:)` would only estimate is nil.
+    func pass(at now: Date) -> SkyPass {
+        let previousIndex = events.lastIndex { $0.date <= now }
+        let nextIndex = events.firstIndex { $0.date > now }
+        let previous = previousIndex.map { events[$0] }
+        let next = nextIndex.map { events[$0] }
+        if previous?.kind == .rise || next?.kind == .set {
+            return SkyPass(
+                rise: previous?.kind == .rise ? previous?.date : nil,
+                set: next?.kind == .set ? next?.date : nil
+            )
+        }
+        let sinceSet = previous.map { now.timeIntervalSince($0.date) } ?? .infinity
+        let untilRise = next.map { $0.date.timeIntervalSince(now) } ?? .infinity
+        if untilRise < sinceSet, let nextIndex, let next {
+            let after = events.indices.contains(nextIndex + 1) ? events[nextIndex + 1] : nil
+            return SkyPass(rise: next.date, set: after?.kind == .set ? after?.date : nil)
+        }
+        if let previousIndex, let previous {
+            let before = previousIndex > 0 ? events[previousIndex - 1] : nil
+            return SkyPass(rise: before?.kind == .rise ? before?.date : nil, set: previous.date)
+        }
+        return .unknown
+    }
+
     private static func fraction(of now: Date, from start: Date, to end: Date) -> Double {
         let span = end.timeIntervalSince(start)
         guard span > 0 else { return 0.5 }
@@ -203,29 +232,67 @@ struct RiseSetTimeline: Sendable {
     }
 }
 
-/// The path a body follows across the sky, in unit coordinates.
+/// The instants that bound one pass of a body across the sky: the rise that
+/// began it and the set that ends it. Either is nil when it is not known (an
+/// estimated end of the arc, or polar day and night).
+struct SkyPass: Equatable, Sendable {
+    var rise: Date?
+    var set: Date?
+
+    static let unknown = SkyPass(rise: nil, set: nil)
+
+    /// The whole hours between rise and set, rounded (at least 1); nil unless
+    /// both are known. This is how many intervals the hourly ticks mark.
+    var hourCount: Int? {
+        guard let rise, let set, set > rise else { return nil }
+        return max(1, Int((set.timeIntervalSince(rise) / 3600).rounded()))
+    }
+}
+
+/// The v11 path of the sun and moon: the top segment of a circle whose centre
+/// is under the horizon, centred on the screen. Measured in mockup points
+/// (a 393 pt wide screen); `SceneLayout` scales it.
+enum SkyPath {
+    /// Half the width of the path along the horizon.
+    static let halfWidth = 134.5
+    /// How far the top of the path is above the horizon.
+    static let top = 88.0
+    /// Radius of the circle the path lies on.
+    static let radius = (halfWidth * halfWidth + top * top) / (2 * top)
+    /// Angle at which the circle meets the horizon.
+    static let a0 = asin((radius - top) / radius)
+
+    /// Where a body is at `progress` (0 rising at the left, 1 setting at the
+    /// right), as an offset from the middle of the horizon: x to the right,
+    /// `height` above the horizon.
+    static func offset(progress: Double) -> (x: Double, height: Double) {
+        let u = min(1, max(0, progress))
+        let q = .pi - a0 - u * (.pi - 2 * a0)
+        return (radius * cos(q), radius * sin(q) - (radius - top))
+    }
+
+    /// 1 on the horizon, 0 at the top of the path; squared, so a body swells
+    /// only close to the water.
+    static func lowness(height: Double) -> Double {
+        pow(max(0, 1 - height / top), 2)
+    }
+
+    static func lowness(progress: Double) -> Double {
+        lowness(height: offset(progress: progress).height)
+    }
+
+    /// The radius of the sun or moon: 12 high in the sky, about 50 on the
+    /// horizon.
+    static func bodyRadius(lowness: Double) -> Double {
+        12 * (1 + 3.2 * lowness)
+    }
+
+    static func bodyRadius(progress: Double) -> Double {
+        bodyRadius(lowness: lowness(progress: progress))
+    }
+}
+
 enum SkyArc {
-    /// Height above the horizon, 0 at rising and setting and 1 at mid-arc.
-    static func altitude(progress: Double) -> Double {
-        sin(.pi * min(1, max(0, progress)))
-    }
-
-    /// Horizontal position as a fraction of the screen width. The mockups put
-    /// the rising sun at 0.4, the midday sun at 0.5 and the setting sun at 0.6.
-    static func horizontal(progress: Double) -> Double {
-        0.4 + 0.2 * min(1, max(0, progress))
-    }
-
-    /// How far the sun has shrunk from its horizon size (0) to its midday size
-    /// (1). It shrinks fastest as it leaves the horizon, but never faster than
-    /// it climbs: with the mockups' sizes (see `SceneLayout`) the top of the
-    /// disc keeps rising all morning. A square root here made the top of the
-    /// disc drop by 16 pt in the first minutes after sunrise.
-    static func shrink(altitude: Double) -> Double {
-        let a = min(1, max(0, altitude))
-        return 1.7 * a - 0.7 * a * a
-    }
-
     /// How long a disc takes to come up through the waterline before it rises,
     /// and to go down through it after it sets.
     static let horizonCrossing: TimeInterval = 15 * 60

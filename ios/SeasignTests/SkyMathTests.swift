@@ -131,35 +131,45 @@ private let hour: TimeInterval = 3600
     }
 }
 
-@Suite struct SkyArcTests {
-    @Test func arcRunsFromHorizonToPeakAndBack() {
-        #expect(SkyArc.altitude(progress: 0) == 0)
-        #expect(abs(SkyArc.altitude(progress: 0.5) - 1) < 1e-12)
-        #expect(abs(SkyArc.altitude(progress: 1)) < 1e-12)
-        #expect(SkyArc.altitude(progress: 0.25) > SkyArc.altitude(progress: 0.1))
+/// Task 145: the v11 path, a circle's top segment centred on the screen.
+@Suite struct SkyPathTests {
+    @Test func pathRunsFromHorizonToTopAndBack() {
+        let rise = SkyPath.offset(progress: 0)
+        #expect(abs(rise.x + 134.5) < 1e-9)
+        #expect(abs(rise.height) < 1e-9)
+        let top = SkyPath.offset(progress: 0.5)
+        #expect(abs(top.x) < 1e-9)
+        #expect(abs(top.height - 88) < 1e-9)
+        let set = SkyPath.offset(progress: 1)
+        #expect(abs(set.x - 134.5) < 1e-9)
+        #expect(abs(set.height) < 1e-9)
+        // Out-of-range progress stays on the path.
+        #expect(SkyPath.offset(progress: -0.2) == SkyPath.offset(progress: 0))
+        #expect(SkyPath.offset(progress: 1.3) == SkyPath.offset(progress: 1))
     }
 
-    @Test func sunMovesLeftToRightAsInTheMockups() {
-        #expect(abs(SkyArc.horizontal(progress: 0) - 0.4) < 1e-12)
-        #expect(abs(SkyArc.horizontal(progress: 0.5) - 0.5) < 1e-12)
-        #expect(abs(SkyArc.horizontal(progress: 1) - 0.6) < 1e-12)
+    @Test func bodyIsLargeOnTheHorizonAndSmallHigh() {
+        #expect(SkyPath.lowness(height: 0) == 1)
+        #expect(SkyPath.lowness(height: 88) == 0)
+        #expect(abs(SkyPath.lowness(height: 44) - 0.25) < 1e-12)
+        #expect(abs(SkyPath.bodyRadius(progress: 0) - 50.4) < 1e-9)
+        #expect(abs(SkyPath.bodyRadius(progress: 1) - 50.4) < 1e-9)
+        #expect(abs(SkyPath.bodyRadius(progress: 0.5) - 12) < 1e-9)
     }
 
-    @Test func layoutMatchesTheMockupMeasurements() {
-        // iPhone 16: 393 x 852 pt, the size of the mockups.
+    @Test func layoutMatchesTheMockup() {
+        // iPhone 16: 393 x 852 pt, the size of the mockup.
         let layout = SceneLayout(size: CGSize(width: 393, height: 852))
-        // Sunrise: a 141 pt sun centred on the waterline at 40 % of the width.
-        let sunrise = layout.bodyCenter(progress: 0)
-        #expect(abs(sunrise.x - 157.2) < 0.01)
-        #expect(abs(sunrise.y - layout.horizonY) < 0.01)
-        #expect(abs(layout.sunRadius(progress: 0) - 141) < 0.01)
-        // Midday: a 29.5 pt sun at the centre, 194 pt above the water.
-        let midday = layout.bodyCenter(progress: 0.5)
-        #expect(abs(midday.x - 196.5) < 0.01)
-        #expect(abs(midday.y - (layout.horizonY - 194)) < 0.01)
-        #expect(abs(layout.sunRadius(progress: 0.5) - 29.5) < 0.01)
-        // The horizon sits just below the middle of the screen (1296 / 2556).
-        #expect(abs(layout.horizonY / 852 - 0.507) < 0.001)
+        #expect(layout.scale == 1)
+        #expect(layout.horizonY == 386)
+        #expect(layout.headlinesTop == 486)
+        #expect(abs(layout.pathPoint(progress: 0).x - 62) < 1e-9)
+        #expect(abs(layout.pathPoint(progress: 1).x - 331) < 1e-9)
+        #expect(abs(layout.pathPoint(progress: 0.5).y - 298) < 1e-9)
+        // A wider phone scales everything with the width.
+        let wide = SceneLayout(size: CGSize(width: 440, height: 956))
+        #expect(abs(wide.horizonY - 386 * 440 / 393) < 1e-9)
+        #expect(abs(wide.bodyRadius(progress: 0.5) - 12 * 440 / 393) < 1e-9)
     }
 }
 
@@ -215,11 +225,11 @@ private let hour: TimeInterval = 3600
             let now = rise.addingTimeInterval(minute * 60)
             let sighting = SkySighting(isUp: minute >= 0, at: now)
             guard let placement = timeline.state(at: now, sighting: sighting).placement() else { return 0 }
-            let radius = layout.sunRadius(progress: placement.progress)
+            let radius = layout.bodyRadius(progress: placement.progress)
             return layout.horizonY - (layout.bodyCenter(placement, radius: radius).y - radius)
         }
         #expect(top(atMinute: -15) == 0)
-        #expect(abs(top(atMinute: 0) - 141) < 0.01)
+        #expect(abs(top(atMinute: 0) - 50.4) < 0.01)
         var previous = top(atMinute: -15)
         for step in 1...(4 * (15 + 300)) {
             let minute = -15 + Double(step) / 4
@@ -228,14 +238,52 @@ private let hour: TimeInterval = 3600
             #expect(now - previous < 3, "the sun jumps at minute \(minute)")
             previous = now
         }
-        // Midday: 29.5 pt disc 194 pt up.
-        #expect(abs(top(atMinute: 300) - 223.5) < 0.01)
+        // Midday: a 12 pt disc at the top of the path, 88 pt up.
+        #expect(abs(top(atMinute: 300) - 100) < 0.01)
+    }
+}
+
+/// Task 145: the rise and set instants of the pass the drawn body is on.
+@Suite struct SkyPassTests {
+    private let rise = instant("2026-11-15T11:42:00Z")
+    private var set: Date { rise.addingTimeInterval(9 * hour + 50 * 60) }
+
+    @Test func upBetweenAKnownRiseAndSet() {
+        let timeline = RiseSetTimeline(rises: [rise], sets: [set], typicalTimeUp: RiseSetTimeline.sunTimeUp)
+        let pass = timeline.pass(at: rise.addingTimeInterval(3 * hour))
+        #expect(pass == SkyPass(rise: rise, set: set))
+        // 9 h 50 min is ten hourly intervals.
+        #expect(pass.hourCount == 10)
     }
 
-    @Test func sunShrinkKeepsItsEndPoints() {
-        #expect(SkyArc.shrink(altitude: 0) == 0)
-        #expect(abs(SkyArc.shrink(altitude: 1) - 1) < 1e-12)
-        #expect(SkyArc.shrink(altitude: 0.2) > 0.2)
+    @Test func crossingTheWaterlineBelongsToTheNearPass() {
+        let timeline = RiseSetTimeline(
+            rises: [rise, rise.addingTimeInterval(24 * hour)], sets: [set],
+            typicalTimeUp: RiseSetTimeline.sunTimeUp
+        )
+        // Five minutes before rising: the coming pass.
+        #expect(timeline.pass(at: rise.addingTimeInterval(-300)) == SkyPass(rise: rise, set: set))
+        // Five minutes after setting: the pass that just ended.
+        #expect(timeline.pass(at: set.addingTimeInterval(300)) == SkyPass(rise: rise, set: set))
+        // Late at night, nearer the next rise, whose set is not known.
+        let late = timeline.pass(at: rise.addingTimeInterval(23 * hour))
+        #expect(late == SkyPass(rise: rise.addingTimeInterval(24 * hour), set: nil))
+        #expect(late.hourCount == nil)
+    }
+
+    @Test func aMissingEndIsUnknownNotEstimated() {
+        let noSet = RiseSetTimeline(rises: [rise], sets: [nil], typicalTimeUp: RiseSetTimeline.moonTimeUp)
+        #expect(noSet.pass(at: rise.addingTimeInterval(hour)) == SkyPass(rise: rise, set: nil))
+        let noRise = RiseSetTimeline(rises: [nil], sets: [set], typicalTimeUp: RiseSetTimeline.moonTimeUp)
+        #expect(noRise.pass(at: set.addingTimeInterval(-hour)) == SkyPass(rise: nil, set: set))
+        let none = RiseSetTimeline(rises: [], sets: [], typicalTimeUp: RiseSetTimeline.sunTimeUp)
+        #expect(none.pass(at: rise) == .unknown)
+    }
+
+    @Test func shortSpansStillHaveOneInterval() {
+        #expect(SkyPass(rise: rise, set: rise.addingTimeInterval(20 * 60)).hourCount == 1)
+        #expect(SkyPass(rise: rise, set: rise).hourCount == nil)
+        #expect(SkyPass(rise: rise, set: rise.addingTimeInterval(14 * hour + 29 * 60)).hourCount == 14)
     }
 }
 

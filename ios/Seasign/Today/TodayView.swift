@@ -4,7 +4,9 @@ import SwiftUI
 /// water, with the headlines in the water. It fills the screen and never scrolls.
 ///
 /// Positions are measured from `ref-img/02-midday.png` (393 pt wide) and scale
-/// with the screen width; see `SceneLayout`.
+/// with the screen width; see `SceneLayout`. The scene is design v11's; the
+/// header, events, buttons and headlines are still the earlier layout until
+/// task 146, placed from `SceneLayout` and coloured to read on the dark scene.
 struct TodayView: View {
     @Environment(TodayModel.self) private var model
     @Environment(EventsModel.self) private var events
@@ -145,23 +147,24 @@ struct TodayView: View {
                 iconButton(.saved, label: "Saved", opens: .saved, s: s)
                     .placed(x: 333 * s - 22, y: 306 * s - 22)
 
-                let waterHeight = max(0, proxy.size.height - 52 * s - (layout.horizonY + 57 * s))
+                let waterHeight = max(0, proxy.size.height - 52 * s - layout.headlinesTop)
                 HeadlinesColumn(
                     candidates: feed.headlines(now: clock, timeZone: headlineZone),
                     s: s,
                     height: waterHeight,
                     followsNoSites: feed.sites.isEmpty,
+                    color: Palette.seaText,
                     open: { reading = $0 },
                     openSettings: { destination = .settings }
                 )
                 .frame(width: 326 * s, height: waterHeight, alignment: .topLeading)
-                .placed(x: 35 * s, y: layout.horizonY + 57 * s)
+                .placed(x: 35 * s, y: layout.headlinesTop)
 
                 Button {
                     destination = .history
                 } label: {
                     LineIconView(icon: .history, size: 13 * s, lineWidth: 1.5 * s)
-                        .foregroundStyle(Palette.ink)
+                        .foregroundStyle(state.inkColor)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }

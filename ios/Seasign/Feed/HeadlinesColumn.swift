@@ -24,6 +24,8 @@ struct HeadlinesColumn: View {
     /// No site is followed. The Settings prompt shows only when there are
     /// no candidates either (AI search can fill the water without sites).
     var followsNoSites: Bool
+    /// The colour of the titles, the AI mark and the prompt.
+    var color: Color = Palette.ink
     var open: (FeedEntry) -> Void
     var openSettings: () -> Void
 
@@ -46,7 +48,7 @@ struct HeadlinesColumn: View {
             Button(action: openSettings) {
                 Text(caps: "Follow sites in Settings to see headlines here")
                     .caps(9.5 * s, tracking: 0.18)
-                    .foregroundStyle(Palette.ink.opacity(0.55))
+                    .foregroundStyle(color.opacity(0.55))
                     .frame(minHeight: 44, alignment: .topLeading)
                     .contentShape(Rectangle())
             }
@@ -61,7 +63,7 @@ struct HeadlinesColumn: View {
                     } label: {
                         HStack(alignment: .top, spacing: 0) {
                             if entry.isAI {
-                                AIMark(size: markSize, color: Palette.ink, fixed: true)
+                                AIMark(size: markSize, color: color, fixed: true)
                                     .frame(width: markWidth, height: pitch, alignment: .leading)
                             }
                             WrappedCaps(
@@ -73,7 +75,7 @@ struct HeadlinesColumn: View {
                                 maxLines: Self.maxLines
                             )
                         }
-                        .foregroundStyle(Palette.ink)
+                        .foregroundStyle(color)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

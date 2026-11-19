@@ -27,6 +27,8 @@ enum Palette {
     static let moonShadow = Color(hex: 0x41403C)
     /// Text over the water.
     static let ink = charcoal
+    /// Text over the dark v11 sea on Today (the mockup's 244, 242, 236).
+    static let seaText = Color(.sRGB, red: 244 / 255, green: 242 / 255, blue: 236 / 255, opacity: 1)
 }
 
 extension Color {

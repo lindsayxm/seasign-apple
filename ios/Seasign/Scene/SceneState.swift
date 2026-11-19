@@ -24,6 +24,13 @@ struct SceneState: Equatable, Sendable {
     var timeZone: TimeZone
     /// False when the scene is the neutral stand-in, not the user's zip.
     var isLive: Bool
+    /// The wind now in mph; nil without a fresh current reading (and so in
+    /// the neutral scene).
+    var windMph: Double?
+    /// The rise and set instants of the sun's pass and the moon's pass
+    /// around now, as far as they are known.
+    var sunPass: SkyPass = .unknown
+    var moonPass: SkyPass = .unknown
 
     /// How long dusk and dawn last, in seconds.
     static let twilight: TimeInterval = 40 * 60
@@ -44,15 +51,162 @@ struct SceneState: Equatable, Sendable {
         moonPlacement != nil
     }
 
-    var showsStars: Bool {
-        nightness > 0
+    /// The sun or moon that is drawn, if either.
+    var body: SceneBody? {
+        if let placement = sunPlacement { return SceneBody(kind: .sun, placement: placement, pass: sunPass) }
+        if let placement = moonPlacement { return SceneBody(kind: .moon, placement: placement, pass: moonPass) }
+        return nil
     }
 
-    /// How often the scene has to be redrawn to show what moves in it.
-    var motion: SceneMotion {
-        if precipitation != .none || wind != .calm { return .fast }
-        if clouds != .clear { return .slow }
-        return showsStars ? .twinkle : .still
+    /// The look of the sky, from the plan's table: the sun's looks while any
+    /// of it is drawn (sunrise and sunset in the first and last 12 % of its
+    /// path), dusk in the twilight and while the moon is low, full under a
+    /// moon more than 97 % lit, night otherwise.
+    var look: SceneLook {
+        if let placement = sunPlacement {
+            if placement.progress < 0.12 { return .sunrise }
+            if placement.progress > 0.88 { return .sunset }
+            switch precipitation {
+            case .rain: return .rain
+            case .snow: return .snow
+            case .none: return clouds >= .scattered ? .cloudy : .day
+            }
+        }
+        if nightness < 1 { return .dusk }
+        if let placement = moonPlacement {
+            if placement.progress < 0.12 || placement.progress > 0.88 { return .dusk }
+            if moonPhase.illuminatedFraction > 0.97 { return .full }
+        }
+        return .night
+    }
+
+    /// The one highlight colour of the screen.
+    var ink: SceneRGB { look.ink }
+
+    /// How bright the stars are drawn (the mockup's multipliers): full at
+    /// night, a little less with the sun low or behind weather, none in a
+    /// clear (or few-cloud) day sky away from sunrise and sunset.
+    var starStrength: Double {
+        switch look {
+        case .dusk, .night, .full: 1.25
+        case .sunrise, .sunset, .cloudy, .rain, .snow: 0.95
+        case .day: 0
+        }
+    }
+
+    var showsStars: Bool {
+        starStrength > 0
+    }
+
+    /// How much cloud is drawn round the body, 0 to 1: rain under full
+    /// cloud, snow under some, otherwise by the cloud level.
+    var cloudAmount: Double {
+        switch precipitation {
+        case .rain: return 1
+        case .snow: return 0.6
+        case .none:
+            switch clouds {
+            case .clear: return 0
+            case .few: return 0.3
+            case .scattered: return 0.6
+            case .overcast: return 0.8
+            }
+        }
+    }
+
+    var isRaining: Bool {
+        if case .rain = precipitation { return true }
+        return false
+    }
+
+    var isSnowing: Bool {
+        if case .snow = precipitation { return true }
+        return false
+    }
+
+    // MARK: Marks on the horizon
+
+    /// The pass the horizon marks describe: the drawn body's, in a live
+    /// scene only (the neutral scene has no ticks, times or tag).
+    var markedPass: SkyPass {
+        guard isLive, let body else { return .unknown }
+        return body.pass
+    }
+
+    /// How many hourly intervals the ticks under the horizon mark; nil when
+    /// the span is not known, and then only the known ends get a tick.
+    var tickCount: Int? {
+        markedPass.hourCount
+    }
+
+    /// The end of the path the tag is at: only within 5 % of either end, and
+    /// only when that end's instant is known.
+    var tagEdge: SkyEdge? {
+        guard let progress = body?.placement.progress else { return nil }
+        let pass = markedPass
+        if progress < 0.05, pass.rise != nil { return .rise }
+        if progress > 0.95, pass.set != nil { return .set }
+        return nil
+    }
+
+    /// Whether the rise or set tag beside the body is showing. While it is,
+    /// the wind is written in it, not under the header.
+    var showsTag: Bool {
+        tagEdge != nil
+    }
+
+    /// The small square on the horizon under the body, away from the ends.
+    var showsSquare: Bool {
+        guard let progress = body?.placement.progress else { return false }
+        return progress > 0.05 && progress < 0.95
+    }
+
+    /// The time written under the rise end; nil when unknown or while the
+    /// tag carries it.
+    var riseMark: Date? {
+        tagEdge == .rise ? nil : markedPass.rise
+    }
+
+    var setMark: Date? {
+        tagEdge == .set ? nil : markedPass.set
+    }
+
+    /// `WIND 8 MPH`, or nil without a fresh reading.
+    var windLabel: String? {
+        windMph.map { "WIND \(Int($0.rounded())) MPH" }
+    }
+
+    /// The tag's two lines: `SUNRISE 6:41 AM` (in the ink colour) and the
+    /// wind, which is left out without a fresh reading. Nil when no tag shows.
+    func tagLines(clock: ClockStyle) -> (title: String, wind: String?)? {
+        guard let edge = tagEdge, let body else { return nil }
+        let instant = edge == .rise ? markedPass.rise : markedPass.set
+        guard let instant else { return nil }
+        let name: String =
+            switch (body.kind, edge) {
+            case (.sun, .rise): "SUNRISE"
+            case (.sun, .set): "SUNSET"
+            case (.moon, .rise): "MOONRISE"
+            case (.moon, .set): "MOONSET"
+            }
+        return (name + " " + Self.markTime(instant, timeZone: timeZone, clock: clock), windLabel)
+    }
+
+    /// A rise or set time as the marks write it, on the scene's clock:
+    /// `6:41 AM`, or `06:41` on a 24-hour phone.
+    static func markTime(_ date: Date, timeZone: TimeZone, clock: ClockStyle) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        let hour = parts.hour ?? 0
+        let minute = String(format: "%02d", parts.minute ?? 0)
+        switch clock {
+        case .twelveHour:
+            let hour12 = hour % 12 == 0 ? 12 : hour % 12
+            return "\(hour12):\(minute) \(hour < 12 ? "AM" : "PM")"
+        case .twentyFourHour:
+            return String(format: "%02d", hour) + ":" + minute
+        }
     }
 
     /// The scene for `snapshot` at `now`.
@@ -111,7 +265,10 @@ struct SceneState: Equatable, Sendable {
             temperatureF: hasCurrentWeather ? current.temperatureF : nil,
             hasCurrentWeather: hasCurrentWeather,
             timeZone: snapshot.timeZone,
-            isLive: isLive
+            isLive: isLive,
+            windMph: hasCurrentWeather ? current.windSpeedMph : nil,
+            sunPass: sunTimeline.pass(at: now),
+            moonPass: moonTimeline.pass(at: now)
         )
     }
 
@@ -154,26 +311,48 @@ struct SceneState: Equatable, Sendable {
     }
 }
 
-/// What moves in the scene, which sets how often it is redrawn.
-enum SceneMotion: Equatable, Sendable {
-    /// Nothing moves: one frame.
-    case still
-    /// Only the stars: they change brightness in small steps, one redraw every
-    /// `interval` seconds. A clear, calm night lasts for hours, so it must not
-    /// cost an animation.
-    case twinkle
-    /// Drifting clouds: 10 frames a second.
-    case slow
-    /// Rain, snow or wind on the water: 30 frames a second.
-    case fast
+/// The sun or moon that is drawn.
+struct SceneBody: Equatable, Sendable {
+    enum Kind: Equatable, Sendable { case sun, moon }
+    var kind: Kind
+    var placement: SkyPlacement
+    var pass: SkyPass
+}
 
-    /// Seconds between redraws; nil for a still scene.
-    var interval: TimeInterval? {
+/// Which end of the path a body is at.
+enum SkyEdge: Equatable, Sendable { case rise, set }
+
+/// A colour as 0–255 sRGB components, as the mockup writes them.
+struct SceneRGB: Equatable, Sendable {
+    var red: Double
+    var green: Double
+    var blue: Double
+
+    init(_ red: Double, _ green: Double, _ blue: Double) {
+        self.red = red
+        self.green = green
+        self.blue = blue
+    }
+}
+
+/// The looks of the v11 scene (see `SceneState.look`).
+enum SceneLook: String, CaseIterable, Sendable {
+    case sunrise, day, sunset, cloudy, rain, snow, dusk, night, full
+
+    var isNight: Bool {
         switch self {
-        case .still: nil
-        case .twinkle: 3
-        case .slow: 1.0 / 10
-        case .fast: 1.0 / 30
+        case .dusk, .night, .full: true
+        default: false
+        }
+    }
+
+    /// The highlight colour of the screen in this look.
+    var ink: SceneRGB {
+        switch self {
+        case .sunrise: SceneRGB(255, 244, 190)
+        case .sunset: SceneRGB(255, 205, 186)
+        case .day, .cloudy, .rain, .snow: SceneRGB(244, 216, 104)
+        case .dusk, .night, .full: SceneRGB(150, 232, 240)
         }
     }
 }
