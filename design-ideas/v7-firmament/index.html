@@ -440,7 +440,7 @@ function draw(t) {
       ctx.beginPath(); ctx.roundRect(p.x - 2000, top, p.w, 28, p.r); ctx.fillStyle = "#000"; ctx.fill(); ctx.restore();   // the caster is off screen; only its light or shade lands here
     }
     const pg = ctx.createLinearGradient(0, p.y, 0, p.y + p.h);
-    pg.addColorStop(0, "rgba(30,54,108,.58)"); pg.addColorStop(.45, "rgba(12,24,58,.58)"); pg.addColorStop(1, "rgba(2,5,14,.58)");
+    pg.addColorStop(0, "rgba(30,54,108,.93)"); pg.addColorStop(.45, "rgba(12,24,58,.93)"); pg.addColorStop(1, "rgba(2,5,14,.93)");   // almost solid (it was 58%; the user asked)
     shape(0); ctx.fillStyle = pg; ctx.fill();
     ctx.save(); shape(0); ctx.clip(); ctx.beginPath(); ctx.roundRect(p.x + .5, p.y + .5, p.w - 1, p.h, p.r);   // a faint lit rim along the top
     const rim = ctx.createLinearGradient(0, p.y, 0, p.y + 22); rim.addColorStop(0, dusk ? "rgba(240,140,170,.5)" : "rgba(170,206,255,.5)"); rim.addColorStop(1, dusk ? "rgba(240,140,170,0)" : "rgba(170,206,255,0)");
