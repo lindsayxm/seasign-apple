@@ -55,6 +55,8 @@
      the fourth, ∀ for all publications, is small in the lower left corner under the article list */
   /* a hairline closes the header: from the left margin to the right edge of the events box, along the box's bottom edge */
   .under { left: 34px; top: 168px; width: 343px; height: 0; border-top: .5px solid rgba(255,255,255,.34); }
+  /* the wind, under the temperature and just under the hairline, in the temperature's type; shown only when the sun or moon has no tag to carry it */
+  .wind { left: 34px; top: 177px; height: 14px; display: flex; align-items: center; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
   .col { left: 321.5px; top: 186px; display: flex; flex-direction: column; gap: 26px; }   /* moved under the events box, which now runs to the right edge; a tighter step keeps it clear of the sun and moon's tag */
   .col svg { display: block; width: 19px; height: 19px; stroke: rgba(var(--btn), .38); stroke-width: .09; }   /* much quieter than the ∀, which keeps the full ink colour */
   .more { left: 326px; top: 794px; width: 10px; height: 10px; stroke: rgb(var(--btn)); stroke-width: .13; }
@@ -112,6 +114,7 @@
     <div class="now"><span>55°F</span></div>
 
     <div class="under"></div>
+    <div class="wind" id="wind">Wind 8 mph</div>
     <ul class="events">
       <li><time class="mono"><b>6:45</b><b>PM</b></time><span>Hanna’s show</span></li>
       <li><time class="mono"><b>8:15</b><b>PM</b></time><span>Submit work hours for studio payroll</span></li>
@@ -508,7 +511,9 @@ function show(id) {
   document.getElementById("tag1").style.display = edge || lit != null ? "block" : "none";   // away from the horizon the sun's tag does not say SUN; the moon's keeps its name and lit share
   document.getElementById("tag1").textContent = edge ? (lit == null ? "Sun" : "Moon") + edge + " " + state[edge] : lit == null ? "Sun" : "Moon " + lit + "%";
   document.getElementById("tag2").textContent = (state.snow ? "Snow · " : state.rain ? "Rain · " : state.clouds ? "Cloud " + Math.round(state.clouds * 100) + "% · " : "") + "Wind " + state.wind + " mph";
-  tag.style.display = edge ? "block" : "none"; tag.classList.toggle("flip", flip); tag.style.left = tx + (flip ? -1 : 1) * (hb + 23) + "px"; tag.style.top = (edge ? ty - hb - 11 - 9 : ty - (lit == null ? 6 : 12)) + "px";   // on the horizon the tag is above; otherwise it is centred level with the sun or moon
+  tag.style.display = edge ? "block" : "none";
+  const windEl = document.getElementById("wind"); windEl.style.display = edge ? "none" : "flex"; windEl.textContent = "Wind " + state.wind + " mph";
+  tag.classList.toggle("flip", flip); tag.style.left = tx + (flip ? -1 : 1) * (hb + 23) + "px"; tag.style.top = (edge ? ty - hb - 11 - 9 : ty - (lit == null ? 6 : 12)) + "px";   // on the horizon the tag is above; otherwise it is centred level with the sun or moon
   for (const [id, u] of [["rise", 0], ["set", 1]]) { const el = document.getElementById(id); el.textContent = state[id]; el.style.left = pathAt(u)[0] + "px"; el.style.top = HZ + 13 + "px"; el.style.visibility = id === edge ? "hidden" : "visible"; }
   if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : "") + (params.has("arc") ? "&arc" : ""));
 }

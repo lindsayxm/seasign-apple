@@ -19,6 +19,8 @@ Open `index.html`. Same address switches as v8: `?state=<id>`, `&bare`, `&still`
 
 - **Five article titles** instead of seven, at the user's request. They are spaced 57 points apart (44 before), which fills the room down to `∀` at y 794; the list still starts at y 486.
 
+- **Wind under the temperature.** On the eight screens where the sun or moon has no tag, the wind (`WIND 8 MPH`) is written at the left just under the hairline, below the temperature and in the same type. At rise and set it is not shown there, because the tag carries it.
+
 Kept from v8: the full-screen sky and sea, the sun and moon as light on a centred path with bracket and tag, the rise and set marks on the horizon, one ink colour per screen, the numbered serif titles, no stars at mid-day.
 
 Stills `01-sunrise.png` … `12-moon-set.png` are rendered at 3× with headless Chrome, as for the other versions.
