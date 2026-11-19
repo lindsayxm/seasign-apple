@@ -10,7 +10,8 @@ import { retryAfterHeader } from "../lib/rate-limit.ts";
 
 // KV lifetimes, in seconds. A zip's place does not move; the weather does.
 const GEOCODE_TTL = 60 * 60 * 24 * 30;
-const FORECAST_TTL = 60 * 15;
+// Five minutes: the app asks every 10 minutes and on a pull, and each of those should get a new reading (task 152).
+const FORECAST_TTL = 60 * 5;
 
 /** KV key of a zip's geocoded place. Exported for the tests. */
 export const geocodeCacheKey = (zip: string) => `sky:geo:v1:${zip}`;
