@@ -116,7 +116,7 @@ const LOOK = {
   sunset:  { paper: "234,204,182", sea: "38,48,80",  disc: "196,52,36",   line: "240,220,200", ink: "34,32,30" },
   cloudy:  { paper: "214,211,200", sea: "52,70,96",  disc: "198,84,60",   line: "232,228,214", ink: "34,32,30" },
   rain:    { paper: "200,203,200", sea: "56,68,86",  disc: "186,100,84",  line: "226,226,218", ink: "34,32,30" },
-  snow:    { paper: "206,212,216", sea: "62,80,104", disc: "200,80,58",   line: "244,244,240", ink: "34,32,30" },
+  snow:    { paper: "186,196,204", sea: "62,80,104", disc: "200,80,58",   line: "244,244,240", ink: "34,32,30" },
   dusk:    { paper: "40,54,88",    sea: "18,28,52",  disc: "238,230,210", line: "186,200,222", ink: "238,230,210", night: true },
   night:   { paper: "26,36,64",    sea: "13,21,42",  disc: "238,230,210", line: "170,188,214", ink: "238,230,210", night: true },
   full:    { paper: "32,44,76",    sea: "15,24,46",  disc: "246,240,224", line: "190,204,226", ink: "238,230,210", night: true },
@@ -150,8 +150,8 @@ const srnd = prng(1001), wrnd = prng(1002), prnd = prng(1003);
 const bits = {
   stars: list(46, () => ({ x: srnd(), y: srnd(), r: .5 + srnd() * .8, ph: srnd() * TAU })),
   mist: list(6, () => ({ x: wrnd(), y: wrnd(), w: 70 + wrnd() * 90, sp: .004 + wrnd() * .006, bars: 2 + Math.floor(wrnd() * 2), off: wrnd() * 30 })),
-  rain: list(44, () => ({ x: wrnd(), y: wrnd(), len: 50 + wrnd() * 70, sp: .5 + wrnd() * .3 })),
-  snow: list(60, () => ({ x: wrnd(), y: wrnd(), r: 1 + wrnd() * 1.8, sp: .025 + wrnd() * .03, ph: wrnd() * TAU })),
+  rain: list(80, () => ({ x: wrnd(), y: wrnd(), len: 50 + wrnd() * 70, sp: .5 + wrnd() * .3 })),
+  snow: list(90, () => ({ x: wrnd(), y: wrnd(), r: 1 + wrnd() * 1.8, sp: .025 + wrnd() * .03, ph: wrnd() * TAU })),
   /* wear on the printed disc: specks and fine scratches where the paper shows through, placed inside a unit circle */
   specks: list(170, () => { const a = prnd() * TAU, d = Math.sqrt(prnd()); return { x: d * Math.cos(a), y: d * Math.sin(a), w: .01 + prnd() * .05, h: .006 + prnd() * .012, a: .25 + prnd() * .5 }; }),
   scratches: list(12, () => { const a = prnd() * TAU, d = Math.sqrt(prnd()) * .8; return { x: d * Math.cos(a), y: d * Math.sin(a), len: .15 + prnd() * .5, ang: -.5 + prnd() * .5, a: .2 + prnd() * .3 }; }),
@@ -203,12 +203,12 @@ function draw(t) {
     }
   }
   if (state.rain) for (const p of bits.rain) {
-    const f = (p.y + t * p.sp) % 1, px = p.x * (W + 120) - 40 - f * 60, py = -60 + f * (HZ + 80);
-    ctx.strokeStyle = col("40,48,66", .32); ctx.lineWidth = .6; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - p.len * .24, py + p.len); ctx.stroke();
+    const f = (p.y + t * p.sp) % 1, px = p.x * (W + 120) - 40 - f * 60, py = -130 + f * (HZ + 150);
+    ctx.strokeStyle = col("34,42,62", .62); ctx.lineWidth = .8; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - p.len * .24, py + p.len); ctx.stroke();
   }
   if (state.snow) for (const p of bits.snow) {
-    const f = (p.y + t * p.sp) % 1, px = p.x * W + Math.sin(t * .5 + p.ph) * 6, py = 40 + f * (HZ - 30);
-    ctx.fillStyle = col("250,250,246", .95); ctx.beginPath(); ctx.arc(px, py, p.r, 0, TAU); ctx.fill();
+    const f = (p.y + t * p.sp) % 1, px = p.x * W + Math.sin(t * .5 + p.ph) * 6, py = -6 + f * (HZ + 16);
+    ctx.fillStyle = col("255,255,252", 1); ctx.beginPath(); ctx.arc(px, py, p.r * 1.25, 0, TAU); ctx.fill();
   }
   ctx.restore();
 
