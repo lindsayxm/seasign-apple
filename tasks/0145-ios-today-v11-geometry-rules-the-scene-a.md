@@ -1,11 +1,11 @@
 ---
 id: 145
 title: iOS: Today v11 — geometry, rules, the scene and the marks tied to the sun, moon and horizon
-status: review
+status: done
 owner: implementer-1
 depends_on: []
 created: 2026-11-19T03:09:05Z
-updated: 2026-11-19T03:48:31Z
+updated: 2026-11-19T04:00:43Z
 ---
 
 ## Goal
@@ -14,10 +14,10 @@ Read plans/2026-11-18-today-v11.md first; it is the spec. Then design-ideas/v11-
 
 ## Acceptance criteria
 
-- [ ] Pure rules from the plan (path, radius, looks, ink colour, star strength, tick count, tag and square conditions, labels in both clock styles, null rise or set, neutral scene) are in SkyMath / SceneState with unit tests; all tests pass on iPhone 16 / iOS 18.3 and iPhone 17 / iOS 27.2
-- [ ] Twelve iPhone 16 Simulator screenshots, one per v11 state (sunrise, mid-day, sunset, clouds, rain, snow, moon-rise, mid-night, waxing, waning, full, moon-set) through the DEBUG override, are saved and their paths recorded in the task log; the scene in each resembles the matching still in design-ideas/v11-artemis/
-- [ ] The animation runs smoothly in the Simulator on both runtimes; Reduce Motion gives a still frame
-- [ ] The neutral scene (no zip) and a sky with a missing rise or set draw without ticks, times or tag for the missing parts and without crashing
+- [x] Pure rules from the plan (path, radius, looks, ink colour, star strength, tick count, tag and square conditions, labels in both clock styles, null rise or set, neutral scene) are in SkyMath / SceneState with unit tests; all tests pass on iPhone 16 / iOS 18.3 and iPhone 17 / iOS 27.2
+- [x] Twelve iPhone 16 Simulator screenshots, one per v11 state (sunrise, mid-day, sunset, clouds, rain, snow, moon-rise, mid-night, waxing, waning, full, moon-set) through the DEBUG override, are saved and their paths recorded in the task log; the scene in each resembles the matching still in design-ideas/v11-artemis/
+- [x] The animation runs smoothly in the Simulator on both runtimes; Reduce Motion gives a still frame
+- [x] The neutral scene (no zip) and a sky with a missing rise or set draw without ticks, times or tag for the missing parts and without crashing
 
 ## Relevant files
 
@@ -41,3 +41,10 @@ Read plans/2026-11-18-today-v11.md first; it is the spec. Then design-ideas/v11-
 - 2026-11-19T03:41:50Z [implementer-1] Decisions where the plan is silent: (1) looks are keyed to whether the sun is drawn, so a sun crossing the waterline (15 min) keeps the sunrise/sunset look; dusk beats full; full needs the moon drawn. (2) No body up (moonless night): no body glow, reflection, lane, ticks, times, square, drop line or tag; weather centres on the top of the path; glints centre on the screen. (3) Ticks need both instants of the drawn pass; with one missing only the known end tick and time show, no hourly ticks; the tag needs that end's instant. (4) Daytime stars only in the cloudy/rain/snow looks (cloud level scattered or more), not with a few clouds. (5) Cloud amounts: few .3, scattered .6, overcast .8, rain 1, snow .6. (6) Bloom approximated: light layers get a 1.56 colour-matrix gain (what the mockup's two added blurred copies do to smooth light), sharp light drawn at .68, disc drawn outside the gain with a soft brightening, small blurred layers for body and horizon line; no whole-frame blur. (7) 30 fps always (everything moves in v11); SceneMotion and its test removed. (8) Overlay legibility only: headlines from SceneLayout.headlinesTop (horizon+100) in Palette.seaText (new), history button in the ink colour; header, events and buttons untouched. Exposed for #146: SceneLayout.horizonY / headlinesTop / scale; SceneState.ink (SceneRGB), inkColor, look, showsTag, windMph, windLabel.
 - 2026-11-19T03:48:31Z [implementer-1] After an advisor check: a disc crossing the waterline now carries a light factor (1 - sunk, DrawnBody.light, tested) that fades its halo, reflection, lane, bloom and the day/warm sky, so nothing pops when it goes under at 15 minutes (checked at sunrise-13, sunrise-5, sunset+5, sunset+13). Weather and glint centres moved from the renderer to SceneLayout.weatherCenter/glintCenterX (tested). Moonless night viewed (moonset+16, clear and rain): horizon glow, sea and stars only; rain and clouds round the top of the path. Tests now 402/402 on both runtimes. Twelve screenshots retaken after this change (same paths). Criteria not ticked: my agent rules leave ticking to the reviewer; evidence is in this log.
 - 2026-11-19T03:48:31Z [implementer-1] status: in-progress → review
+- 2026-11-19T03:49:21Z [lead] Lead: viewed all twelve iPhone 16 screenshots (scratchpad/final/) above the twelve v11 stills in two sheets. The scene matches in every state: path and sizes, sky bands, sun and moon, weather, sea, ticks, times, square, drop line and tag. Differences are expected ones only (the debug sky's 6:00 times, the old header still in place until #146).
+- 2026-11-19T03:59:51Z [implementer-1] criterion 1 met: Pure rules from the plan (path, radius, looks, ink colour, star strength, tick count, tag and square conditions, labels in both clock styles, null rise or set, neutral scene) are in SkyMath / SceneState with unit tests; all tests pass on iPhone 16 / iOS 18.3 and iPhone 17 / iOS 27.2
+- 2026-11-19T03:59:55Z [implementer-1] criterion 2 met: Twelve iPhone 16 Simulator screenshots, one per v11 state (sunrise, mid-day, sunset, clouds, rain, snow, moon-rise, mid-night, waxing, waning, full, moon-set) through the DEBUG override, are saved and their paths recorded in the task log; the scene in each resembles the matching still in design-ideas/v11-artemis/
+- 2026-11-19T03:59:55Z [implementer-1] criterion 3 met: The animation runs smoothly in the Simulator on both runtimes; Reduce Motion gives a still frame
+- 2026-11-19T03:59:55Z [implementer-1] criterion 4 met: The neutral scene (no zip) and a sky with a missing rise or set draw without ticks, times or tag for the missing parts and without crashing
+- 2026-11-19T04:00:01Z [implementer-1] review: pass. All four criteria verified by the reviewer. (1) Path, radius, looks, ink, stars, tick count, tag/square/drop-line rules, both clock styles, missing rise/set and the neutral scene match the plan and are tested; 402/402 passed on iPhone 16 / iOS 18.3.1 and iPhone 17 / iOS 27.2 (read from the xcresult bundles). (2) The twelve PNGs and sheet.png exist at the logged scratchpad paths and match the stills. Scratchpad files are not durable. (3) Two screenshots 1 s apart differ on both runtimes. With Reduce Motion on they are identical on both runtimes; the setting was restored afterwards. The app uses about 0 percent CPU in the background. (4) Neutral scene checked live (moon, no ticks, times, tag or temperature); missing rise/set covered by rule tests and a render smoke test. The Release build succeeds and contains no debug-override strings. Non-blocking: RiseSetTimeline.pass(at:) can name the wrong pass when an event is missing from the data (e.g. [set1,set2] just after set1 tags MOONSET with set2's time); SceneRenderTests only asserts image width; no test runs a real multi-day snapshot through make() to the marks; memory/architecture.md still describes SceneMotion; tick count is not capped.
+- 2026-11-19T04:00:43Z [lead] status: review → done
