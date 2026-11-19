@@ -37,7 +37,7 @@ At the user's request the row of four controls moved from the bottom of the scre
 
 ## Buttons beside the events (2026-11-18, supersedes "Button bar under the events" below)
 
-At the user's request the row of four buttons was split. Settings, list and saved are one column at the right of the calendar events, 26 points apart, so the column (y 118 to 227) runs a little below the events block; a vertical hairline with ink ends stood beside it at first and the user had it removed; the events are narrower (280 points) to make room. `∀` (all publications) is smaller and sits in the lower left corner under the article list. With the row gone, the horizon moved back up to y 386 and the list starts at y 486, still with seven titles.
+At the user's request the row of four buttons was split. Settings, list and saved are one column at the right of the calendar events, 26 points apart, so the column (y 118 to 227) runs a little below the events block; a vertical hairline with ink ends stood beside it at first and the user had it removed; the events are narrower (280 points) to make room. The three are muted to 38% of the ink colour at the user's request; `∀` keeps the full colour. `∀` (all publications) is smaller and sits in the lower left corner under the article list. With the row gone, the horizon moved back up to y 386 and the list starts at y 486, still with seven titles.
 
 ## Tags on the sun and moon (2026-11-18, supersedes the tag description in the first pass below)
 
