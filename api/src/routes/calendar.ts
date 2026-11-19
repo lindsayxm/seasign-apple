@@ -18,7 +18,9 @@ import { SafeFetchError, parseSafeUrl, safeFetch } from "../lib/safe-fetch.ts";
 // a response or an error message, and never stored. Calendars are named by
 // their position in the request, and the KV key is a hash of the link.
 
-const CALENDAR_TTL = 60 * 15;
+// One minute, KV's shortest expirationTtl: an event added to a calendar shows
+// within about a minute. The app asks about once a minute while Today is open.
+const CALENDAR_TTL = 60;
 const MAX_LINKS = 10;
 const MAX_EVENTS = 50;
 const MAX_LINK_LENGTH = 2048;

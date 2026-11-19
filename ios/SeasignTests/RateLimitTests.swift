@@ -165,6 +165,31 @@ private let rateLimitDelays: [(String?, Int)] = [
         #expect(model.retryNotBefore == nil)
     }
 
+    /// The pull on Today forces a refresh, which still waits out a 429.
+    @Test func aForcedCalendarRefreshWaitsOutTheDelay() async throws {
+        let stub = CalendarStub([TestLinks.google: .events([show])])
+        let transport = RateLimitTransport(stub)
+        let model = events(try inMemoryContext(), transport)
+        try await model.add(name: "Family", link: TestLinks.google)
+        let asked = transport.count("postCalendarEvents")
+
+        transport.limit(retryAfter: "60")
+        await model.refresh(force: true)
+        #expect(transport.count("postCalendarEvents") == asked + 1)
+        #expect(model.retryNotBefore != nil)
+
+        clock.advance(30)
+        await model.refresh(force: true)
+        await model.refresh(force: true)
+        #expect(transport.count("postCalendarEvents") == asked + 1)
+
+        transport.lift()
+        clock.advance(30)
+        await model.refresh(force: true)
+        #expect(transport.count("postCalendarEvents") == asked + 2)
+        #expect(model.retryNotBefore == nil)
+    }
+
     @Test func addingACalendarSaysTooManyRequests() async throws {
         let context = try inMemoryContext()
         let transport = RateLimitTransport(CalendarStub([TestLinks.google: .events([show])]))

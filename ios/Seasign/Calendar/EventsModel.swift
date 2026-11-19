@@ -52,8 +52,11 @@ final class EventsModel {
     nonisolated static let maxLinks = 10
 
     /// Events younger than this are not fetched again. The API caches each
-    /// calendar for 15 minutes, so asking more often returns the same data.
-    static let refreshInterval: TimeInterval = 10 * 60
+    /// calendar for one minute (KV's shortest expiry), so with Today's
+    /// one-minute loop an event added to a calendar shows within about a
+    /// minute or two. That is one request a minute, well under the API's
+    /// calendar limit of 20 a minute per network.
+    static let refreshInterval: TimeInterval = 60
 
     /// The user's links, oldest first.
     private(set) var links: [CalendarLink] = []

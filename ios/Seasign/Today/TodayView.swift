@@ -19,6 +19,8 @@ struct TodayView: View {
     @State private var destination: Destination?
     /// The headline open in the reading view.
     @State private var reading: FeedEntry?
+    /// A pull to refresh is running; another pull does nothing until it ends.
+    @State private var isPulling = false
 
     #if DEBUG
     @AppStorage(SceneDebugOverride.timeKey) private var debugTime = ""
@@ -101,6 +103,38 @@ struct TodayView: View {
         }
     }
 
+    /// The pull on Today: the events are asked for at once, even when fresh
+    /// (a 429's delay still holds them back); the sky and headlines refresh
+    /// under their usual rules. It never starts an AI search, which spends
+    /// the user's daily allowance and key.
+    private func pull() async {
+        async let calendar: Void = events.refresh(force: true)
+        async let sky: Void = model.refresh()
+        async let headlines: Void = feed.refresh()
+        _ = await (calendar, sky, headlines)
+    }
+
+    /// Starts `pull()` with the spinner up, unless one is already running.
+    private func startPull() {
+        guard !isPulling else { return }
+        isPulling = true
+        Task {
+            async let shown: Void = { try? await Task.sleep(for: TodayPull.minimumSpinner) }()
+            await pull()
+            await shown
+            isPulling = false
+        }
+    }
+
+    /// See `TodayPull`. Decided only when the finger lifts, so the screen is
+    /// not redrawn during the drag.
+    private var pullGesture: some Gesture {
+        DragGesture(minimumDistance: TodayPull.minimumDistance)
+            .onEnded { drag in
+                if TodayPull.isPull(drag.translation) { startPull() }
+            }
+    }
+
     /// The sky and clock to draw: the real ones, or the debug override's.
     private func inputs(clock: Date) -> (snapshot: SkySnapshot?, now: Date) {
         #if DEBUG
@@ -181,7 +215,18 @@ struct TodayView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Last 7 days")
                 .placed(x: layout.allRect.midX - 22, y: layout.allRect.midY - 22)
+
+                // The pull's spinner, in the open sky between the wind line
+                // and the buttons; nothing is drawn there at rest.
+                if isPulling {
+                    ProgressView()
+                        .tint(Palette.todayText)
+                        .frame(width: 44, height: 44)
+                        .accessibilityLabel("Refreshing")
+                        .placed(x: proxy.size.width / 2 - 22, y: layout.windBaseline - 22)
+                }
             }
+            .simultaneousGesture(pullGesture)
         }
         .ignoresSafeArea()
     }
@@ -221,6 +266,8 @@ struct TodayView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: headerLabel(date: date, state: state)))
         .accessibilityAddTraits(.isHeader)
+        // The pull, for VoiceOver, which keeps drags for itself.
+        .accessibilityAction(named: Text("Refresh")) { startPull() }
         .placed(x: layout.leftX, y: top)
     }
 
@@ -280,6 +327,27 @@ struct TodayView: View {
     /// is set and its sky is known, otherwise the phone's.
     private var headlineZone: TimeZone {
         EventZone.resolve(zip: model.zip, snapshot: model.snapshot, device: .autoupdatingCurrent)
+    }
+}
+
+/// Pull down on Today to refresh. Today never scrolls, so the pull is a drag
+/// watched alongside the screen's own taps (`simultaneousGesture`): nothing
+/// moves while the finger is down, a short drag or a tap does nothing, and
+/// the refresh starts when a long, mostly downward drag is let go. (A
+/// `.refreshable` scroll view laid under the overlay took the drag but never
+/// refreshed; see task 150.)
+enum TodayPull {
+    /// A drag shorter than this is not watched at all, so taps are never held up.
+    static let minimumDistance: CGFloat = 20
+    /// How far down the finger must travel before letting go.
+    static let distance: CGFloat = 100
+    /// The spinner stays at least this long, so a quick answer does not flash.
+    static let minimumSpinner: Duration = .milliseconds(600)
+
+    /// Whether a drag that ended with this translation is a pull: at least
+    /// `distance` down and more down than sideways (twice as much).
+    static func isPull(_ translation: CGSize) -> Bool {
+        translation.height >= distance && translation.height >= 2 * abs(translation.width)
     }
 }
 

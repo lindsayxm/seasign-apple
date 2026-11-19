@@ -297,7 +297,7 @@ describe("POST /v1/calendar/events", () => {
   });
 
   describe("cache", () => {
-    it("stores each calendar for 15 minutes under a hash of its link", async () => {
+    it("stores each calendar for one minute under a hash of its link", async () => {
       mockCalendars(providers);
       await events({ links: [GOOGLE, ICLOUD] });
 
@@ -309,8 +309,8 @@ describe("POST /v1/calendar/events", () => {
       for (const key of keys) {
         expect(key.name).toMatch(/^cal:v1:[0-9a-f]{64}$/);
         // KV reports the expiry in Unix seconds, by the real clock, not the faked Date.
-        const expected = Math.floor(vi.getRealSystemTime() / 1000) + 15 * 60;
-        expect(Math.abs((key.expiration ?? 0) - expected)).toBeLessThan(60);
+        const expected = Math.floor(vi.getRealSystemTime() / 1000) + 60;
+        expect(Math.abs((key.expiration ?? 0) - expected)).toBeLessThan(10);
       }
     });
 
@@ -338,7 +338,8 @@ describe("POST /v1/calendar/events", () => {
       const spy = mockCalendars(providers);
       await events({ links: [ICLOUD], timezone: "America/New_York" });
 
-      // Ten minutes on, asked from Chicago.
+      // Ten minutes on by the faked clock, asked from Chicago (KV expires
+      // entries by the real clock, so the cached copy is still there).
       vi.setSystemTime(new Date(NOW.getTime() + 10 * 60 * 1000));
       const body = await events({ links: [ICLOUD], timezone: "America/Chicago" });
 

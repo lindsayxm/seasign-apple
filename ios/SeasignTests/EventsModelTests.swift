@@ -278,16 +278,48 @@ private final class World {
         try await model.add(name: "Family", link: TestLinks.google)
         #expect(stub.requests.count == 1)
 
-        world.clock.now += 9 * 60
+        #expect(EventsModel.refreshInterval == 60)
+        world.clock.now += 59
         await model.refresh()
         #expect(stub.requests.count == 1)
 
         stub.set(TestLinks.google, .events([show, dentist]))
-        world.clock.now += 2 * 60
+        world.clock.now += 1
         await model.refresh()
         #expect(stub.requests.count == 2)
         #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
         #expect(model.snapshot?.fetchedAt == world.clock.now)
+    }
+
+    /// Today asks on its one-minute loop and again on every return to the
+    /// foreground. However often it asks, automatic refreshes go out at most
+    /// once a minute: far under the API's 20 calendar requests a minute.
+    @Test func anOpenAppAsksAboutOnceAMinute() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let model = model(try inMemoryContext())
+        try await model.add(name: "Family", link: TestLinks.google)
+        let before = stub.requests.count
+
+        // Ten minutes of asking every ten seconds.
+        for _ in 0..<60 {
+            world.clock.now += 10
+            await model.refresh()
+        }
+        #expect(stub.requests.count - before == 10)
+    }
+
+    /// The pull on Today: sent even when the events are fresh.
+    @Test func aForcedRefreshAsksAgainAtOnce() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let model = model(try inMemoryContext())
+        try await model.add(name: "Family", link: TestLinks.google)
+        let before = stub.requests.count
+
+        world.clock.now += 5
+        stub.set(TestLinks.google, .events([show, dentist]))
+        await model.refresh(force: true)
+        #expect(stub.requests.count == before + 1)
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
     }
 
     @Test func aLinkWithoutCachedEventsIsFetchedAtLaunch() async throws {
