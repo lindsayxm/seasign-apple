@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seasign v8 — Lemuria</title>
+<style>
+  @font-face { font-family: "Jost"; font-weight: 400; src: url("fonts/Jost-400-Book.ttf") format("truetype"); }
+  @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
+
+  /* --amber: buttons and main highlights; --teal: times and numbers; --hi: the day name. All three are warm by day and cool at night (set per state below). */
+  :root { --btn: 255, 196, 56; --amber: 255, 170, 48; --teal: 255, 122, 60; --hi: 255, 214, 160; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #060707; color: #b9c2c2; font-family: "Jost", "Avenir Next", "Helvetica Neue", sans-serif;
+    display: flex; align-items: center; justify-content: center; gap: 48px; flex-wrap: wrap; padding: 24px;
+  }
+  body.bare { display: block; padding: 0; background: #000; overflow: hidden; }
+  .phone {
+    position: relative; width: 393px; height: 852px; flex: none; border-radius: 46px; overflow: hidden; background: #000;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 0 0 9px #050506, 0 0 0 10px rgba(255,255,255,.10), 0 30px 90px rgba(0,0,0,.7);
+  }
+  body.bare .phone { border-radius: 0; box-shadow: none; }
+  canvas { position: absolute; inset: 0; width: 393px; height: 852px; display: block; }
+
+  .ui { position: absolute; inset: 0; color: rgb(238, 240, 240); text-transform: uppercase; }
+  .ui > * { position: absolute; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .amber { color: rgb(var(--amber)); }
+  .teal { color: rgb(var(--teal)); }
+  /* everything at the left lines up with the clock's left edge (x 34): date, day, weather, the ∀ button and the article list */
+  .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; text-transform: none; color: #fff; }
+
+  /* upper left: date, day, weather sign, temperature, condition */
+  .date { left: 34px; top: 72.7px; font-size: 9px; letter-spacing: .26em; }
+  /* the day name: a light condensed face (Avenir Next Condensed, which ships with iOS and macOS), sized by script to be exactly as wide as the date above it */
+  .day  { left: 34px; top: 102.2px; font-family: "Avenir Next Condensed", "Jost", sans-serif; font-size: 28px; line-height: 30px; letter-spacing: .03em; font-weight: 400; color: rgb(var(--hi));
+          white-space: nowrap; }
+  .now  { left: 34px; top: 145.8px; display: flex; align-items: center; height: 14px; font-size: 10px; letter-spacing: .2em; white-space: nowrap; }
+
+  /* upper right: the next three events */
+  .events { left: 96px; top: 64px; width: 281px; margin: 0; padding: 8px 8px 2px 8px; list-style: none; font-size: 11px; letter-spacing: .13em; line-height: 16px;
+            background: rgba(0, 0, 0, .55); }
+  .events li { display: grid; grid-template-columns: 66px 1fr; margin-bottom: 10px; padding-left: 7px; border-left: 1px solid rgba(var(--teal), .6); }
+  /* the time is two fixed columns: the hour (or the day, for an all-day event), then AM, PM or ALL, so those always start at the same place */
+  .events time { color: rgb(var(--teal)); font-size: 10px; letter-spacing: .04em; display: grid; grid-template-columns: 5.6ch auto; justify-content: start; }
+  .events time b { font-weight: inherit; }
+
+  /* below the horizon: the three symbols, then the article titles in the lower sea */
+  svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+  /* one column at the right: saved below the horizon, list centred on it (y 376), settings the same step above; the ∀ button is in the lower right corner, centred under the column */
+  .icons { right: 30px; top: 315px; display: flex; flex-direction: column; gap: 26.5px; }
+  /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
+  .icons svg, svg.more { stroke: rgb(var(--btn)); }
+  body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
+  .icons svg { width: 23px; height: 23px; stroke-width: .1; }
+  /* the dark panel behind these three is drawn on the canvas (see `panel` in the script), so the film grain lies over it */
+  .more { left: 345.5px; top: 766px; width: 12px; height: 12px; stroke-width: .17; filter: drop-shadow(0 1px 2.5px rgba(0,0,0,.75)) drop-shadow(0 0 6px rgba(0,0,0,.5)); }   /* a soft dark shadow round it; it has no panel */
+
+  .feed { left: 34px; top: 480px; width: 332px; margin: 0; padding: 0; list-style: none; font-size: 9.5px; letter-spacing: .2em; line-height: 14.5px; }
+  .feed li { height: 45px; }
+  /* article titles: a humanist serif in sentence case (Iowan Old Style, then Charter; both ship with iOS and macOS) */
+  .feed span { font-family: "Iowan Old Style", "Charter", ui-serif, Georgia, serif; text-transform: none; letter-spacing: .01em; color: rgb(244, 242, 236); font-size: 13.5px; line-height: 17.5px; }
+  /* the tag beside the sun or moon and the rise and set times under the horizon: small mono type; the lines they hang on are drawn on the canvas */
+  .tag { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8.5px; line-height: 12px; letter-spacing: .14em; white-space: nowrap; color: rgba(238,240,240,.78); text-shadow: 0 0 4px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9); }
+  .tag b { display: block; font-weight: 400; color: rgb(var(--amber)); }
+  .tag.flip { text-align: right; transform: translateX(-100%); }
+  .mark { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8px; line-height: 10px; letter-spacing: .1em; white-space: nowrap; color: rgba(238,240,240,.8); transform: translateX(-50%); text-shadow: 0 0 4px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9); }
+  body.nohud .tag, body.nohud .mark { display: none; }
+  .home { left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
+
+  nav { width: 250px; }
+  nav h1 { font-size: 13px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase; margin: 0 0 6px; color: #fff; }
+  nav p { font-size: 13px; line-height: 1.5; color: #8a9292; margin: 0 0 18px; }
+  nav button {
+    display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 1px solid #252b2b;
+    color: #98a1a1; font: 400 12px "Jost", sans-serif; letter-spacing: .22em; text-transform: uppercase; padding: 9px 14px; cursor: pointer;
+  }
+  nav button:hover { color: #fff; }
+  nav button[aria-pressed="true"] { color: #fff; border-left-color: #fff; }
+  nav button:focus-visible { outline: 1px solid #fff; outline-offset: -1px; }
+  body.bare nav { display: none; }
+</style>
+</head>
+<body>
+
+<!-- The app's three symbols as it draws them (ios/Seasign/Design/Icons.swift), the for-all sign (an upside-down A) in place of the app's », and small weather marks in the same manner. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-settings" viewBox="0 0 1 1"><path d="M.5 0V1M.02 .31H.98L.02 .69H.98"/></symbol>
+  <symbol id="i-list" viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".29"/><path d="M0 .5H1M.821 .117A.5 .5 0 0 1 .821 .883M.179 .883A.5 .5 0 0 1 .179 .117"/></symbol>
+  <symbol id="i-saved" viewBox="0 0 1 1"><path d="M.5 0V1M0 .5H1M.08 .08L.92 .92M.92 .08L.08 .92"/></symbol>
+  <symbol id="i-more" viewBox="0 0 1 1"><path d="M.08 .04L.5 .96L.92 .04M.226 .36H.774"/></symbol>
+  <symbol id="w-clear" viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".27"/><path d="M.5 0V1M.1 .9H.9"/></symbol>
+  <symbol id="w-clouds" viewBox="0 0 1 1"><path d="M0 .62H1M.14 .62A.24 .24 0 0 1 .62 .62M.5 .44A.18 .18 0 0 1 .86 .62M.2 .86H.8"/></symbol>
+  <symbol id="w-rain" viewBox="0 0 1 1"><path d="M0 .28H1M.36 .1L.18 .95M.6 .28L.48 .85M.84 .28L.76 .66"/></symbol>
+  <symbol id="w-snow" viewBox="0 0 1 1"><path d="M0 .26H1M.5 .08V.44M.12 .52L.32 .72M.32 .52L.12 .72M.42 .76L.62 .96M.62 .76L.42 .96M.72 .5L.9 .68M.9 .5L.72 .68"/></symbol>
+  <symbol id="w-night" viewBox="0 0 1 1"><path d="M.64 .16A.36 .36 0 1 0 .64 .84A.44 .44 0 0 1 .64 .16ZM0 .5H.4M.86 .04V.3M.73 .17H.99"/></symbol>
+</svg>
+
+<div class="phone" id="phone">
+  <canvas id="scene" width="393" height="852"></canvas>
+  <div class="ui">
+    <div class="clock" id="clock">6:23</div>
+
+    <div class="date"><span class="amber" id="date">Nov 16</span></div>
+    <div class="day"><span id="day">Mon</span></div>
+    <div class="now"><span>55°F</span></div>
+
+    <ul class="events">
+      <li><time class="mono"><b>6:45</b><b>PM</b></time><span>Hanna’s show</span></li>
+      <li><time class="mono"><b>8:15</b><b>PM</b></time><span>Submit work hours for studio payroll</span></li>
+      <li><time class="mono"><b>Tue</b><b>All</b></time><span>Brush pets teeth</span></li>
+    </ul>
+
+    <div class="tag" id="tag"><b id="tag1">Sun</b><span id="tag2">Wind 8 mph</span></div>
+    <div class="mark" id="rise">6:41 AM</div>
+    <div class="mark" id="set">4:31 PM</div>
+
+    <svg class="line more"><use href="#i-more"/></svg>
+    <div class="icons" aria-hidden="true">
+      <svg class="line"><use href="#i-settings"/></svg><svg class="line"><use href="#i-list"/></svg><svg class="line"><use href="#i-saved"/></svg>
+    </div>
+
+    <ul class="feed">
+      <li><span>A short explainer on how El Niño works [video]</span></li>
+      <li><span>It’s getting too dry for even cactuses to survive</span></li>
+      <li><span>‘Birdbrain’ is a misnomer. Crows make decisions faster than we can</span></li>
+      <li><span>What the Great Lakes remember about last winter</span></li>
+      <li><span>The quiet return of the paper map</span></li>
+      <li><span>Why lighthouse keepers kept such careful weather diaries</span></li>
+    </ul>
+    <div class="home"></div>
+  </div>
+</div>
+
+<nav id="nav" aria-label="Scene state">
+  <h1>Seasign v8 · Lemuria</h1>
+  <p>v7 pushed towards a quiet instrument display: one ink colour per screen, hairlines, the sun and moon as light, tracked by a bracket and tag, with rise and set marked on the horizon. Pick a state; arrow keys step through them.</p>
+</nav>
+
+<script>
+"use strict";
+const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
+const HZ = 376;                                        // the sea's horizon
+const SHOW_ARC = new URLSearchParams(location.search).has("arc");   // the drawn line of the sun and moon's path: off unless ?arc is in the address
+const HUD = !new URLSearchParams(location.search).has("nohud");   // the bracket, tag, and horizon marks: ?nohud hides them
+const PANEL = { x: 329, y: 302, w: 45, h: 149, r: 3 };  // behind the three buttons at the right
+const PATH = { x: 62 + 101, half: 101, top: 100 };     // left of centre and narrower than the screen: its ends are placed so the very large rising and setting sun or moon clears the left edge and the button panel
+PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
+
+/* body: the sun or moon's colour; glow: the light round it; arc: the tint of the light on the water; power: overall brightness */
+const LOOK = {
+  sunrise: { body: "255,150,70",  glow: "255,176,84",  arc: "255,196,150", power: .75 },
+  day:     { body: "255,196,96",  glow: "255,224,130", arc: "255,250,232", power: 1 },
+  sunset:  { body: "255,128,64",  glow: "255,150,70",  arc: "255,180,140", power: .8 },
+  cloudy:  { body: "255,200,120", glow: "255,222,150", arc: "226,230,232", power: .62 },
+  rain:    { body: "236,196,150", glow: "220,196,160", arc: "190,204,214", power: .48 },
+  snow:    { body: "255,214,150", glow: "255,236,196", arc: "244,248,255", power: .8 },
+  dusk:    { body: "236,242,255", glow: "150,190,236", arc: "170,196,230", power: .55, night: true },
+  night:   { body: "244,248,255", glow: "170,206,246", arc: "206,226,250", power: .8,  night: true },
+  full:    { body: "255,255,255", glow: "200,226,255", arc: "236,244,255", power: 1,   night: true },
+};
+/* `turn`: how far along the path, 0 (on the horizon at the left) to 1 (on the horizon at the right) */
+const STATES = [
+  { id: "sunrise",     label: "Sunrise",     look: "sunrise", turn: .005, time: "06:41", sign: "clear",  word: "Clear", rise: "6:41 AM", set: "4:31 PM", wind: 6 },
+  { id: "mid-day",     label: "Mid-day",     look: "day",     turn: .5,   time: "11:36", sign: "clear",  word: "Clear", rise: "6:41 AM", set: "4:31 PM", wind: 8 },
+  { id: "sunset",      label: "Sunset",      look: "sunset",  turn: .995, time: "16:31", sign: "clear",  word: "Clear", rise: "6:41 AM", set: "4:31 PM", wind: 11 },
+  { id: "clouds",      label: "Clouds",      look: "cloudy",  turn: .42,  time: "10:50", sign: "clouds", word: "Clouds", clouds: .8, rise: "6:41 AM", set: "4:31 PM", wind: 14 },
+  { id: "rain",        label: "Rain",        look: "rain",    turn: .58,  time: "12:25", sign: "rain",   word: "Rain",   clouds: 1, rain: true, rise: "6:41 AM", set: "4:31 PM", wind: 19 },
+  { id: "snow",        label: "Snow",        look: "snow",    turn: .5,   time: "11:36", sign: "snow",   word: "Snow",   clouds: .6, snow: true, rise: "6:41 AM", set: "4:31 PM", wind: 5 },
+  { id: "moon-rise",   label: "Moon rise",   look: "dusk",    turn: .005, time: "17:12", sign: "night",  word: "Clear",  phase: .5, rise: "5:12 PM", set: "7:03 AM", wind: 9 },
+  { id: "mid-night",   label: "Mid-night",   look: "night",   turn: .5,   time: "00:08", sign: "night",  word: "Clear",  phase: .5, rise: "5:12 PM", set: "7:03 AM", wind: 4 },
+  { id: "moon-waxing", label: "Waxing moon", look: "night",   turn: .36,  time: "21:40", sign: "night",  word: "Clear",  phase: .25, rise: "1:20 PM", set: "12:48 AM", wind: 7 },
+  { id: "moon-waning", label: "Waning moon", look: "night",   turn: .64,  time: "02:30", sign: "night",  word: "Clear",  phase: .75, rise: "11:54 PM", set: "12:36 PM", wind: 7 },
+  { id: "moon-full",   label: "Full moon",   look: "full",    turn: .5,   time: "00:08", sign: "night",  word: "Clear",  phase: .5, rise: "5:12 PM", set: "7:03 AM", wind: 3 },
+  { id: "moon-set",    label: "Moon set",    look: "dusk",    turn: .995, time: "07:03", sign: "night",  word: "Clear",  phase: .5, rise: "5:12 PM", set: "7:03 AM", wind: 10 },
+];
+const SILVER = "214,228,240", ICE = "150,200,222", VIOLET = "196,150,255";
+
+function prng(seed) {
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+const DPR = Math.min(3, window.devicePixelRatio || 1);
+canvas.width = W * DPR; canvas.height = H * DPR;
+
+/* every list has its own random source, so changing one never disturbs another */
+const list = (n, f) => Array.from({ length: n }, f);
+const FAR = 540;                                       // from the middle of the horizon to past the top corners
+const srnd = prng(701), hrnd = prng(702), wrnd = prng(703), grnd = prng(704);
+const CLUMPS = list(11, () => { const a = srnd() * TAU, d = FAR * (.25 + .7 * srnd()); return [d * Math.cos(a), d * Math.sin(a), 28 + srnd() * 60]; });
+const bits = {
+  /* stars: fixed to one great wheel centred on the middle of the horizon (kept as angle and distance from it); about half sit in loose clumps */
+  stars: list(2600, () => {
+    let px, py;
+    if (srnd() < .45) { const c = CLUMPS[Math.floor(srnd() * CLUMPS.length)]; px = c[0] + (srnd() + srnd() + srnd() - 1.5) * c[2]; py = c[1] + (srnd() + srnd() + srnd() - 1.5) * c[2]; }
+    else { const a = srnd() * TAU, d = FAR * Math.sqrt(srnd()); px = d * Math.cos(a); py = d * Math.sin(a); }
+    return { a: Math.atan2(py, px), d: Math.hypot(px, py), s: .6 + srnd() * srnd() * 2.0, ph: srnd() * TAU, v: srnd() < .13 };
+  }),
+  haze: list(18, () => ({ a: hrnd() * TAU, d: FAR * (.2 + .75 * hrnd()), s: 50 + hrnd() * 90, k: .4 + hrnd() * .6 })),
+  clouds: list(9, () => ({ x: wrnd(), y: -.62 + wrnd() * .75, w: .35 + wrnd() * .45, h: .07 + wrnd() * .08, sp: .006 + wrnd() * .012 })),
+  rain: list(64, () => ({ x: wrnd(), y: wrnd(), sp: .5 + wrnd() * .4 })),
+  snow: list(56, () => ({ x: wrnd(), y: wrnd(), sp: .03 + wrnd() * .04, r: .6 + wrnd() * .9, ph: wrnd() * TAU })),
+  glints: list(110, () => ({ x: grnd(), y: Math.pow(grnd(), 1.6), ph: grnd() * TAU, s: .5 + grnd() * 1.2, v: grnd() < .08 })),
+};
+let state, look;
+const hash = n => { const v = Math.sin(n * 127.1) * 43758.5453; return v - Math.floor(v); };
+/* a second canvas to blur the picture into, for the soft light round everything bright; and a tile of film grain */
+const soft = document.createElement("canvas"); soft.width = W; soft.height = H; const sctx = soft.getContext("2d");
+const grain = document.createElement("canvas"); grain.width = grain.height = 180;
+{ const g = grain.getContext("2d"), im = g.createImageData(180, 180), gr = prng(77);
+  for (let i = 0; i < im.data.length; i += 4) { const v = gr() * gr() * 255; im.data[i] = v; im.data[i + 1] = v; im.data[i + 2] = v * 1.08; im.data[i + 3] = 255; }
+  g.putImageData(im, 0, 0); }
+const col = (rgb, a) => `rgba(${rgb},${Math.max(0, a)})`;
+
+function glow(x, y, rx, ry, rgb, alpha, mid = .4) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(rx, ry);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  g.addColorStop(0, col(rgb, alpha)); g.addColorStop(mid, col(rgb, alpha * .35)); g.addColorStop(1, col(rgb, 0));
+  ctx.fillStyle = g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
+}
+/* a point on the path: u 0 is where it leaves the water at the left, 1 where it enters at the right; beyond that it is under the water */
+const pathAt = u => { const q = PI - PATH.a0 - u * (PI - 2 * PATH.a0); return [PATH.x + PATH.r * Math.cos(q), HZ + PATH.r - PATH.top - PATH.r * Math.sin(q)]; };
+
+function draw(t) {
+  const x = W / 2, { body, glow: halo, arc: tint } = look;
+  const P = look.power * (.96 + .04 * Math.sin(t * 1.3)), wheel = t * .0015;      // canvas angles grow clockwise: stars rise at the left and set at the right
+  const [bx, by] = pathAt(state.turn), lowness = Math.pow(Math.max(0, 1 - (HZ - by) / PATH.top), 2);   // lowness: 1 when the sun or moon is on the water
+  const R = 12 * (1 + 3.2 * lowness), GS = Math.min(170, (R * 2 + 2) * 3);         // the sun and moon are far larger near the horizon: radius 12 high in the sky, 50 on the water. GS: how much of the grain tile covers them, so the grain stays fine
+  const skyClip = () => { ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, HZ); ctx.clip(); };
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "butt";
+
+  /* ---- by day the sky is blue: lightest on the horizon, falling quickly to near black above the top of the path, so the words at the top stay on dark ---- */
+  if (!look.night) {
+    const warm = state.look === "sunrise" || state.look === "sunset";
+    const k = (.45 + .55 * look.power) * (warm ? .16 : .5), grey = state.rain ? .55 : state.clouds ? .25 : 0;              // duller and greyer under cloud
+    const blue = (r, g, b, a) => col([r, g, b].map(v => Math.round(v + ((r + g + b) / 3 - v) * grey)).join(","), a * k);
+    const sky = ctx.createLinearGradient(0, HZ, 0, HZ - 290);
+    sky.addColorStop(0, blue(70, 128, 214, .8)); sky.addColorStop(.1, blue(56, 110, 200, .68)); sky.addColorStop(.26, blue(40, 84, 160, .5));
+    sky.addColorStop(.42, blue(20, 48, 112, .32)); sky.addColorStop(.7, blue(8, 20, 56, .14)); sky.addColorStop(1, blue(4, 8, 24, 0));
+    ctx.fillStyle = sky; ctx.fillRect(0, HZ - 290, W, 290);
+    const wet = ctx.createLinearGradient(0, HZ, 0, HZ + 96);                                          // and the sea takes some of that blue
+    wet.addColorStop(0, blue(64, 112, 176, .42)); wet.addColorStop(1, blue(20, 40, 90, 0));
+    ctx.fillStyle = wet; ctx.fillRect(0, HZ, W, 96);
+    if (warm && state.look === "sunrise") {                                                           // sunrise: yellow on the horizon, peach and a little pink above, then light blue
+      const band = ctx.createLinearGradient(0, HZ, 0, HZ - 230);
+      band.addColorStop(0, col("255,218,96", .34)); band.addColorStop(.13, col("255,180,92", .25)); band.addColorStop(.3, col("244,140,150", .13));
+      band.addColorStop(.5, col("120,184,240", .2)); band.addColorStop(.75, col("70,130,214", .1)); band.addColorStop(1, col("40,80,170", 0));
+      ctx.fillStyle = band; ctx.fillRect(0, HZ - 230, W, 230);
+      glow(bx, HZ, 250, 70, "255,214,70", .22, .45);
+      glow(bx, HZ - 30, 280, 120, "255,170,90", .12, .5);
+      glow(x + 40, HZ - 120, 330, 120, "130,196,250", .14, .55);
+      glow(bx, HZ + 22, 230, 56, "255,206,110", .1, .45);
+    } else if (warm) {                                                                                // sunset: orange on the horizon, red and pink above it, strongest on the sun's side
+      const band = ctx.createLinearGradient(0, HZ, 0, HZ - 190);
+      band.addColorStop(0, col("255,134,40", .3)); band.addColorStop(.16, col("250,92,44", .26)); band.addColorStop(.4, col("232,60,84", .17));
+      band.addColorStop(.7, col("200,84,130", .07)); band.addColorStop(1, col("120,70,150", 0));
+      ctx.fillStyle = band; ctx.fillRect(0, HZ - 190, W, 190);
+      glow(bx, HZ, 250, 70, "255,124,30", .2, .45);
+      glow(bx, HZ - 34, 290, 130, "244,62,56", .15, .5);
+      glow(bx + (bx < x ? 70 : -70), HZ - 86, 300, 120, "236,90,150", .1, .55);
+      glow(bx, HZ + 22, 230, 56, "255,120,76", .1, .45);
+    }
+  }
+  /* ---- light in the sky: a wide haze round the sun or moon, and a low one along the horizon ---- */
+  glow(bx, by, 210, 210, "70,96,120", .46 * (.5 + .5 * P), .5);
+  glow(x, HZ, W * .95, 130, "70,96,120", .3 * (.5 + .5 * P), .5);
+  /* the sea: a hazy plane under the horizon, lit from below the sun or moon */
+  const sea = ctx.createLinearGradient(0, HZ, 0, HZ + 120);
+  sea.addColorStop(0, col("120,140,160", .34)); sea.addColorStop(.25, col("90,108,128", .16)); sea.addColorStop(1, col("60,70,90", 0));
+  ctx.fillStyle = sea; ctx.fillRect(0, HZ, W, 120);
+  glow(x, HZ, W * .75, 5, SILVER, .5 * P, .3);
+  glow(bx, HZ + 30, 120, 60, tint, .2 * P, .4);
+  glow(bx, HZ + 16, 18 + R * .7, 40 + R * .6, halo, .55 * P * lowness, .4);                              // its reflection, strongest when it is on the water
+  for (const g of bits.glints) {
+    const gy = HZ + 3 + g.y * 78, spread = 40 + g.y * 220, gx = bx + (g.x - .5) * 2 * spread;
+    const a = Math.pow(.5 + .5 * Math.sin(t * 1.7 + g.ph), 3) * (1 - g.y * .7);
+    ctx.fillStyle = col(g.v ? VIOLET : SILVER, a * .9); ctx.fillRect(gx, gy, g.s * 2.2, .7);
+  }
+
+  /* ---- the firmament: stars and thin haze on one wheel that turns very slowly about the middle of the horizon ---- */
+  skyClip();
+  for (const m of bits.haze) {
+    const a = m.a + wheel * m.k;
+    glow(x + m.d * Math.cos(a), HZ + m.d * Math.sin(a), m.s, m.s, ICE, .075 * (.5 + .5 * P), .5);
+  }
+  for (const d of bits.stars) {
+    const a = d.a + wheel, px = x + d.d * Math.cos(a), py = HZ + d.d * Math.sin(a);
+    if (py > HZ - 2 || py < -4 || px < -4 || px > W + 4) continue;
+    const tw = .55 + .45 * Math.sin(t * 1.4 + d.ph), al = Math.min(1, (HZ - py) / 26) * tw * (look.night ? 1.25 : .95) * (.6 + .4 * hash(d.ph * 3.3));
+    const rgb = d.v ? VIOLET : d.s > 1.45 ? "236,244,255" : SILVER;
+    if (d.s > 1.45) glow(px, py, d.s * 1.8, d.s * 1.8, rgb, al, .22);
+    else { ctx.fillStyle = col(rgb, al); ctx.beginPath(); ctx.arc(px, py, d.s * .55, 0, TAU); ctx.fill(); }
+  }
+  ctx.restore();
+
+  /* ---- the path the sun and moon travel: a thin arc whose light runs along it and thickens and thins, a pulse running along it,
+          and a glint where each end meets the water. Switched off for now (SHOW_ARC, or add ?arc to the address to see it):
+          the sun and moon still follow the path, it is just not drawn ---- */
+  if (SHOW_ARC) {
+    const N = 120; ctx.lineCap = "round";
+    for (let i = 0; i < N; i++) {
+      const u0 = i / N * 2, u1 = (i + 1) / N * 2, k = .5 + .5 * Math.sin(u0 * 14 - t * 1.6) * Math.sin(u0 * 5 + t * .5);
+      const p0 = pathAt(u0), p1 = pathAt(u1), depth = (p0[1] + p1[1]) / 2 - HZ;
+      const under = depth > 0 ? 0 : 1; if (under <= 0) continue;
+      const near = depth > 0 ? 0 : Math.exp(-Math.pow((u0 - state.turn) * 5, 2));
+      ctx.beginPath(); ctx.moveTo(...p0); ctx.lineTo(...p1);
+      ctx.lineWidth = .5 + 1.5 * k + 1.2 * near; ctx.strokeStyle = col(halo, (.22 + .5 * k + .3 * near) * (.55 + .45 * P) * under); ctx.stroke();
+    }
+    ctx.lineCap = "butt";
+    skyClip();
+    glow(...pathAt((t * .035) % 1), 9, 9, halo, .5, .3);                             // a pulse of light running along it
+    ctx.restore();
+    for (const u of [0, 1]) glow(...pathAt(u), 13, 4, "255,255,255", .5 * P, .35);   // where the path meets the water
+  }
+
+  /* ---- weather: gathered round the sun or moon, thinning out away from it ---- */
+  const veil =  state.rain ? .7 : state.clouds ? .85 : 1, NEAR = 96;
+  skyClip();
+  if (state.clouds) for (const c of bits.clouds) {
+    const f = (c.x + t * c.sp) % 1, cx = bx + (f * 2.6 - 1.3) * NEAR, cy = by + c.y * NEAR + 14, edge = Math.pow(Math.sin(PI * f), .7);
+    glow(cx, cy, c.w * NEAR * 1.5, c.h * NEAR * .7, state.rain ? "150,164,180" : SILVER, .24 * state.clouds * edge, .6);
+    glow(cx + c.w * NEAR * .25, cy - c.h * NEAR * .3, c.w * NEAR * .8, c.h * NEAR * .4, SILVER, .18 * state.clouds * edge, .6);
+  }
+  if (state.rain) for (const p of bits.rain) {
+    const f = (p.y + t * p.sp) % 1, side = (p.x - .5) * 2, px = bx + side * NEAR * 1.15 - f * 22 + 8, py = by - 34 + f * 190;
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - 3.6, py + 13);
+    ctx.lineWidth = .5; ctx.strokeStyle = col(SILVER, .6 * Math.pow(Math.sin(PI * f), .6) * (1 - side * side)); ctx.stroke();
+  }
+  if (state.snow) for (const f of bits.snow) {
+    const fall = (f.y + t * f.sp) % 1, side = (f.x - .5) * 2, fy = by - 60 + fall * 210, fx = bx + side * NEAR * 1.2 + Math.sin(t * .6 + f.ph) * 4;
+    ctx.fillStyle = col("255,255,255", .9 * Math.pow(Math.sin(PI * fall), .6) * (1 - side * side)); ctx.beginPath(); ctx.arc(fx, fy, f.r * .7, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+
+  /* ---- the sun or the moon; the horizon hides whatever part of it is below the water ---- */
+  glow(bx, by, R * (4.2 - 2.2 * lowness), R * (4.2 - 2.2 * lowness), halo, .55 * P * veil, .3);
+  skyClip();
+  ctx.globalCompositeOperation = "source-over";
+  if (state.phase == null) {
+    const g = ctx.createRadialGradient(bx - 2, by - 2, 0, bx, by, R);
+    g.addColorStop(0, col(body, veil)); g.addColorStop(1, col(body, .9 * veil));
+    ctx.fillStyle = "#020306"; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    /* burning gas: a hot centre, a deeper edge, and bright and dark cells that churn and flicker */
+    ctx.save(); ctx.clip();
+    const fire = ctx.createRadialGradient(bx, by, 0, bx, by, R);
+    fire.addColorStop(0, col("255,253,240", veil)); fire.addColorStop(.42, col("255,244,206", .9 * veil)); fire.addColorStop(.8, col(halo, .45 * veil)); fire.addColorStop(1, col("206,84,24", .34));
+    ctx.fillStyle = fire; ctx.fillRect(bx - R, by - R, R * 2, R * 2);
+    for (let k = 0; k < 16; k++) {
+      const ang = k * 2.4 + t * (.22 + hash(k * 1.7) * .3) * (k % 2 ? 1 : -1), rad = R * (.1 + .8 * hash(k * 3.1)) * (.85 + .15 * Math.sin(t * .9 + k));
+      const size = R * (.24 + .3 * hash(k * 7.7)) * (.8 + .3 * Math.sin(t * 1.7 + k * 2.1)), cx = bx + rad * Math.cos(ang), cy = by + rad * Math.sin(ang);
+      if (k % 3 === 0) { ctx.globalCompositeOperation = "source-over"; glow(cx, cy, size * .8, size * .8, "206,96,30", .2 * veil, .5); }
+      else { ctx.globalCompositeOperation = "lighter"; glow(cx, cy, size, size, "255,246,214", .34 * veil * (.55 + .45 * Math.sin(t * 2.3 + k * 1.3)), .4); }
+    }
+    ctx.globalCompositeOperation = "soft-light"; ctx.globalAlpha = .55;
+    const go = Math.floor(t * 10); ctx.drawImage(grain, Math.floor(hash(go) * (180 - GS)), Math.floor(hash(go + 4.2) * (180 - GS)), GS, GS, bx - R - 1, by - R - 1, R * 2 + 2, R * 2 + 2);
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
+    ctx.globalCompositeOperation = "lighter";
+    /* near the horizon the sun's own edge stays a clean circle, and a dark orange line just outside it ripples, like burning gas; a fainter second line follows further out */
+    if (lowness > .02) {
+      const tickR = Math.floor(t * 12); ctx.lineCap = "round";
+      for (const [gap, wide, al, sp] of [[3.2, 1.0, .5, 1], [6.4, .6, .26, -1.4]]) {
+        const at = j => { const q = j / 120 * TAU, rip = .5 * Math.sin(5 * q + t * 1.1 * sp) + .3 * Math.sin(11 * q - t * 1.9 * sp + 1) + .2 * Math.sin(19 * q + t * 2.9 * sp + 2);
+          const rr = R + gap + rip * (1.5 + gap * .12) * lowness; return [bx + rr * Math.cos(q), by + rr * Math.sin(q)]; };
+        ctx.globalCompositeOperation = "lighter";                                    // soft light round the line
+        for (const [gw, ga] of [[wide * 6, .1], [wide * 3, .16]]) {
+          ctx.beginPath(); for (let j = 0; j <= 120; j++) ctx.lineTo(...at(j));
+          ctx.closePath(); ctx.lineWidth = gw; ctx.strokeStyle = col("255,112,30", ga * al * lowness * veil); ctx.stroke();
+        }
+        ctx.globalCompositeOperation = "source-over";                                // the line itself, see-through and uneven: each short piece has its own strength and width, and they flicker
+        for (let j = 0; j < 120; j++) {
+          const n1 = hash(j * 1.7 + gap * 9 + tickR * .23), n2 = hash(j * 3.1 + gap * 5);
+          ctx.beginPath(); ctx.moveTo(...at(j)); ctx.lineTo(...at(j + 1));
+          ctx.lineWidth = wide * (.6 + .7 * n2); ctx.strokeStyle = col("236,120,44", al * (.35 + .65 * n1) * lowness * veil); ctx.stroke();
+        }
+      }
+      ctx.lineCap = "butt"; ctx.globalCompositeOperation = "lighter";
+    }
+  } else {
+    const k = Math.cos(TAU * state.phase), lit = (1 - k) / 2;
+    ctx.fillStyle = "#0b1018"; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.fill();
+    ctx.save(); ctx.translate(bx, by); if (state.phase > .5) ctx.scale(-1, 1);
+    ctx.beginPath();
+    if (lit > .985) ctx.arc(0, 0, R, 0, TAU);
+    else { ctx.arc(0, 0, R, -PI / 2, PI / 2); ctx.ellipse(0, 0, R * Math.abs(k), R, 0, PI / 2, PI * 1.5, lit < .5); }
+    ctx.fillStyle = col(body, 1); ctx.fill();
+    /* the lit face: uneven darker plains, craters of irregular outline with soft edges, fine pitting, shade toward the edge, and grain. None of it moves. */
+    ctx.clip(); const sx = state.phase > .5 ? -1 : 1, u = R / 12;
+    for (let k = 0; k < 9; k++) {                                                    // plains: each a few overlapping soft patches, so none is a clean oval
+      const ang = hash(k * 2.3 + 1) * TAU, rad = R * .75 * Math.sqrt(hash(k * 5.9 + 2)), size = R * (.22 + .34 * hash(k * 8.1 + 3));
+      for (let j = 0; j < 3; j++) {
+        const ox = (hash(k * 4.7 + j * 2.1) - .5) * size * 1.3, oy = (hash(k * 6.1 + j * 3.3) - .5) * size * 1.1, sz = size * (.55 + .5 * hash(k * 1.9 + j * 5.7));
+        glow(sx * (rad * Math.cos(ang) + ox), rad * Math.sin(ang) + oy, sz, sz * (.55 + .5 * hash(k * 1.1 + j)), "58,72,98", .2, .6);
+      }
+    }
+    for (let k = 0; k < 17; k++) {                                                   // craters: lumpy outlines, each tilted and squashed differently, some with a broken pale rim
+      const ang = hash(k * 3.7 + 9) * TAU, rad = R * .9 * Math.sqrt(hash(k * 6.3 + 5)), cr = (.45 + hash(k * 4.4) * 1.25) * u, al = .2 + .3 * hash(k * 7.3);
+      ctx.save(); ctx.translate(sx * rad * Math.cos(ang), rad * Math.sin(ang)); ctx.rotate(hash(k * 2.9) * PI); ctx.scale(1, .55 + .45 * hash(k * 9.1));
+      const pt = j => { const q = j / 8 * TAU, rr = cr * (.62 + .7 * hash(k * 13.7 + (j % 8) * 4.1)); return [rr * Math.cos(q), rr * Math.sin(q)]; };
+      const mid = j => { const p0 = pt(j), p1 = pt(j + 1); return [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2]; };
+      ctx.beginPath(); ctx.moveTo(...mid(0));
+      for (let j = 1; j <= 8; j++) ctx.quadraticCurveTo(...pt(j), ...mid(j));
+      ctx.fillStyle = col("46,58,84", al); ctx.fill();
+      glow(0, 0, cr * 1.7, cr * 1.7, "46,58,84", al * .7, .55);
+      if (hash(k * 5.3) > .45) { const q0 = hash(k * 8.9) * TAU; ctx.beginPath(); ctx.arc(0, 0, cr * 1.02, q0, q0 + .8 + hash(k * 3.1) * 1.3); ctx.lineWidth = .28 * u; ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.stroke(); }
+      ctx.restore();
+    }
+    for (let k = 0; k < 70; k++) {                                                   // fine pitting and pale flecks
+      const ang = hash(k * 1.37 + 40) * TAU, rad = R * Math.sqrt(hash(k * 2.71 + 41)), sz = (.14 + .3 * hash(k * 3.9 + 42)) * u, dark = hash(k * 5.5 + 43) < .65;
+      ctx.fillStyle = dark ? col("40,52,78", .16 + .22 * hash(k * 6.7)) : `rgba(255,255,255,${.12 + .2 * hash(k * 6.7)})`;
+      ctx.beginPath(); ctx.ellipse(sx * rad * Math.cos(ang), rad * Math.sin(ang), sz, sz * (.5 + .5 * hash(k * 7.9)), hash(k * 9.3) * PI, 0, TAU); ctx.fill();
+    }
+    const shade = ctx.createRadialGradient(-sx * R * .2, -R * .25, R * .35, 0, 0, R);
+    shade.addColorStop(0, "rgba(30,40,64,0)"); shade.addColorStop(.7, "rgba(30,40,64,.16)"); shade.addColorStop(1, "rgba(30,40,64,.45)");
+    ctx.fillStyle = shade; ctx.fillRect(-R, -R, R * 2, R * 2);
+    ctx.globalCompositeOperation = "multiply"; ctx.filter = "invert(1)";               // grain at two scales: fine, and a coarser blotch
+    ctx.globalAlpha = .34; ctx.drawImage(grain, Math.min(20, 180 - GS), Math.min(30, 180 - GS), GS, GS, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
+    ctx.globalAlpha = .26; ctx.drawImage(grain, 96, 60, 22, 22, -R - 1, -R - 1, R * 2 + 2, R * 2 + 2);
+    ctx.filter = "none"; ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.restore();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.lineWidth = .6; ctx.strokeStyle = col(SILVER, .55); ctx.stroke();
+  }
+  ctx.restore();
+  ctx.globalCompositeOperation = "lighter";
+
+
+  /* ---- soft light round everything bright, then film grain ---- */
+  if ("filter" in sctx) {
+    for (const [px, a] of [[4, .26], [16, .24]]) {
+      sctx.globalCompositeOperation = "copy"; sctx.filter = `blur(${px}px)`; sctx.drawImage(canvas, 0, 0, W, H);
+      ctx.globalAlpha = a; ctx.drawImage(soft, 0, 0, W, H); ctx.globalAlpha = 1;
+    }
+  }
+  /* ---- the instrument marks, drawn after the soft light so they stay crisp, and before the grain so it lies over them.
+          All of them show something the app knows: where the sun or moon is, when it rises and sets, and the three buttons ---- */
+  const ink = getComputedStyle(document.getElementById("phone")).getPropertyValue("--amber").trim() || "255,255,255";
+  ctx.globalCompositeOperation = "source-over"; ctx.lineCap = "butt";
+  const hair = (x0, y0, x1, y1, rgb, a, w = .6) => { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = w; ctx.strokeStyle = col(rgb, a); ctx.stroke(); };
+  if (HUD) {
+    /* the horizon as a scale: one tick an hour between rising and setting (longer at the ends, where the times are written), and a small square under the sun or moon */
+    const hours = look.night ? 14 : 10;
+    for (let i = 0; i <= hours; i++) { const px = pathAt(i / hours)[0], end = i === 0 || i === hours; hair(px, HZ + 2, px, HZ + (end ? 9 : 5), "255,255,255", end ? .7 : .42); }
+    ctx.fillStyle = col(ink, .95); ctx.fillRect(bx - 2, HZ + 1.5, 4, 4);
+    /* corner brackets round the sun or moon, and a short leader to its tag */
+    const hb = R + 8, arm = Math.min(9, 4 + R * .1), flip = bx > 190 ? -1 : 1;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+      const cx = bx + sx * hb, cy = by + sy * hb; if (cy > HZ - 3) continue;   // only the corners above the horizon
+      ctx.beginPath(); ctx.moveTo(cx - sx * arm, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy - sy * arm); ctx.lineWidth = .7; ctx.strokeStyle = "rgba(255,255,255,.72)"; ctx.stroke();
+    }
+    if (by + hb < HZ - 6) for (let yy = by + hb + 3; yy < HZ - 1; yy += 4) hair(bx, yy, bx, yy + 1.6, "255,255,255", .4);   // a dotted drop line to the horizon when it is high
+    const lx = bx + flip * hb, ly = by - hb;
+    ctx.beginPath(); ctx.moveTo(lx + flip * 3, ly - 3); ctx.lineTo(lx + flip * 11, ly - 11); ctx.lineTo(lx + flip * 19, ly - 11); ctx.lineWidth = .6; ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.stroke();
+  }
+  /* the frame behind the three buttons: a flat dark plate with a hairline edge and short brighter corners */
+  if (!document.body.classList.contains("nobtn")) {
+    const p = PANEL;
+    ctx.fillStyle = "rgba(2,5,12,.5)"; ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.lineWidth = .6; ctx.strokeStyle = "rgba(255,255,255,.2)"; ctx.strokeRect(p.x, p.y, p.w, p.h);
+    for (const sx of [0, 1]) for (const sy of [0, 1]) {
+      const cx = p.x + sx * p.w, cy = p.y + sy * p.h, dx = sx ? -1 : 1, dy = sy ? -1 : 1;
+      ctx.beginPath(); ctx.moveTo(cx + dx * 7, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy + dy * 7); ctx.lineWidth = .8; ctx.strokeStyle = col(ink, .85); ctx.stroke();
+    }
+    hair(p.x + 6, p.y + 50, p.x + p.w - 6, p.y + 50, "255,255,255", .14); hair(p.x + 6, p.y + 99, p.x + p.w - 6, p.y + 99, "255,255,255", .14);
+  }
+  ctx.globalCompositeOperation = "lighter";
+  const gx = Math.floor(hash(Math.floor(t * 24)) * 180), gy = Math.floor(hash(Math.floor(t * 24) + 9.1) * 180);
+  ctx.globalAlpha = .11;
+  for (let yy = -gy; yy < HZ + 110; yy += 180) for (let xx = -gx; xx < W; xx += 180) ctx.drawImage(grain, xx, yy, 180, 180);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+  ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "rgba(255,255,255,.16)"; ctx.fillRect(0, HZ + 92, 30, .6); ctx.fillRect(W - 30, HZ + 92, 30, .6);
+  /* dark behind the words */
+  const top = ctx.createLinearGradient(0, 0, 0, 200); top.addColorStop(0, "rgba(0,0,0,1)"); top.addColorStop(.7, "rgba(0,0,0,.8)"); top.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = top; ctx.fillRect(0, 0, W, 200);
+  const low = ctx.createLinearGradient(0, HZ + 34, 0, HZ + 100); low.addColorStop(0, "rgba(0,0,0,0)"); low.addColorStop(1, "rgba(0,0,0,.92)");
+  ctx.fillStyle = low; ctx.fillRect(0, HZ + 34, W, H - HZ - 34);
+}
+
+/* ---------- choosing a state ---------- */
+const params = new URLSearchParams(location.search);
+const still = params.has("still"), T0 = parseFloat(params.get("t")) || 19;
+if (params.has("bare")) document.body.classList.add("bare");
+if (params.has("nobtn")) document.body.classList.add("nobtn");
+if (params.has("nohud")) document.body.classList.add("nohud");
+
+function show(id) {
+  state = STATES.find(s => s.id === id) || STATES[0];
+  look = LOOK[state.look];
+  /* one ink colour per screen for everything highlighted (date, day name, event times, buttons, the tag's first line); the rest is white */
+  const inkOf = look.night ? "150,232,240" : state.look === "sunset" ? "255,205,186" : state.look === "sunrise" ? "255,244,190" : "244,216,104";
+  const tones = { amber: inkOf, teal: inkOf, hi: inkOf, btn: inkOf };
+  for (const k in tones) document.getElementById("phone").style.setProperty("--" + k, tones[k]);
+  document.getElementById("clock").textContent = state.time.replace(/^0/, "");
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
+  /* the tag: what it is (and how much of the moon is lit), then the wind, and the cloud cover when there is any; the marks: when it rises and sets */
+  const [tx, ty] = pathAt(state.turn), low2 = Math.pow(Math.max(0, 1 - (HZ - ty) / PATH.top), 2), hb = 12 * (1 + 3.2 * low2) + 8, flip = tx > 190;
+  const tag = document.getElementById("tag"), lit = state.phase == null ? null : Math.round((1 - Math.cos(TAU * state.phase)) / 2 * 100);
+  const edge = state.turn < .05 ? "rise" : state.turn > .95 ? "set" : null;        // on the horizon: the tag gives the time, and the mark under it (lost in the glare) is hidden
+  document.getElementById("tag1").textContent = edge ? (lit == null ? "Sun" : "Moon") + edge + " " + state[edge] : lit == null ? "Sun" : "Moon " + lit + "%";
+  document.getElementById("tag2").textContent = (state.snow ? "Snow · " : state.rain ? "Rain · " : state.clouds ? "Cloud " + Math.round(state.clouds * 100) + "% · " : "") + "Wind " + state.wind + " mph";
+  tag.classList.toggle("flip", flip); tag.style.left = tx + (flip ? -1 : 1) * (hb + 23) + "px"; tag.style.top = ty - hb - 11 - 9 + "px";
+  for (const [id, u] of [["rise", 0], ["set", 1]]) { const el = document.getElementById(id); el.textContent = state[id]; el.style.left = pathAt(u)[0] + "px"; el.style.top = HZ + 12 + "px"; el.style.visibility = id === edge ? "hidden" : "visible"; }
+  if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : "") + (params.has("arc") ? "&arc" : ""));
+}
+const nav = document.getElementById("nav");
+for (const s of STATES) {
+  const b = document.createElement("button");
+  b.textContent = s.label; b.dataset.id = s.id; b.onclick = () => show(s.id); nav.appendChild(b);
+}
+addEventListener("keydown", e => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  show(STATES[(STATES.indexOf(state) + step + STATES.length) % STATES.length].id);
+});
+((document.fonts && document.fonts.ready) || Promise.resolve()).then(() => {
+  /* make the day name exactly as wide as the date (each ends with one letter-space, which is left out of both widths) */
+  const dateEl = document.getElementById("date"), dayEl = document.getElementById("day"), wide = (el, gap) => el.getBoundingClientRect().width - gap;
+  const want = wide(dateEl, 9 * .26), got = wide(dayEl, 28 * .03);
+  if (got > 0) { const size = 28 * want / got; dayEl.parentNode.style.fontSize = size + "px"; dayEl.parentNode.style.lineHeight = size * 1.08 + "px";
+    document.querySelector(".now").style.top = 109.8 + size * 1.08 + 7 + "px"; }   // these offsets put the block's top and bottom level with the events' text (date top with the first event's text top, temperature bottom with the last event's text bottom: y 75.7 to 151.7), with equal gaps above and below the day name; measured on a still
+  show(params.get("state") || "mid-day");
+  if (still) { document.title = "ready"; return; }
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const loop = ms => { draw(calm ? T0 : ms / 1000); if (!calm) requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>

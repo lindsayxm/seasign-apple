@@ -10,7 +10,8 @@ Look-only mockups of the Today screen. Nothing here is in the app; an idea is bu
 | `v4-cartography/` | off-white paper by day, charcoal at night, weather as a sign | tried |
 | `v5-hud/` | fixed dial; warm colours by day, aqua to white at night | tried |
 | `v6-hud2/` | rotating portal ring with beams and swirling dust | refined over many rounds; base for v7 |
-| `v7-firmament/` | v6 without the ring and beams: open sky of slowly wheeling stars, sun and moon on a tall arc that rises from and sets into the sea | the one the user is refining (see the 2026-11-17 section below) |
+| `v7-firmament/` | v6 without the ring and beams: open sky of slowly wheeling stars, sun and moon on a tall arc that rises from and sets into the sea | refined over many rounds on 2026-11-17 (section below); saved as it stood on 2026-11-18; base for v8 |
+| `v8-lemuria/` | v7 pushed towards a restrained HUD: one ink colour per screen, hairline button frame, sun and moon as light, bracket and tag on the body, rise and set marks on the horizon | first pass 2026-11-18 (#100); awaiting the user's reaction |
 | `v0-version-landing-page/` | index page: a thumbnail per version that opens it | made 2026-11-17 |
 
 How the mockups are made, so the next session can continue:
@@ -51,3 +52,7 @@ What the user has settled for v7:
 Tried and rejected by the user (do not repeat): signal-yellow and strong-blue buttons; a separate colour for the list button; drop shadows on the three right-hand buttons; the panel wholly above the horizon with a reversed gradient; a rippling edge on the sun itself; serif for calendar events.
 
 Working method that held up: positions and gaps were set by measuring rendered stills (pixel rows of the text), not by eye. `?nobtn` draws a frame without buttons for measuring what is behind them. The landing page's thumbnails are copies of each version's `02-mid-day.png` and `08-mid-night.png` and must be remade when stills change.
+
+## 2026-11-18: v8-lemuria
+
+The user said v7 still felt like a cartoon or video game and asked for a v8 pushed towards a futuristic HUD, "but keep it constrained"; some of their references (`design-ideas/v8-lemuria/ref-img/`) they called much too busy. They like the grain, the burning sun and the shimmering water. v7 is frozen; work continues in v8. First pass: see `design-ideas/v8-lemuria/README.md` for what changed and what was kept from v7's settled decisions (serif titles, 12-hour times, no condition word at the top, no title numbers, path line off, sky gradients).
