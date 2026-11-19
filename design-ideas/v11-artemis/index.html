@@ -53,7 +53,9 @@
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
   /* three controls (settings, list, saved) in a bare column at the right of the events, centred on x 331 (the right end of the path, so it stands straight above the centre of the setting sun or moon), spaced 36 points apart, so the column runs a little below the events;
      the fourth, ∀ for all publications, is small in the lower left corner under the article list */
-  .col { left: 321.5px; top: 180px; display: flex; flex-direction: column; gap: 26px; }   /* moved under the events box, which now runs to the right edge; a tighter step keeps it clear of the sun and moon's tag */
+  /* a hairline closes the header: from the left margin to the right edge of the events box, along the box's bottom edge */
+  .under { left: 34px; top: 168px; width: 343px; height: 0; border-top: .5px solid rgba(255,255,255,.34); }
+  .col { left: 321.5px; top: 186px; display: flex; flex-direction: column; gap: 26px; }   /* moved under the events box, which now runs to the right edge; a tighter step keeps it clear of the sun and moon's tag */
   .col svg { display: block; width: 19px; height: 19px; stroke: rgba(var(--btn), .38); stroke-width: .09; }   /* much quieter than the ∀, which keeps the full ink colour */
   .more { left: 34px; top: 794px; width: 10px; height: 10px; stroke: rgb(var(--btn)); stroke-width: .13; }
   body.nobtn .col, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the controls */
@@ -109,6 +111,7 @@
     <div class="day"><span id="day">Mon</span></div>
     <div class="now"><span>55°F</span></div>
 
+    <div class="under"></div>
     <ul class="events">
       <li><time class="mono"><b>6:45</b><b>PM</b></time><span>Hanna’s show</span></li>
       <li><time class="mono"><b>8:15</b><b>PM</b></time><span>Submit work hours for studio payroll</span></li>
