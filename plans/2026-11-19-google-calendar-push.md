@@ -1,6 +1,6 @@
 # Google Calendar with push: events appear as soon as they are added
 
-Date: 2026-11-19. Owner: lead session. Status: **proposed, waiting for the user's approval of the ask-first items below.** No task is created until then.
+Date: 2026-11-19. Owner: lead session. Status: **approved by the user on 2026-11-19** ("Ok i approve all of the above": deploy, signing changes, the two new services). Each deploy, remote-resource and secret step is still announced before it is run. Task A is #153.
 
 ## Why
 
