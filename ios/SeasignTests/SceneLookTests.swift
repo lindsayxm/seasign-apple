@@ -313,6 +313,61 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         return image.cgImage
     }
 
+    /// RGBA pixels of `image`, drawn into a known sRGB layout.
+    private func pixels(_ image: CGImage) -> (bytes: [UInt8], width: Int, height: Int) {
+        let width = image.width, height = image.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        bytes.withUnsafeMutableBytes { buffer in
+            let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+            context?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        return (bytes, width, height)
+    }
+
+    private func brightness(_ p: (bytes: [UInt8], width: Int, height: Int), x: Int, y: Int) -> Int {
+        let i = (y * p.width + x) * 4
+        return max(Int(p.bytes[i]), Int(p.bytes[i + 1]), Int(p.bytes[i + 2]))
+    }
+
+    /// Task 147, item 2: the skies with a missing rise or set are really
+    /// drawn: the sky is lit, not left black, and the disc is bright where
+    /// the layout puts it.
+    @Test func skiesWithAMissingEndAreDrawn() throws {
+        let layout = SceneLayout(size: CGSize(width: 393, height: 852))
+        let skies = [
+            scene(sun: .up(progress: 0.01), sunPass: SkyPass(rise: nil, set: set)),
+            scene(sun: .up(progress: 0.99), sunPass: SkyPass(rise: rise, set: nil)),
+            scene(sun: night, moon: .up(progress: 0.03), phase: 0.5, moonPass: SkyPass(rise: nil, set: set)),
+            scene(sun: night, moon: .up(progress: 0.97), phase: 0.5, moonPass: SkyPass(rise: rise, set: nil)),
+        ]
+        for state in skies {
+            let image = try #require(render(state))
+            let p = pixels(image)
+            #expect(p.width == 393 && p.height == 852)
+            // The low sky, under the dark veil at the top, is lit nearly everywhere.
+            var lit = 0
+            var total = 0
+            for y in stride(from: 290, to: 384, by: 2) {
+                for x in stride(from: 0, to: 393, by: 2) {
+                    total += 1
+                    if brightness(p, x: x, y: y) > 12 { lit += 1 }
+                }
+            }
+            #expect(lit > total / 2, "the sky is not drawn: \(lit) of \(total) lit")
+            // The disc: bright a little above its centre (its lower half is under the water).
+            let body = try #require(state.body.map(layout.drawnBody))
+            let x = Int(body.center.x)
+            let y = Int(body.center.y - body.radius / 2)
+            #expect(brightness(p, x: x, y: y) > 150, "the disc is not drawn")
+            // The black above the drawing is not mistaken for the scene: the
+            // bottom corner of the sea stays dark.
+            #expect(brightness(p, x: 2, y: 849) < 80)
+        }
+    }
+
     @Test func drawsEdgeCases() {
         let states: [SceneState] = [
             scene(sun: .up(progress: 0.01), sunPass: SkyPass(rise: nil, set: set)),
@@ -329,5 +384,106 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
             let image = render(state, time: 123.4)
             #expect(image?.width == 393)
         }
+    }
+}
+
+/// Task 147, item 3: from a real multi-day `/v1/sky` response through
+/// `SceneState.make` to the marks on the horizon. New York, 15 and 16
+/// November 2026 (`skyJSON10001`).
+@Suite struct SnapshotToMarksTests {
+    private let layout = SceneLayout(size: CGSize(width: 393, height: 852))
+
+    private func marks(at now: String, fetched: String) async throws -> (SceneState, SceneMarks) {
+        let sky = try await snapshot(fetchedAt: instant(fetched))
+        let state = SceneState.make(snapshot: sky, now: instant(now), deviceTimeZone: newYork)
+        return (state, SceneMarks(state: state, layout: layout, clock: .twelveHour))
+    }
+
+    @Test func middayOnTheFifteenth() async throws {
+        let (state, marks) = try await marks(at: "2026-11-15T16:40:00Z", fetched: "2026-11-15T16:00:00Z")
+        #expect(state.body?.kind == .sun)
+        // Sunrise 11:42:55Z to sunset 21:37:53Z: 9 h 55 min, ten intervals.
+        #expect(state.tickCount == 10)
+        #expect(marks.ticks.count == 11)
+        #expect(marks.riseTime?.text == "6:42 AM")
+        #expect(marks.setTime?.text == "4:37 PM")
+        #expect(marks.tag == nil)
+        #expect(marks.square != nil)
+        #expect(marks.dropLine != nil)
+        #expect(state.windLabel == "WIND 9 MPH")
+    }
+
+    @Test func justAfterSunrise() async throws {
+        let (state, marks) = try await marks(at: "2026-11-15T11:44:00Z", fetched: "2026-11-15T11:30:00Z")
+        #expect(state.look == .sunrise)
+        #expect(marks.tag?.title == "SUNRISE 6:42 AM")
+        #expect(marks.tag?.wind == "WIND 9 MPH")
+        #expect(marks.tag?.flipped == false)
+        #expect(marks.riseTime == nil)
+        #expect(marks.setTime?.text == "4:37 PM")
+        #expect(marks.square == nil)
+    }
+
+    @Test func theMoonInTheEvening() async throws {
+        // 17:05 EST: the sun set 27 minutes ago; the moon rose at 12:01 PM and sets at 9:49 PM.
+        let (state, marks) = try await marks(at: "2026-11-15T22:05:00Z", fetched: "2026-11-15T22:00:00Z")
+        #expect(state.body?.kind == .moon)
+        #expect(state.look == .dusk)
+        #expect(state.tickCount == 10)
+        #expect(marks.riseTime?.text == "12:01 PM")
+        #expect(marks.setTime?.text == "9:49 PM")
+        #expect(marks.tag == nil)
+
+        // 21:47 EST, two minutes before the moon sets (02:49Z on the 16th).
+        let (late, lateMarks) = try await self.marks(at: "2026-11-16T02:47:00Z", fetched: "2026-11-16T02:00:00Z")
+        #expect(late.body?.kind == .moon)
+        #expect(lateMarks.tag?.title == "MOONSET 9:49 PM")
+        #expect(lateMarks.tag?.flipped == true)
+        #expect(lateMarks.riseTime?.text == "12:01 PM")
+        #expect(lateMarks.setTime == nil)
+    }
+
+    @Test func theNextDayUsesItsOwnTimes() async throws {
+        // 00:10 EST on the 16th: nothing up, so nothing marked.
+        let (night, nightMarks) = try await marks(at: "2026-11-16T05:10:00Z", fetched: "2026-11-16T05:00:00Z")
+        #expect(night.body == nil)
+        #expect(nightMarks == SceneMarks(state: night, layout: layout, clock: .twentyFourHour))
+        #expect(nightMarks.ticks.isEmpty && nightMarks.tag == nil && nightMarks.riseTime == nil)
+        // 13:00 EST on the 16th: that day's sunrise and sunset, 24-hour.
+        let sky = try await snapshot(fetchedAt: instant("2026-11-16T17:30:00Z"))
+        let day = SceneState.make(snapshot: sky, now: instant("2026-11-16T18:00:00Z"), deviceTimeZone: newYork)
+        let dayMarks = SceneMarks(state: day, layout: layout, clock: .twentyFourHour)
+        #expect(dayMarks.riseTime?.text == "06:44")
+        #expect(dayMarks.setTime?.text == "16:37")
+        #expect(day.tickCount == 10)
+    }
+}
+
+/// Task 147, item 5: VoiceOver hears the rise and set times, and the tag.
+@Suite struct SceneSpokenMarksTests {
+    @Test func timesAreSpokenAwayFromTheEnds() {
+        #expect(scene().accessibilityDescription(clock: .twelveHour)
+            == "The sun is up, clear sky over the water. Sunrise 6:41 AM, sunset 4:31 PM.")
+        #expect(scene().accessibilityDescription(clock: .twentyFourHour)
+            == "The sun is up, clear sky over the water. Sunrise 06:41, sunset 16:31.")
+    }
+
+    @Test func theTagIsSpokenWithItsWind() {
+        #expect(scene(sun: .up(progress: 0.01), wind: 6.4).accessibilityDescription(clock: .twelveHour)
+            == "The sun is up, clear sky over the water. Sunrise at 6:41 AM, wind 6 miles per hour. Sunset at 4:31 PM.")
+        #expect(scene(sun: .up(progress: 0.99)).accessibilityDescription(clock: .twentyFourHour)
+            == "The sun is up, clear sky over the water. Sunset at 16:31, wind 8 miles per hour. Sunrise was at 06:41.")
+        // Without a fresh reading there is no wind to speak.
+        #expect(scene(sun: .up(progress: 0.99), wind: nil).accessibilityDescription(clock: .twelveHour)
+            == "The sun is up over the water. Sunset at 4:31 PM. Sunrise was at 6:41 AM.")
+    }
+
+    @Test func unknownTimesAndTheNeutralSceneAreNotSpoken() {
+        let moon = scene(sun: night, moon: .up(progress: 0.5), phase: 0.3, moonPass: SkyPass(rise: nil, set: set))
+        #expect(moon.accessibilityDescription(clock: .twelveHour)
+            == "Night, waxing gibbous moon, clear sky over the water. Moonset 4:31 PM.")
+        #expect(scene(sun: night).accessibilityDescription(clock: .twelveHour) == "Night, clear sky over the water.")
+        let neutral = SceneState.make(snapshot: nil, now: instant("2026-11-16T17:00:00Z"), deviceTimeZone: newYork)
+        #expect(neutral.accessibilityDescription(clock: .twelveHour) == "The sun is up over the water.")
     }
 }

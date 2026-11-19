@@ -243,17 +243,22 @@ private let hour: TimeInterval = 3600
     }
 }
 
-/// Task 145: the rise and set instants of the pass the drawn body is on.
+/// Tasks 145 and 147: the rise and set instants of the pass the drawn body is on.
 @Suite struct SkyPassTests {
     private let rise = instant("2026-11-15T11:42:00Z")
     private var set: Date { rise.addingTimeInterval(9 * hour + 50 * 60) }
 
+    /// The pass for the moon's rule, as `SceneState` asks for it.
+    private func pass(_ timeline: RiseSetTimeline, at now: Date) -> SkyPass {
+        timeline.pass(at: now, state: timeline.state(at: now))
+    }
+
     @Test func upBetweenAKnownRiseAndSet() {
         let timeline = RiseSetTimeline(rises: [rise], sets: [set], typicalTimeUp: RiseSetTimeline.sunTimeUp)
-        let pass = timeline.pass(at: rise.addingTimeInterval(3 * hour))
-        #expect(pass == SkyPass(rise: rise, set: set))
+        let now = rise.addingTimeInterval(3 * hour)
+        #expect(pass(timeline, at: now) == SkyPass(rise: rise, set: set))
         // 9 h 50 min is ten hourly intervals.
-        #expect(pass.hourCount == 10)
+        #expect(pass(timeline, at: now).hourCount == 10)
     }
 
     @Test func crossingTheWaterlineBelongsToTheNearPass() {
@@ -262,28 +267,83 @@ private let hour: TimeInterval = 3600
             typicalTimeUp: RiseSetTimeline.sunTimeUp
         )
         // Five minutes before rising: the coming pass.
-        #expect(timeline.pass(at: rise.addingTimeInterval(-300)) == SkyPass(rise: rise, set: set))
+        #expect(pass(timeline, at: rise.addingTimeInterval(-300)) == SkyPass(rise: rise, set: set))
         // Five minutes after setting: the pass that just ended.
-        #expect(timeline.pass(at: set.addingTimeInterval(300)) == SkyPass(rise: rise, set: set))
+        #expect(pass(timeline, at: set.addingTimeInterval(300)) == SkyPass(rise: rise, set: set))
         // Late at night, nearer the next rise, whose set is not known.
-        let late = timeline.pass(at: rise.addingTimeInterval(23 * hour))
+        let late = pass(timeline, at: rise.addingTimeInterval(23 * hour))
         #expect(late == SkyPass(rise: rise.addingTimeInterval(24 * hour), set: nil))
         #expect(late.hourCount == nil)
     }
 
     @Test func aMissingEndIsUnknownNotEstimated() {
         let noSet = RiseSetTimeline(rises: [rise], sets: [nil], typicalTimeUp: RiseSetTimeline.moonTimeUp)
-        #expect(noSet.pass(at: rise.addingTimeInterval(hour)) == SkyPass(rise: rise, set: nil))
+        #expect(pass(noSet, at: rise.addingTimeInterval(hour)) == SkyPass(rise: rise, set: nil))
         let noRise = RiseSetTimeline(rises: [nil], sets: [set], typicalTimeUp: RiseSetTimeline.moonTimeUp)
-        #expect(noRise.pass(at: set.addingTimeInterval(-hour)) == SkyPass(rise: nil, set: set))
+        #expect(pass(noRise, at: set.addingTimeInterval(-hour)) == SkyPass(rise: nil, set: set))
         let none = RiseSetTimeline(rises: [], sets: [], typicalTimeUp: RiseSetTimeline.sunTimeUp)
-        #expect(none.pass(at: rise) == .unknown)
+        #expect(pass(none, at: rise) == .unknown)
+    }
+
+    /// Task 147, item 1. Two sets in a row (the rise between them is missing):
+    /// five minutes after the first set the moon is drawn sinking at the
+    /// setting end, so the pass is the one that just ended, not the next set.
+    @Test func justAfterASetWithTheNextRiseMissing() throws {
+        let set1 = instant("2026-11-15T02:49:00Z")
+        let set2 = instant("2026-11-16T03:52:00Z")
+        let rise0 = instant("2026-11-14T16:30:00Z")
+        let timeline = RiseSetTimeline(rises: [rise0, nil], sets: [set1, set2], typicalTimeUp: RiseSetTimeline.moonTimeUp)
+        let now = set1.addingTimeInterval(300)
+        let state = timeline.state(at: now)
+        #expect(state.placement()?.progress == 1)
+        #expect(timeline.pass(at: now, state: state) == SkyPass(rise: rise0, set: set1))
+        // Without the earlier rise in the data, the set is still the right one.
+        let short = RiseSetTimeline(rises: [nil], sets: [set1, set2], typicalTimeUp: RiseSetTimeline.moonTimeUp)
+        #expect(short.pass(at: now, state: short.state(at: now)) == SkyPass(rise: nil, set: set1))
+        // Later, once the estimated rise has come, the body is on the pass
+        // that ends at the second set, whose rise is not known.
+        let later = set2.addingTimeInterval(-hour)
+        let up = short.state(at: later)
+        #expect(up.isUp)
+        #expect(short.pass(at: later, state: up) == SkyPass(rise: nil, set: set2))
+    }
+
+    /// Task 147, item 1. Two rises in a row (the set between them is missing):
+    /// five minutes before the second rise the body is drawn rising at the
+    /// rising end, so the pass starts with that rise, not the first one.
+    @Test func justBeforeARiseWithTheLastSetMissing() {
+        let rise1 = instant("2026-11-15T17:01:00Z")
+        let rise2 = instant("2026-11-16T17:28:00Z")
+        let set2 = instant("2026-11-17T03:52:00Z")
+        let moon = RiseSetTimeline(rises: [rise1, rise2], sets: [nil, set2], typicalTimeUp: RiseSetTimeline.moonTimeUp)
+        let now = rise2.addingTimeInterval(-300)
+        let state = moon.state(at: now)
+        #expect(state.placement()?.progress == 0)
+        #expect(moon.pass(at: now, state: state) == SkyPass(rise: rise2, set: set2))
+        // Just after the estimated set of the first pass: its set is unknown.
+        let afterEstimate = rise1.addingTimeInterval(RiseSetTimeline.moonTimeUp + 300)
+        let sinking = moon.state(at: afterEstimate)
+        #expect(sinking.placement()?.progress == 1)
+        #expect(moon.pass(at: afterEstimate, state: sinking) == SkyPass(rise: rise1, set: nil))
+
+        // The sun's rule: seen down, so down until the second rise.
+        let sun = RiseSetTimeline(rises: [rise1, rise2], sets: [nil, nil], typicalTimeUp: RiseSetTimeline.sunTimeUp)
+        let sunState = sun.state(at: now, sighting: SkySighting(isUp: false, at: now))
+        #expect(sun.pass(at: now, state: sunState) == SkyPass(rise: rise2, set: nil))
     }
 
     @Test func shortSpansStillHaveOneInterval() {
         #expect(SkyPass(rise: rise, set: rise.addingTimeInterval(20 * 60)).hourCount == 1)
         #expect(SkyPass(rise: rise, set: rise).hourCount == nil)
         #expect(SkyPass(rise: rise, set: rise.addingTimeInterval(14 * hour + 29 * 60)).hourCount == 14)
+    }
+
+    /// Task 147, item 4: a pass of days gets no more than a day's ticks.
+    @Test func longPassesAreCapped() {
+        #expect(SkyPass.maxHourCount == 24)
+        #expect(SkyPass(rise: rise, set: rise.addingTimeInterval(21 * hour + 50 * 60)).hourCount == 22)
+        #expect(SkyPass(rise: rise, set: rise.addingTimeInterval(24 * hour)).hourCount == 24)
+        #expect(SkyPass(rise: rise, set: rise.addingTimeInterval(80 * 24 * hour)).hourCount == 24)
     }
 }
 

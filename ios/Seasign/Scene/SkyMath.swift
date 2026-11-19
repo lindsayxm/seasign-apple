@@ -196,33 +196,45 @@ struct RiseSetTimeline: Sendable {
         return .up(progress: 0.5)
     }
 
-    /// The rise and set instants of the pass around `now`, as far as they are
-    /// known: while the body is up, the rise before `now` and the set after it;
-    /// while it is down, the pass at the nearer end (about to rise, or just
-    /// set), which is the one a disc crossing the waterline belongs to. An end
-    /// that `state(at:)` would only estimate is nil.
-    func pass(at now: Date) -> SkyPass {
+    /// The rise and set instants of the pass the body is drawn on at `now`,
+    /// as far as they are known. `state` is what `state(at:)` (or the sun's
+    /// `state(at:sighting:)`) gave for `now`, so the pass always agrees with
+    /// the disc that is drawn:
+    ///
+    /// - Up: the rise before `now` and the set after it.
+    /// - Down and drawn at the rising end (`SkyBodyState.placement` picks the
+    ///   nearer end): the pass that starts with the coming rise.
+    /// - Down at the setting end: the pass that ended with the last set.
+    ///
+    /// An end that `state` only estimated (a rise or set missing from the
+    /// data) is nil, so no time or tag is shown for it.
+    func pass(at now: Date, state: SkyBodyState) -> SkyPass {
         let previousIndex = events.lastIndex { $0.date <= now }
         let nextIndex = events.firstIndex { $0.date > now }
         let previous = previousIndex.map { events[$0] }
         let next = nextIndex.map { events[$0] }
-        if previous?.kind == .rise || next?.kind == .set {
+        switch state {
+        case .up:
             return SkyPass(
                 rise: previous?.kind == .rise ? previous?.date : nil,
                 set: next?.kind == .set ? next?.date : nil
             )
-        }
-        let sinceSet = previous.map { now.timeIntervalSince($0.date) } ?? .infinity
-        let untilRise = next.map { $0.date.timeIntervalSince(now) } ?? .infinity
-        if untilRise < sinceSet, let nextIndex, let next {
-            let after = events.indices.contains(nextIndex + 1) ? events[nextIndex + 1] : nil
-            return SkyPass(rise: next.date, set: after?.kind == .set ? after?.date : nil)
-        }
-        if let previousIndex, let previous {
+        case .down(let sinceSet, let untilRise):
+            if (untilRise ?? .infinity) <= (sinceSet ?? .infinity) {
+                // Coming up. If the next event is a set, the rise before it
+                // is missing and only estimated.
+                guard let nextIndex, let next else { return .unknown }
+                if next.kind == .set { return SkyPass(rise: nil, set: next.date) }
+                let after = events.indices.contains(nextIndex + 1) ? events[nextIndex + 1] : nil
+                return SkyPass(rise: next.date, set: after?.kind == .set ? after?.date : nil)
+            }
+            // Gone down. If the last event is a rise, the set after it is
+            // missing and only estimated.
+            guard let previousIndex, let previous else { return .unknown }
+            if previous.kind == .rise { return SkyPass(rise: previous.date, set: nil) }
             let before = previousIndex > 0 ? events[previousIndex - 1] : nil
             return SkyPass(rise: before?.kind == .rise ? before?.date : nil, set: previous.date)
         }
-        return .unknown
     }
 
     private static func fraction(of now: Date, from start: Date, to end: Date) -> Double {
@@ -241,11 +253,19 @@ struct SkyPass: Equatable, Sendable {
 
     static let unknown = SkyPass(rise: nil, set: nil)
 
-    /// The whole hours between rise and set, rounded (at least 1); nil unless
-    /// both are known. This is how many intervals the hourly ticks mark.
+    /// The most intervals the ticks under the horizon mark. One a day's
+    /// worth: any pass up to 24 hours (the longest US sun is about 22, in
+    /// Alaska) still gets one tick an hour, at least 11 points apart on a
+    /// 393 pt screen; a pass of days (a polar day whose rise and set are
+    /// both in the data) gets 24 evenly spaced ticks instead of hundreds.
+    static let maxHourCount = 24
+
+    /// The whole hours between rise and set, rounded (at least 1, at most
+    /// `maxHourCount`); nil unless both are known. This is how many intervals
+    /// the hourly ticks mark.
     var hourCount: Int? {
         guard let rise, let set, set > rise else { return nil }
-        return max(1, Int((set.timeIntervalSince(rise) / 3600).rounded()))
+        return min(Self.maxHourCount, max(1, Int((set.timeIntervalSince(rise) / 3600).rounded())))
     }
 }
 

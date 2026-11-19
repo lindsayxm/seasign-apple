@@ -29,7 +29,7 @@ struct SceneView: View {
             }
         }
         .accessibilityElement()
-        .accessibilityLabel(state.accessibilityDescription)
+        .accessibilityLabel(Text(verbatim: state.accessibilityDescription(clock: clockStyle)))
         .accessibilityAddTraits(.isImage)
     }
 

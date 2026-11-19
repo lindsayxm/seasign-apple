@@ -198,15 +198,8 @@ struct SceneState: Equatable, Sendable {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let parts = calendar.dateComponents([.hour, .minute], from: date)
-        let hour = parts.hour ?? 0
-        let minute = String(format: "%02d", parts.minute ?? 0)
-        switch clock {
-        case .twelveHour:
-            let hour12 = hour % 12 == 0 ? 12 : hour % 12
-            return "\(hour12):\(minute) \(hour < 12 ? "AM" : "PM")"
-        case .twentyFourHour:
-            return String(format: "%02d", hour) + ":" + minute
-        }
+        let time = clock.columns(hour: parts.hour ?? 0, minute: parts.minute ?? 0)
+        return time.half.map { time.clock + " " + $0 } ?? time.clock
     }
 
     /// The scene for `snapshot` at `now`.
@@ -246,12 +239,13 @@ struct SceneState: Equatable, Sendable {
             at: now,
             sighting: SkySighting(isUp: current.isDay, at: current.observedAt)
         )
+        let moon = moonTimeline.state(at: now)
         let hasCurrentWeather = isLive && snapshot.currentIsFresh(at: now)
         // What is drawn when the reading is too old to show: clear and calm.
         let weatherCode = hasCurrentWeather ? current.weatherCode : 0
         return SceneState(
             sun: sun,
-            moon: moonTimeline.state(at: now),
+            moon: moon,
             moonPhase: MoonPhase(fraction: today?.moonPhase ?? snapshot.days.first?.moonPhase ?? 0),
             nightness: nightness(for: sun),
             precipitation: Precipitation(weatherCode: weatherCode),
@@ -267,8 +261,8 @@ struct SceneState: Equatable, Sendable {
             timeZone: snapshot.timeZone,
             isLive: isLive,
             windMph: hasCurrentWeather ? current.windSpeedMph : nil,
-            sunPass: sunTimeline.pass(at: now),
-            moonPass: moonTimeline.pass(at: now)
+            sunPass: sunTimeline.pass(at: now, state: sun),
+            moonPass: moonTimeline.pass(at: now, state: moon)
         )
     }
 
@@ -280,6 +274,43 @@ struct SceneState: Equatable, Sendable {
             let nearest = min(sinceSet ?? .infinity, untilRise ?? .infinity)
             return min(1, max(0, nearest / twilight))
         }
+    }
+
+    /// What VoiceOver says for the scene: the sentence below, then what the
+    /// marks on the horizon show. While the tag shows it is spoken first,
+    /// with the wind it carries (the wind line under the header is hidden
+    /// then): "Sunset at 4:31 PM, wind 11 miles per hour. Sunrise was at
+    /// 6:41 AM." Otherwise the two times: "Sunrise 6:41 AM, sunset 4:31 PM."
+    /// Unknown times, and the neutral scene's, are not spoken.
+    func accessibilityDescription(clock: ClockStyle) -> String {
+        var sentences = [accessibilityDescription]
+        guard let body else { return sentences[0] }
+        let pass = markedPass
+        let (riseName, setName) = body.kind == .sun ? ("Sunrise", "Sunset") : ("Moonrise", "Moonset")
+        func time(_ date: Date) -> String { Self.markTime(date, timeZone: timeZone, clock: clock) }
+        if let edge = tagEdge {
+            let (name, instant) = edge == .rise ? (riseName, pass.rise) : (setName, pass.set)
+            if let instant {
+                var tag = "\(name) at \(time(instant))"
+                if let windMph { tag += ", wind \(Int(windMph.rounded())) miles per hour" }
+                sentences.append(tag + ".")
+            }
+            if edge == .rise, let set = pass.set {
+                sentences.append("\(setName) at \(time(set)).")
+            } else if edge == .set, let rise = pass.rise {
+                sentences.append("\(riseName) was at \(time(rise)).")
+            }
+        } else {
+            let times = [
+                pass.rise.map { "\(riseName) \(time($0))" },
+                pass.set.map { "\(setName.lowercased()) \(time($0))" },
+            ].compactMap { $0 }
+            if !times.isEmpty {
+                let joined = times.joined(separator: ", ")
+                sentences.append(joined.prefix(1).uppercased() + joined.dropFirst() + ".")
+            }
+        }
+        return sentences.joined(separator: " ")
     }
 
     /// A sentence for VoiceOver, since the scene is a drawing.
