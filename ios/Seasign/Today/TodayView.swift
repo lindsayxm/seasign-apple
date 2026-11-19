@@ -3,10 +3,9 @@ import SwiftUI
 /// The Today screen: the date, day name and temperature over a living sky and
 /// water, with the headlines in the water. It fills the screen and never scrolls.
 ///
-/// Positions are measured from `ref-img/02-midday.png` (393 pt wide) and scale
-/// with the screen width; see `SceneLayout`. The scene is design v11's; the
-/// header, events, buttons and headlines are still the earlier layout until
-/// task 146, placed from `SceneLayout` and coloured to read on the dark scene.
+/// Design v11 (`design-ideas/v11-artemis/`): the scene from `SceneView`, and
+/// over it the fixed overlay placed by `TodayOverlayLayout` (393 pt wide
+/// mockup, scaled with the screen width).
 struct TodayView: View {
     @Environment(TodayModel.self) private var model
     @Environment(EventsModel.self) private var events
@@ -20,13 +19,14 @@ struct TodayView: View {
     @State private var destination: Destination?
     /// The headline open in the reading view.
     @State private var reading: FeedEntry?
-    /// Width of the day name as laid out, which positions the vertical rule.
-    @State private var dayNameWidth: CGFloat = 90
 
     #if DEBUG
     @AppStorage(SceneDebugOverride.timeKey) private var debugTime = ""
     @AppStorage(SceneDebugOverride.moonKey) private var debugMoon = ""
     @AppStorage(SceneDebugOverride.weatherKey) private var debugWeather = ""
+    /// `-debugMockupEvents YES`: the v11 mockup's three events, for
+    /// screenshots to set beside its stills.
+    @AppStorage("debugMockupEvents") private var debugMockupEvents = false
     #endif
 
     enum Destination: String, Identifiable {
@@ -112,64 +112,73 @@ struct TodayView: View {
         let inputs = inputs(clock: clock)
         let state = SceneState.make(snapshot: inputs.snapshot, now: inputs.now, deviceTimeZone: .current)
         let date = HeaderDate(now: inputs.now, timeZone: state.timeZone)
+        let labels = eventLabels(now: inputs.now)
 
         return GeometryReader { proxy in
-            let layout = SceneLayout(size: proxy.size)
-            let s = layout.scale
-            let ruleX = 57.8 * s + dayNameWidth + 9.8 * s
+            let layout = TodayOverlayLayout(
+                size: proxy.size,
+                labels: labels,
+                showsZipPrompt: model.zip == nil,
+                date: "\(date.month) \(date.day)",
+                weekday: date.weekday
+            )
+            let ink = state.inkColor
 
             ZStack(alignment: .topLeading) {
                 SceneView(state: state)
 
-                header(date: date, state: state, s: s)
-                headerAccessibility(date: date, state: state, s: s)
+                header(layout: layout, state: state)
+                headerAccessibility(date: date, state: state, layout: layout)
 
-                // Vertical rule between the date and the events column.
+                EventsColumn(
+                    layout: layout,
+                    ink: ink,
+                    zipPrompt: model.zip == nil ? { destination = .settings } : nil
+                )
+
+                // The hairline that closes the header.
                 Rectangle()
-                    .fill(Palette.rule)
-                    .frame(width: 1, height: 99 * s)
-                    .placed(x: ruleX, y: 67 * s)
+                    .fill(Palette.todayHairline)
+                    .frame(width: layout.hairlineX.upperBound - layout.hairlineX.lowerBound, height: 0.5)
+                    .placed(x: layout.hairlineX.lowerBound, y: layout.hairlineY - 0.25)
+                    .accessibilityHidden(true)
 
-                eventsColumn(now: inputs.now, s: s, width: max(0, 345 * s - ruleX - 14 * s))
-                    .frame(width: max(0, 345 * s - ruleX - 14 * s), height: 113 * s, alignment: .topLeading)
-                    .placed(x: ruleX + 14 * s, y: 72 * s)
+                // The wind, while the sun or moon has no tag to carry it.
+                if !state.showsTag, let wind = state.windLabel {
+                    Text(today: wind, font: layout.fonts.wind, tracking: TodayOverlayLayout.Fonts.windTracking)
+                        .foregroundStyle(Palette.todayWind)
+                        .shadow(color: .black, radius: 2.5)
+                        .shadow(color: .black, radius: 1)
+                        .fixedSize()
+                        .accessibilityLabel(Text(verbatim: "Wind \(Int((state.windMph ?? 0).rounded())) miles per hour"))
+                        .placed(x: layout.leftX, baseline: layout.windBaseline)
+                }
 
-                // Horizontal rule under the header.
-                Rectangle()
-                    .fill(Palette.rule)
-                    .frame(width: 297 * s, height: 1)
-                    .placed(x: 48 * s, y: 193 * s)
+                iconButton(.settings, label: "Settings", opens: .settings, layout: layout, ink: ink, at: 0)
+                iconButton(.doGet, label: "Do and get lists", opens: .doGet, layout: layout, ink: ink, at: 1)
+                iconButton(.saved, label: "Saved", opens: .saved, layout: layout, ink: ink, at: 2)
 
-                iconButton(.settings, label: "Settings", opens: .settings, s: s)
-                    .placed(x: 333 * s - 22, y: 217 * s - 22)
-                iconButton(.doGet, label: "Do and get lists", opens: .doGet, s: s)
-                    .placed(x: 333 * s - 22, y: 261 * s - 22)
-                iconButton(.saved, label: "Saved", opens: .saved, s: s)
-                    .placed(x: 333 * s - 22, y: 306 * s - 22)
-
-                let waterHeight = max(0, proxy.size.height - 52 * s - layout.headlinesTop)
                 HeadlinesColumn(
                     candidates: feed.headlines(now: clock, timeZone: headlineZone),
-                    s: s,
-                    height: waterHeight,
+                    layout: layout,
                     followsNoSites: feed.sites.isEmpty,
-                    color: Palette.seaText,
+                    ink: ink,
                     open: { reading = $0 },
                     openSettings: { destination = .settings }
                 )
-                .frame(width: 326 * s, height: waterHeight, alignment: .topLeading)
-                .placed(x: 35 * s, y: layout.headlinesTop)
 
+                // ∀, for all publications: the 7-day history.
                 Button {
                     destination = .history
                 } label: {
-                    LineIconView(icon: .history, size: 13 * s, lineWidth: 1.5 * s)
-                        .foregroundStyle(state.inkColor)
+                    LineIconView(icon: .allPublications, size: layout.allRect.width, lineWidth: 0.13 * layout.allRect.width)
+                        .foregroundStyle(ink)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .accessibilityLabel("Last 7 days")
-                .placed(x: 35 * s - (44 - 13 * s) / 2, y: proxy.size.height - 29 * s - 22)
+                .placed(x: layout.allRect.midX - 22, y: layout.allRect.midY - 22)
             }
         }
         .ignoresSafeArea()
@@ -177,38 +186,41 @@ struct TodayView: View {
 
     // MARK: Header
 
-    private func header(date: HeaderDate, state: SceneState, s: CGFloat) -> some View {
-        Group {
-            Text(caps: date.month)
-                .caps(10.5 * s, medium: true, tracking: 0.1)
-                .foregroundStyle(Palette.dimText)
-                .placed(x: 61 * s, baseline: 66 * s)
-            Text(caps: date.day)
-                .caps(11.5 * s, medium: true, tracking: 0.03)
-                .foregroundStyle(Palette.white)
-                .placed(x: 102 * s, baseline: 66 * s)
-            SoftenedText(text: date.weekday, font: .dayName(69.7 * s), softness: 1.15 * s)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { dayNameWidth = $0 }
-                .placed(x: 57.8 * s, baseline: 130 * s)
+    /// The left column: date, day name and temperature, all white.
+    private func header(layout: TodayOverlayLayout, state: SceneState) -> some View {
+        typealias F = TodayOverlayLayout.Fonts
+        return Group {
+            Text(today: layout.dateText, font: layout.fonts.date, tracking: F.dateTracking)
+                .foregroundStyle(Palette.todayText)
+                .fixedSize()
+                .placed(x: layout.leftX, baseline: layout.dateBaseline)
+            Text(today: layout.dayText, font: layout.dayFont, tracking: F.dayTracking)
+                .foregroundStyle(Palette.todayText)
+                .fixedSize()
+                // The mockup's soft white glow.
+                .shadow(color: Palette.todayText.opacity(0.45), radius: 5 * layout.scale)
+                .shadow(color: Palette.todayText.opacity(0.35), radius: 1 * layout.scale)
+                .placed(x: layout.leftX, baseline: layout.dayBaseline)
             if let temperature = state.temperatureF {
-                Text(caps: "\(Int(temperature.rounded()))°F")
-                    .caps(14 * s, medium: true, tracking: 0.05)
-                    .foregroundStyle(Palette.white)
-                    .placed(x: 64 * s, baseline: 166 * s)
+                Text(today: "\(Int(temperature.rounded()))°F", font: layout.fonts.temperature, tracking: F.temperatureTracking)
+                    .foregroundStyle(Palette.todayText)
+                    .fixedSize()
+                    .placed(x: layout.leftX, baseline: layout.temperatureBaseline)
             }
         }
-        // A Group passes modifiers to each child, so the four texts are hidden
+        // A Group passes modifiers to each child, so the texts are hidden
         // and one clear element over them carries the spoken date.
         .accessibilityHidden(true)
     }
 
-    private func headerAccessibility(date: HeaderDate, state: SceneState, s: CGFloat) -> some View {
-        Color.clear
-            .frame(width: 120 * s, height: 114 * s)
+    private func headerAccessibility(date: HeaderDate, state: SceneState, layout: TodayOverlayLayout) -> some View {
+        let top = layout.dateBaseline - layout.fonts.date.capHeight
+        return Color.clear
+            .frame(width: 56 * layout.scale, height: layout.temperatureBaseline - top + 4 * layout.scale)
             .accessibilityElement()
             .accessibilityLabel(headerLabel(date: date, state: state))
             .accessibilityAddTraits(.isHeader)
-            .placed(x: 57 * s, y: 56 * s)
+            .placed(x: layout.leftX, y: top)
     }
 
     private func headerLabel(date: HeaderDate, state: SceneState) -> String {
@@ -218,33 +230,44 @@ struct TodayView: View {
         return date.spoken
     }
 
-    /// The next three calendar events, and the zip prompt until a zip is set
-    /// (see `EventsColumn` for how the two share the space).
-    private func eventsColumn(now: Date, s: CGFloat, width: CGFloat) -> some View {
-        EventsColumn(
-            labels: events.labels(now: now, clock: clockStyle),
-            s: s,
-            width: width,
-            zipPrompt: model.zip == nil ? { destination = .settings } : nil
-        )
+    /// The next three calendar events, or the DEBUG mockup's three.
+    private func eventLabels(now: Date) -> [EventLabel] {
+        #if DEBUG
+        if debugMockupEvents {
+            return EventLabel.mockupSamples(now: now, timeZone: eventZone, clock: clockStyle)
+        }
+        #endif
+        return events.labels(now: now, clock: clockStyle)
+    }
+
+    /// The time zone events are asked for and shown in.
+    private var eventZone: TimeZone {
+        EventZone.resolve(zip: model.zip, snapshot: model.snapshot, device: .current)
     }
 
     /// The time zone events are asked for, as an identifier to watch for changes.
     private var eventZoneID: String {
-        EventZone.resolve(zip: model.zip, snapshot: model.snapshot, device: .current).identifier
+        eventZone.identifier
     }
 
-    private func iconButton(_ icon: LineIcon, label: String, opens target: Destination, s: CGFloat) -> some View {
-        Button {
+    /// One of the three buttons hung from the hairline: a 19-point line icon
+    /// at 38 % of the ink colour, in a 44-point target.
+    private func iconButton(
+        _ icon: LineIcon, label: String, opens target: Destination,
+        layout: TodayOverlayLayout, ink: Color, at index: Int
+    ) -> some View {
+        let center = layout.buttonCenters[index]
+        return Button {
             destination = target
         } label: {
-            LineIconView(icon: icon, size: 19.5 * s, lineWidth: 1.7 * s)
-                .foregroundStyle(Palette.rule)
+            LineIconView(icon: icon, size: layout.iconSize, lineWidth: 0.09 * layout.iconSize)
+                .foregroundStyle(ink.opacity(0.38))
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .placed(x: center.x - 22, y: center.y - 22)
     }
 
     // MARK: Headlines

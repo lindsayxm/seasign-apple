@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The bundled fonts, by PostScript name. The files and their OFL licences are in
 /// `Seasign/Resources/Fonts`; `ios/project.yml` lists them under `UIAppFonts`.
@@ -13,6 +14,64 @@ enum FontName {
     static let dayName = "PTSans-NarrowBold"
 
     static let all = [caps, capsMedium, dayName]
+
+    /// Avenir Next Condensed Regular, which ships with iOS: the day name on
+    /// Today (design v11).
+    static let todayDayName = "AvenirNextCondensed-Regular"
+    /// Iowan Old Style Roman, which ships with iOS: the article titles on
+    /// Today (design v11).
+    static let todayTitle = "IowanOldStyle-Roman"
+
+    /// Faces the app uses from iOS itself rather than bundling. `DesignTests`
+    /// checks they resolve on each runtime.
+    static let system = [todayDayName, todayTitle]
+}
+
+/// The type of Today's fixed overlay (design v11), as UIFonts so the same
+/// font is measured for layout and drawn. Sizes are in screen points.
+enum TodayType {
+    /// Jost Book: the date, temperature and event titles.
+    static func jost(_ size: CGFloat) -> UIFont {
+        UIFont(name: FontName.caps, size: size) ?? .systemFont(ofSize: size)
+    }
+
+    /// The system monospaced face (SF Mono): event times, the wind line and
+    /// the title numbers, like the scene's rise and set marks.
+    static func mono(_ size: CGFloat) -> UIFont {
+        .monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    static func dayName(_ size: CGFloat) -> UIFont {
+        UIFont(name: FontName.todayDayName, size: size) ?? .systemFont(ofSize: size)
+    }
+
+    static func title(_ size: CGFloat) -> UIFont {
+        UIFont(name: FontName.todayTitle, size: size) ?? .systemFont(ofSize: size)
+    }
+
+    /// Width of `text` set in `font` with `tracking` (a fraction of the
+    /// size), without the letter-space after the last letter.
+    static func width(_ text: String, font: UIFont, tracking: CGFloat) -> CGFloat {
+        let kern = font.pointSize * tracking
+        let measured = NSAttributedString(string: text, attributes: [.font: font, .kern: kern]).size().width
+        return max(0, measured - kern)
+    }
+
+    /// Where the baseline sits in a line box of `lineHeight`, the way CSS
+    /// places it: the font's ascent and descent centred in the box.
+    static func baseline(in lineHeight: CGFloat, font: UIFont) -> CGFloat {
+        (lineHeight - (font.ascender - font.descender)) / 2 + font.ascender
+    }
+}
+
+extension Text {
+    /// A verbatim string in one of `TodayType`'s fonts with `tracking` (a
+    /// fraction of the size).
+    init(today string: String, font: UIFont, tracking: CGFloat) {
+        self = Text(verbatim: string)
+            .font(Font(font as CTFont))
+            .tracking(font.pointSize * tracking)
+    }
 }
 
 extension Font {

@@ -248,6 +248,29 @@ private func event(
         #expect(label(event("A", "2026-11-22T22:00:00Z")).time == "SUN 5:00PM")
     }
 
+    /// Today's two time columns (design v11): the clock and AM/PM, the day
+    /// in front of the clock on a later day, the day and ALL for an all-day
+    /// event; one column on a 24-hour phone.
+    @Test func timeColumns() {
+        let tonight = label(event("A", "2026-11-16T01:25:00Z"))
+        #expect(tonight.timeLead == "8:25" && tonight.timeTail == "PM")
+        let tuesday = label(event("A", "2026-11-17T14:00:00Z"))
+        #expect(tuesday.timeLead == "TUE 9:00" && tuesday.timeTail == "AM")
+        let allToday = event("M", "2026-11-15T05:00:00Z", "2026-11-16T05:00:00Z", allDay: true, date: "2026-11-15")
+        #expect(label(allToday).timeLead == "ALL" && label(allToday).timeTail == "DAY")
+        let allTuesday = event("T", "2026-11-17T05:00:00Z", "2026-11-18T05:00:00Z", allDay: true, date: "2026-11-17")
+        #expect(label(allTuesday).timeLead == "TUE" && label(allTuesday).timeTail == "ALL")
+
+        let h24 = ClockStyle.twentyFourHour
+        #expect(label(event("A", "2026-11-16T01:25:00Z"), clock: h24).timeLead == "20:25")
+        #expect(label(event("A", "2026-11-16T01:25:00Z"), clock: h24).timeTail == nil)
+        #expect(label(event("A", "2026-11-17T14:00:00Z"), clock: h24).timeLead == "TUE 09:00")
+        #expect(label(allToday, clock: h24).timeLead == "ALL DAY" && label(allToday, clock: h24).timeTail == nil)
+        #expect(label(allTuesday, clock: h24).timeLead == "TUE ALL" && label(allTuesday, clock: h24).timeTail == nil)
+        // The one-string form is unchanged.
+        #expect(label(allTuesday).time == "TUE ALL DAY")
+    }
+
     @Test func allDayShowsNoTime() {
         let today = event("Market", "2026-11-15T05:00:00Z", "2026-11-16T05:00:00Z", allDay: true, date: "2026-11-15")
         #expect(label(today).time == "ALL DAY")

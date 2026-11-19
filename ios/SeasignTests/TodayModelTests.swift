@@ -155,6 +155,17 @@ import UIKit
         }
     }
 
+    /// The faces Today takes from iOS. Printed so the log shows what
+    /// resolved on each runtime.
+    @Test func systemFacesResolve() {
+        for name in FontName.system {
+            let font = UIFont(name: name, size: 12)
+            #expect(font != nil, "font \(name) is not on this runtime")
+            #expect(font?.fontName == name)
+            print("system face \(name) -> \(font?.fontName ?? "nil") (\(font?.familyName ?? "nil")) on \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        }
+    }
+
     @Test func everyIconHasAPath() {
         let rect = CGRect(x: 0, y: 0, width: 20, height: 20)
         for icon in LineIcon.allCases {

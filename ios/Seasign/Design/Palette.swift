@@ -29,6 +29,16 @@ enum Palette {
     static let ink = charcoal
     /// Text over the dark v11 sea on Today (the mockup's 244, 242, 236).
     static let seaText = Color(.sRGB, red: 244 / 255, green: 242 / 255, blue: 236 / 255, opacity: 1)
+    /// Today's white (design v11): the date, day name, temperature and
+    /// event titles (the mockup's 238, 240, 240).
+    static let todayText = Color(.sRGB, red: 238 / 255, green: 240 / 255, blue: 240 / 255, opacity: 1)
+    /// The wind line under Today's hairline: 244, 246, 246 at 92 %, as the
+    /// wind in the scene's rise and set tag.
+    static let todayWind = Color(.sRGB, red: 244 / 255, green: 246 / 255, blue: 246 / 255, opacity: 0.92)
+    /// The hairline that closes Today's header: white at 34 %.
+    static let todayHairline = Color.white.opacity(0.34)
+    /// The ground of Today's events box: black at 55 %.
+    static let todayEventsBox = Color.black.opacity(0.55)
 }
 
 extension Color {

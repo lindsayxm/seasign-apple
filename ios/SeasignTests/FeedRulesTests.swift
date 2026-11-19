@@ -292,6 +292,21 @@ private struct SeededGenerator: RandomNumberGenerator {
 }
 
 @Suite struct HeadlineFitTests {
+    /// Design v11: rows on a fixed 57-point pitch; only the last row's text
+    /// height counts.
+    @Test func fixedPitchCountsTheLastRowsText() {
+        // Five one-line rows: 4 * 57 + 17.5 = 245.5.
+        let one = Array(repeating: CGFloat(17.5), count: 6)
+        #expect(HeadlineFit.count(textHeights: one, pitch: 57, available: 245.5) == 5)
+        #expect(HeadlineFit.count(textHeights: one, pitch: 57, available: 244) == 4)
+        // A two-line third row needs 2 * 57 + 35 = 149.
+        #expect(HeadlineFit.count(textHeights: [17.5, 35, 35], pitch: 57, available: 148) == 2)
+        #expect(HeadlineFit.count(textHeights: [17.5, 35, 35], pitch: 57, available: 149) == 3)
+        #expect(HeadlineFit.count(textHeights: one, pitch: 57, available: 10_000) == HeadlineFit.maxCount)
+        #expect(HeadlineFit.count(textHeights: one, pitch: 57, available: 10) == 0)
+        #expect(HeadlineFit.count(textHeights: [], pitch: 57, available: 500) == 0)
+    }
+
     @Test func takesTheLongestRunThatFits() {
         // One-line headlines of 14.5 with 28.5 between: 3 need 14.5*3 + 57 = 100.5.
         #expect(HeadlineFit.count(heights: [14.5, 14.5, 14.5, 14.5], spacing: 28.5, available: 100.5) == 3)

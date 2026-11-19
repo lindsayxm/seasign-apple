@@ -268,4 +268,31 @@ extension EventsModel {
         return model
     }
 }
+extension EventLabel {
+    /// Debug-only (`-debugMockupEvents YES`): the three events of the v11
+    /// mockup (`design-ideas/v11-artemis/`), 6:45 PM and 8:15 PM on the
+    /// screen's day and an all-day event the day after, worded for `now`,
+    /// so Today can be set beside the mockup's stills at any debug time.
+    static func mockupSamples(now: Date, timeZone: TimeZone, clock: ClockStyle) -> [EventLabel] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let today = calendar.startOfDay(for: now)
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today.addingTimeInterval(86_400)
+        let show = today.addingTimeInterval(18 * 3600 + 45 * 60)
+        let hours = today.addingTimeInterval(20 * 3600 + 15 * 60)
+        let link = UUID()
+        let events = [
+            UpcomingEvent(link: link, title: "Hanna\u{2019}s show", start: show, end: show.addingTimeInterval(3600), allDay: false),
+            UpcomingEvent(
+                link: link, title: "Submit work hours for studio payroll",
+                start: hours, end: hours.addingTimeInterval(1800), allDay: false
+            ),
+            UpcomingEvent(
+                link: link, title: "Brush pets teeth", start: tomorrow, end: tomorrow.addingTimeInterval(86_400),
+                allDay: true, date: SkySnapshot.localDateString(for: tomorrow, in: timeZone)
+            ),
+        ]
+        return events.map { EventLabel(event: $0, now: now, timeZone: timeZone, clock: clock) }
+    }
+}
 #endif

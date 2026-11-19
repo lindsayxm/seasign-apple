@@ -188,6 +188,15 @@ struct EventLabel: Equatable, Sendable {
     /// with the day when it is not today: "TUE 9:00AM" / "TUE 09:00",
     /// "TUE ALL DAY".
     var time: String
+    /// Today's first time column: the clock (`6:45`, `18:45`), with the day
+    /// in front when the event is on a later day (`TUE 6:45`); for an
+    /// all-day event the day (`TUE`), or `ALL` when it is today. On a
+    /// 24-hour phone all of the time is in this one column (`TUE 18:45`,
+    /// `TUE ALL`, `ALL DAY`).
+    var timeLead: String
+    /// Today's second time column on a 12-hour phone: `AM` or `PM`, or for
+    /// an all-day event `ALL` (`DAY` when it is today). Nil on a 24-hour phone.
+    var timeTail: String?
     /// The title as written; the view shows it in caps.
     var title: String
     /// For VoiceOver: "Hanna's show, 10:15 AM" (or "10:15"), "Tuesday, all day".
@@ -220,21 +229,35 @@ struct EventLabel: Equatable, Sendable {
 
         let clock: String
         let spokenClock: String
+        // The two columns before the day is put in front.
+        var lead: String
+        var tail: String?
         if event.allDay {
             clock = "ALL DAY"
             spokenClock = "all day"
+            (lead, tail) = style == .twelveHour ? ("ALL", "DAY") : ("ALL DAY", nil)
         } else {
             let parts = calendar.dateComponents([.hour, .minute], from: event.start)
             (clock, spokenClock) = style.clock(hour: parts.hour ?? 0, minute: parts.minute ?? 0)
+            (lead, tail) = style.columns(hour: parts.hour ?? 0, minute: parts.minute ?? 0)
         }
 
         if eventDay > today, let weekday, Self.shortDays.indices.contains(weekday) {
-            time = "\(Self.shortDays[weekday]) \(clock)"
+            let day = Self.shortDays[weekday]
+            time = "\(day) \(clock)"
             spoken = "\(Self.longDays[weekday]), \(spokenClock)"
+            if event.allDay {
+                // The mockup's `TUE  ALL`.
+                (lead, tail) = style == .twelveHour ? (day, "ALL") : ("\(day) ALL", nil)
+            } else {
+                lead = "\(day) \(lead)"
+            }
         } else {
             time = clock
             spoken = spokenClock
         }
+        timeLead = lead
+        timeTail = tail
 
         let trimmed = event.title.trimmingCharacters(in: .whitespacesAndNewlines)
         title = trimmed.isEmpty ? Self.untitled : trimmed

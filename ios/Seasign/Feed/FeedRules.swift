@@ -354,7 +354,7 @@ enum HeadlinePicker {
 }
 
 /// How many headlines Today shows: as many as fit in the water above the
-/// `>>` button, whole, with no scrolling, taken in Today's order from the first.
+/// `∀` button, whole, with no scrolling, taken in Today's order from the first.
 enum HeadlineFit {
     /// Never more than this many, even on a tall screen.
     static let maxCount = 5
@@ -370,6 +370,20 @@ enum HeadlineFit {
             // A hair of tolerance for rounding in the measured sizes.
             guard next <= available + 0.5 else { break }
             used = next
+            count += 1
+        }
+        return count
+    }
+
+    /// The same on a fixed row pitch (design v11): row `n` starts `pitch`
+    /// under row `n - 1` whatever its height, so `n` rows fit when
+    /// `(n - 1) * pitch` plus the last row's text height is within
+    /// `available`. `textHeights` are in Today's order; no more than `limit`.
+    static func count(textHeights: [CGFloat], pitch: CGFloat, available: CGFloat, limit: Int = maxCount) -> Int {
+        var count = 0
+        for (index, height) in textHeights.prefix(max(0, limit)).enumerated() {
+            // A hair of tolerance for rounding in the measured sizes.
+            guard CGFloat(index) * pitch + height <= available + 0.5 else { break }
             count += 1
         }
         return count

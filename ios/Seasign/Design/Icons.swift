@@ -9,8 +9,10 @@ enum LineIcon: CaseIterable {
     case doGet
     /// An eight-armed asterisk: opens Saved.
     case saved
-    /// `>>`: opens the 7-day history.
+    /// `>>`: opened the 7-day history before design v11.
     case history
+    /// `∀`, for all publications: opens the 7-day history (design v11).
+    case allPublications
 
     func path(in rect: CGRect) -> Path {
         let side = min(rect.width, rect.height)
@@ -62,6 +64,13 @@ enum LineIcon: CaseIterable {
             path.move(to: point(0.52, 0.1))
             path.addLine(to: point(0.92, 0.5))
             path.addLine(to: point(0.52, 0.9))
+        case .allPublications:
+            // The mockup's `M.08 .04 L.5 .96 L.92 .04 M.226 .36 H.774`.
+            path.move(to: point(0.08, 0.04))
+            path.addLine(to: point(0.5, 0.96))
+            path.addLine(to: point(0.92, 0.04))
+            path.move(to: point(0.226, 0.36))
+            path.addLine(to: point(0.774, 0.36))
         }
         return path
     }

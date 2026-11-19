@@ -1,85 +1,107 @@
 import SwiftUI
 
-/// The column to the right of the date on Today: the next events, time first
-/// and then the title in caps (`ref-img/00-button-meanings.png`).
+/// The events box on Today (design v11): up to three next events on a dark
+/// ground, each with a thin rule in the ink colour at its left, the time in
+/// two fixed columns in the ink colour, and the title in caps.
 ///
-/// How it shares the space with the "set your zip" prompt: events come first.
-/// With no events the prompt stands alone; with events it sits under them when
-/// there is room and is left out when there is not. If three events do not fit
-/// (long titles take two lines each), two or one are shown.
+/// Where everything goes is worked out by `TodayOverlayLayout`: how many
+/// events fit, how titles wrap, and where the zip prompt sits. With no zip the
+/// prompt is a row under the events (events are dropped from the end if
+/// the box would grow taller than three two-line events); with no events and
+/// no prompt there is no box. This view fills the screen and draws at the
+/// layout's positions.
 struct EventsColumn: View {
-    var labels: [EventLabel]
-    /// Scale of the Today layout (1 on a 393 pt wide screen).
-    var s: CGFloat
-    var width: CGFloat
+    var layout: TodayOverlayLayout
+    var ink: Color
     /// Set while no zip is saved; opens Settings.
     var zipPrompt: (() -> Void)?
 
-    private var size: CGFloat { 9.5 * s }
-    private static let timeTracking: CGFloat = 0.05
-    private static let titleTracking: CGFloat = 0.11
+    private var s: CGFloat { layout.scale }
+    private var line: CGFloat { TodayOverlayLayout.Mockup.line * s }
+    private var boxX: CGFloat { layout.box?.minX ?? TodayOverlayLayout.Mockup.boxLeft * s }
+    private var boxWidth: CGFloat {
+        layout.box?.width ?? (TodayOverlayLayout.Mockup.boxRight - TodayOverlayLayout.Mockup.boxLeft) * s
+    }
 
     var body: some View {
-        if labels.isEmpty {
-            if let zipPrompt {
-                prompt(zipPrompt)
+        ZStack(alignment: .topLeading) {
+            Color.clear
+                .frame(width: layout.size.width, height: layout.size.height)
+                .allowsHitTesting(false)
+            if let box = layout.box {
+                Rectangle()
+                    .fill(Palette.todayEventsBox)
+                    .frame(width: box.width, height: box.height)
+                    .placed(x: box.minX, y: box.minY)
+                    .accessibilityHidden(true)
             }
-        } else {
-            ViewThatFits(in: .vertical) {
-                if let zipPrompt {
-                    VStack(alignment: .leading, spacing: 8 * s) {
-                        rows(labels.count)
-                        prompt(zipPrompt)
-                    }
-                }
-                ForEach(Array(stride(from: labels.count, through: 1, by: -1)), id: \.self) { count in
-                    rows(count)
-                }
+            // By position: two identical events would share an id.
+            ForEach(Array(layout.rows.enumerated()), id: \.offset) { _, row in
+                eventRow(row)
+                    .placed(x: boxX, y: row.top)
+            }
+            if let prompt = layout.prompt, let zipPrompt {
+                promptRow(prompt, action: zipPrompt)
+                    .placed(x: boxX, y: prompt.top)
             }
         }
     }
 
-    private func rows(_ count: Int) -> some View {
-        let shown = Array(labels.prefix(count))
-        // One time column for all rows, as wide as the widest time.
-        let timeWidth = shown
-            .map { CapsWrapper.width(of: $0.time, size: size, tracking: Self.timeTracking, medium: true) }
-            .max() ?? 0
-        return VStack(alignment: .leading, spacing: 9 * s) {
-            // By position: two identical events would share an id.
-            ForEach(Array(shown.enumerated()), id: \.offset) { _, label in
-                HStack(alignment: .firstTextBaseline, spacing: 6 * s) {
-                    Text(label.time)
-                        .caps(size, medium: true, tracking: Self.timeTracking)
+    /// One event, in coordinates local to its row (x from the box's left).
+    private func eventRow(_ row: TodayOverlayLayout.EventRow) -> some View {
+        let fonts = layout.fonts
+        typealias F = TodayOverlayLayout.Fonts
+        return ZStack(alignment: .topLeading) {
+            Color.clear.frame(width: boxWidth, height: row.height)
+            rule(height: row.height)
+            Text(today: row.label.timeLead, font: fonts.time, tracking: F.timeTracking)
+                .foregroundStyle(ink)
+                .fixedSize()
+                .placed(x: layout.timeX - boxX, baseline: layout.timeBaseline)
+            if let tail = row.label.timeTail {
+                Text(today: tail, font: fonts.time, tracking: F.timeTracking)
+                    .foregroundStyle(ink)
+                    .fixedSize()
+                    .placed(x: layout.tailX - boxX, baseline: layout.timeBaseline)
+            }
+            ForEach(Array(row.lines.enumerated()), id: \.offset) { index, text in
+                // Verbatim: titles come from calendars and are never read as markup.
+                Text(today: text, font: fonts.event, tracking: F.eventTracking)
+                    .foregroundStyle(Palette.todayText)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .placed(x: layout.titleX - boxX, baseline: CGFloat(index) * line + layout.eventBaseline)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: row.label.spoken))
+    }
+
+    private func promptRow(_ prompt: TodayOverlayLayout.PromptRow, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack(alignment: .topLeading) {
+                Color.clear.frame(width: boxWidth, height: prompt.height)
+                rule(height: prompt.height)
+                ForEach(Array(prompt.lines.enumerated()), id: \.offset) { index, text in
+                    Text(today: text, font: layout.fonts.event, tracking: TodayOverlayLayout.Fonts.eventTracking)
+                        .foregroundStyle(Palette.todayText.opacity(0.62))
                         .lineLimit(1)
                         .fixedSize()
-                        .frame(width: ceil(timeWidth) + 1, alignment: .leading)
-                    Text(label.title.uppercased())
-                        .caps(size, medium: true, tracking: Self.titleTracking)
-                        .lineSpacing(2 * s)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .placed(x: layout.timeX - boxX, baseline: CGFloat(index) * line + layout.eventBaseline)
                 }
-                .foregroundStyle(Palette.white)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(label.spoken)
             }
-        }
-        .frame(width: width, alignment: .leading)
-    }
-
-    private func prompt(_ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(caps: "Set your zip code in Settings")
-                .caps(9.5, tracking: 0.18)
-                .lineSpacing(3)
-                .multilineTextAlignment(.leading)
-                .foregroundStyle(Palette.dimText)
-                .frame(minHeight: 44, alignment: .topLeading)
-                .contentShape(Rectangle())
+            // A 44-point target round a row that is 16 points tall.
+            .contentShape(Rectangle().inset(by: min(0, (prompt.height - 44) / 2)))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Set your zip code in Settings")
         .accessibilityHint("Opens Settings")
+    }
+
+    private func rule(height: CGFloat) -> some View {
+        Rectangle()
+            .fill(ink.opacity(0.6))
+            .frame(width: 1, height: height)
+            .placed(x: layout.ruleX - boxX, y: 0)
     }
 }

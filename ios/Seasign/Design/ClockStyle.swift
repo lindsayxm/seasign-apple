@@ -35,6 +35,20 @@ enum ClockStyle: Sendable, Equatable {
         ClockStyle(hourCycle: Locale.autoupdatingCurrent.hourCycle)
     }
 
+    /// One time of day split for Today's two time columns: the clock
+    /// (`9:05`, `21:05`) and the half of the day (`PM`), which is nil on
+    /// a 24-hour phone. `hour` is 0 to 23.
+    func columns(hour: Int, minute: Int) -> (clock: String, half: String?) {
+        let minutes = String(format: "%02d", minute)
+        switch self {
+        case .twelveHour:
+            let hour12 = hour % 12 == 0 ? 12 : hour % 12
+            return ("\(hour12):\(minutes)", hour < 12 ? "AM" : "PM")
+        case .twentyFourHour:
+            return (String(format: "%02d", hour) + ":" + minutes, nil)
+        }
+    }
+
     /// One time of day, as shown (`9:05PM`, `21:05`) and as spoken by
     /// VoiceOver (`9:05 PM`, `21:05`). `hour` is 0 to 23.
     func clock(hour: Int, minute: Int) -> (shown: String, spoken: String) {
