@@ -93,22 +93,60 @@ import UIKit
         #expect(abs(layout.hairlineY - (layout.temperatureBaseline + 16)) < 0.01)
     }
 
-    @Test func theBoxNeverOutgrowsThreeTwoLineEvents() {
+    @Test func theBoxNeverOutgrowsFiveLines() {
         let long = Array(repeating: "A very long event title that will need two lines here", count: 3)
         let full = layout(long)
-        #expect(full.rows.map(\.lines.count) == [2, 2, 2])
-        // 72 + 6 * 16 + 2 * 10 + 12.
-        #expect(full.hairlineY == 200)
+        // Three events kept; the last title is cut to one line.
+        #expect(full.rows.map(\.lines.count) == [2, 2, 1])
+        #expect(full.rows.last?.lines.first?.hasSuffix("…") == true)
+        // 72 + 5 * 16 + 2 * 10 + 12.
+        #expect(full.hairlineY == 184)
 
-        // With the zip prompt under them, events are dropped from the end.
+        // With the zip prompt under them, titles are cut to one line from
+        // the last up; the three events stay.
         let prompted = layout(long, prompt: true)
         #expect(prompted.prompt != nil)
-        #expect(prompted.rows.count == 2)
-        #expect(prompted.hairlineY <= 200)
-        // The last button stays clear of the horizon's sun or moon (radius
-        // about 50 at the horizon, 386).
-        let lastBottom: CGFloat = (prompted.buttonCenters.last?.y ?? 0) + 9.5
-        #expect(lastBottom < 340)
+        #expect(prompted.rows.map(\.lines.count) == [1, 1, 1])
+        #expect(prompted.hairlineY <= 184)
+
+        // The saved button ends by 311, above the top of a sun or moon low
+        // at the right of the path (about 324 at its highest there).
+        let lastBottom: CGFloat = (full.buttonCenters.last?.y ?? 0) + 9.5
+        #expect(lastBottom <= 311.5)
+    }
+
+    @Test func eventsAreDroppedOnlyWhenEveryTitleIsOneLine() {
+        // A two-line prompt is not reachable at 393 wide, so check the
+        // budget directly: three one-line events and the prompt fit.
+        let short = layout(["A", "B", "C"], prompt: true)
+        #expect(short.rows.count == 3)
+        #expect(short.prompt != nil)
+    }
+
+    /// Every weekday at the widest and narrowest dates: the day name stays
+    /// clear of the date and the temperature. Its size follows the date's
+    /// width, as the plan asks, so it swings widely: about 14.7 pt (MON on
+    /// JUL 1) to 38.4 pt (FRI on NOV 20) against the mockup's 28.
+    @Test func everyDayNameFitsBetweenTheDateAndTheTemperature() {
+        let months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+        let fonts = TodayOverlayLayout.Fonts(scale: 1)
+        let dates = months.flatMap { month in (1...31).map { "\(month) \($0)" } }
+        func width(_ date: String) -> CGFloat {
+            TodayType.width(date, font: fonts.date, tracking: TodayOverlayLayout.Fonts.dateTracking)
+        }
+        let widest = dates.max { width($0) < width($1) } ?? "NOV 16"
+        let narrowest = dates.min { width($0) < width($1) } ?? "NOV 16"
+        for date in [widest, narrowest] {
+            for day in ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] {
+                let layout = TodayOverlayLayout(size: iPhone16, labels: [], showsZipPrompt: false, date: date, weekday: day)
+                let size = layout.dayFont.pointSize
+                #expect(size > 12 && size < 42, "\(day) on \(date): \(size)")
+                let above = layout.dayBaseline - layout.dayFont.capHeight - layout.dateBaseline
+                let below = layout.temperatureBaseline - layout.fonts.temperature.capHeight - layout.dayBaseline
+                #expect(above > 6 && below > 6, "\(day) on \(date): \(above), \(below)")
+                print("day name \(day) on \(date): \(size) pt, gaps \(above)")
+            }
+        }
     }
 
     @Test func thePromptAloneSitsInTheBox() {

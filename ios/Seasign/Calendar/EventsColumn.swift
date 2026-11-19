@@ -6,9 +6,10 @@ import SwiftUI
 ///
 /// Where everything goes is worked out by `TodayOverlayLayout`: how many
 /// events fit, how titles wrap, and where the zip prompt sits. With no zip the
-/// prompt is a row under the events (events are dropped from the end if
-/// the box would grow taller than three two-line events); with no events and
-/// no prompt there is no box. This view fills the screen and draws at the
+/// prompt is a row under the events. The rows together never take more than
+/// five lines: the last two-line titles are cut to one line first, and only
+/// then are events dropped from the end. With no events and no prompt there
+/// is no box. This view fills the screen and draws at the
 /// layout's positions.
 struct EventsColumn: View {
     var layout: TodayOverlayLayout

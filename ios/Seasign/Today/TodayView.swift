@@ -130,8 +130,7 @@ struct TodayView: View {
             ZStack(alignment: .topLeading) {
                 SceneView(state: state)
 
-                header(layout: layout, state: state)
-                headerAccessibility(date: date, state: state, layout: layout)
+                header(date: date, layout: layout, state: state)
 
                 EventsColumn(
                     layout: layout,
@@ -189,41 +188,40 @@ struct TodayView: View {
 
     // MARK: Header
 
-    /// The left column: date, day name and temperature, all white.
-    private func header(layout: TodayOverlayLayout, state: SceneState) -> some View {
+    /// The left column: date, day name and temperature, all white. One
+    /// VoiceOver element, a header, that says the date and temperature in
+    /// words; the texts inside it are not read on their own.
+    private func header(date: HeaderDate, layout: TodayOverlayLayout, state: SceneState) -> some View {
         typealias F = TodayOverlayLayout.Fonts
-        return Group {
+        // Local coordinates from the top of the date's line, so no text sits
+        // above the container's origin.
+        let top = layout.dateBaseline - layout.fonts.date.ascender
+        let width = TodayOverlayLayout.Mockup.boxLeft * layout.scale - layout.leftX
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+                .frame(width: width, height: layout.temperatureBaseline - top - layout.fonts.temperature.descender)
             Text(today: layout.dateText, font: layout.fonts.date, tracking: F.dateTracking)
                 .foregroundStyle(Palette.todayText)
                 .fixedSize()
-                .placed(x: layout.leftX, baseline: layout.dateBaseline)
+                .placed(x: 0, baseline: layout.dateBaseline - top)
             Text(today: layout.dayText, font: layout.dayFont, tracking: F.dayTracking)
                 .foregroundStyle(Palette.todayText)
                 .fixedSize()
                 // The mockup's soft white glow.
                 .shadow(color: Palette.todayText.opacity(0.45), radius: 5 * layout.scale)
                 .shadow(color: Palette.todayText.opacity(0.35), radius: 1 * layout.scale)
-                .placed(x: layout.leftX, baseline: layout.dayBaseline)
+                .placed(x: 0, baseline: layout.dayBaseline - top)
             if let temperature = state.temperatureF {
                 Text(today: "\(Int(temperature.rounded()))°F", font: layout.fonts.temperature, tracking: F.temperatureTracking)
                     .foregroundStyle(Palette.todayText)
                     .fixedSize()
-                    .placed(x: layout.leftX, baseline: layout.temperatureBaseline)
+                    .placed(x: 0, baseline: layout.temperatureBaseline - top)
             }
         }
-        // A Group passes modifiers to each child, so the texts are hidden
-        // and one clear element over them carries the spoken date.
-        .accessibilityHidden(true)
-    }
-
-    private func headerAccessibility(date: HeaderDate, state: SceneState, layout: TodayOverlayLayout) -> some View {
-        let top = layout.dateBaseline - layout.fonts.date.capHeight
-        return Color.clear
-            .frame(width: 56 * layout.scale, height: layout.temperatureBaseline - top + 4 * layout.scale)
-            .accessibilityElement()
-            .accessibilityLabel(headerLabel(date: date, state: state))
-            .accessibilityAddTraits(.isHeader)
-            .placed(x: layout.leftX, y: top)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: headerLabel(date: date, state: state)))
+        .accessibilityAddTraits(.isHeader)
+        .placed(x: layout.leftX, y: top)
     }
 
     private func headerLabel(date: HeaderDate, state: SceneState) -> String {

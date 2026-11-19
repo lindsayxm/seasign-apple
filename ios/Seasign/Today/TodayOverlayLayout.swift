@@ -51,8 +51,11 @@ struct TodayOverlayLayout {
         static let textX: CGFloat = 112
         /// The time cell, before the title.
         static let timeCell: CGFloat = 66
-        /// The tallest the rows may be together: three titles of two lines.
-        static let maxRowsHeight: CGFloat = 6 * line + 2 * rowGap
+        /// The tallest the rows may be together: five lines in three rows
+        /// (the mockup's sample is four). Keeps the hairline at or above 184,
+        /// so the saved button ends by 311, clear of the top of a sun or
+        /// moon low at the right of the path (about 324 at its highest there).
+        static let maxRowsHeight: CGFloat = 5 * line + 2 * rowGap
         static let hairlineUnderTemperature: CGFloat = 16
         static let windUnderHairline: CGFloat = 18
         static let buttonTops: [CGFloat] = [18, 63, 108]
@@ -217,16 +220,26 @@ struct TodayOverlayLayout {
             ? CapsWrapper.wrap(Self.zipPromptText, width: textRight - timeX, maxLines: 2, measure: measure)
             : []
 
-        // Never taller than three two-line events: with the prompt under
-        // them, events are dropped from the end until it fits.
+        // Never taller than five lines of rows, so the button column hung
+        // from the hairline stays clear of a low sun or moon at the right
+        // of the path. Over that, the last two-line title is cut to one
+        // line (from the last event up); only if every title is on one line
+        // already is the last event dropped.
         func height(_ lineCounts: [Int]) -> CGFloat {
             let lines = lineCounts.reduce(0, +)
             return CGFloat(lines) * line + CGFloat(max(0, lineCounts.count - 1)) * Mockup.rowGap * s
         }
         let promptCount = promptLines.isEmpty ? [] : [promptLines.count]
-        while !wrapped.isEmpty,
-              height(wrapped.map { max(1, $0.1.count) } + promptCount) > Mockup.maxRowsHeight * s + 0.5 {
-            wrapped.removeLast()
+        func tooTall() -> Bool {
+            height(wrapped.map { max(1, $0.1.count) } + promptCount) > Mockup.maxRowsHeight * s + 0.5
+        }
+        while !wrapped.isEmpty, tooTall() {
+            if let index = wrapped.lastIndex(where: { $0.1.count > 1 }) {
+                let label = wrapped[index].0
+                wrapped[index].1 = CapsWrapper.wrap(label.title.uppercased(), width: titleSpace, maxLines: 1, measure: measure)
+            } else {
+                wrapped.removeLast()
+            }
         }
 
         var y = (Mockup.boxTop + Mockup.boxPadding) * s
