@@ -54,7 +54,7 @@
   /* the four buttons take their own colour, picked per screen to stand out from what is behind them, over a thin dark edge */
   .icons svg, svg.more { stroke: rgb(var(--btn)); }
   body.nobtn .icons, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the buttons, used to measure what is behind them */
-  .icons svg { width: 23px; height: 23px; stroke-width: .1; }
+  .icons svg { width: 23px; height: 23px; stroke-width: .1; stroke: rgba(var(--btn), .38); }   /* much quieter than the ∀, which keeps the full colour (the user asked, as in v8) */
   /* the dark panel behind these three is drawn on the canvas (see `panel` in the script), so the film grain lies over it */
   .more { left: 345.5px; top: 766px; width: 12px; height: 12px; stroke-width: .17; filter: drop-shadow(0 1px 2.5px rgba(0,0,0,.75)) drop-shadow(0 0 6px rgba(0,0,0,.5)); }   /* a soft dark shadow round it; it has no panel */
 
