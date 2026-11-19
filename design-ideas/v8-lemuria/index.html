@@ -42,7 +42,9 @@
   .hero.l { left: 33px; }
   .hero b { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 200; font-size: 38px; line-height: 40px; }
   .day { letter-spacing: .1em; margin-right: -.1em; color: rgb(var(--hi)); }
-  .hero small { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 7.5px; line-height: 11px; letter-spacing: .16em; color: rgba(238,240,240,.6); margin-bottom: 6px; }
+  .hero small { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 7.5px; line-height: 11px; letter-spacing: .16em; color: rgba(238,240,240,.6); margin-bottom: 7.4px; }
+  /* a hairline from the end of the day-of-year number to the left edge of the place box, through the middle of both (positions measured on a still) */
+  .link { left: 163px; top: 86.5px; width: 96px; height: 0; border-top: .5px solid rgba(255,255,255,.34); }
   .hero small em { font-style: normal; color: rgba(238,240,240,.95); }
   .events { left: 34px; top: 118px; width: 325px; margin: 0; padding: 0; list-style: none; font-size: 11px; letter-spacing: .13em; line-height: 16px; text-shadow: 0 0 5px rgba(0,0,0,.9); }
   .events li { display: grid; grid-template-columns: 70px 1fr; margin-bottom: 8px; }
@@ -108,6 +110,7 @@
     <div class="clock" id="clock">6:23</div>
 
     <div class="date" id="date">2026 · Nov 16</div>
+    <div class="link"></div>
     <div class="place">Chicago · 55°F</div>
     <div class="hero l"><b class="day" id="day">Mon</b><small>Wk <em>47</em><br>Day <em>320</em></small></div>
 
