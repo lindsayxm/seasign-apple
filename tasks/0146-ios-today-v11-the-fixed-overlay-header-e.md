@@ -1,11 +1,11 @@
 ---
 id: 146
 title: iOS: Today v11 — the fixed overlay: header, events box, hairline, wind line, buttons, titles, ∀
-status: review
+status: in-progress
 owner: implementer-2
 depends_on: [145]
 created: 2026-11-19T03:09:05Z
-updated: 2026-11-19T05:19:38Z
+updated: 2026-11-19T05:31:16Z
 ---
 
 ## Goal
@@ -16,8 +16,8 @@ Read plans/2026-11-18-today-v11.md first (section 'Fixed overlay'), then design-
 
 - [ ] Twelve iPhone 16 Simulator screenshots, one per v11 state, are saved with paths in the task log; header, events, hairline, wind line, buttons, titles and ∀ match the positions, type and colours of the matching still
 - [ ] Real-text cases are checked with screenshots: no zip (prompt), no sites (prompt), one event, a long event title that wraps, an AI-found item, a 24-hour phone; nothing overlaps or clips
-- [ ] A second screen size (smaller or larger iPhone) is checked; nothing overlaps or clips, and ∀ clears the home bar
-- [ ] All tests pass on iPhone 16 / iOS 18.3 and iPhone 17 / iOS 27.2; VoiceOver labels for the header, events, buttons, titles and ∀ are present
+- [x] A second screen size (smaller or larger iPhone) is checked; nothing overlaps or clips, and ∀ clears the home bar
+- [x] All tests pass on iPhone 16 / iOS 18.3 and iPhone 17 / iOS 27.2; VoiceOver labels for the header, events, buttons, titles and ∀ are present
 
 ## Relevant files
 
@@ -47,3 +47,8 @@ Read plans/2026-11-18-today-v11.md first (section 'Fixed overlay'), then design-
 - 2026-11-19T05:18:12Z [implementer-2] For the lead: (a) The day name follows the date's width as the plan says, so its size swings from about 14.7 pt (MON on JUL 1) to 38.4 pt (FRI on NOV 20), against the mockup's 28. Nothing overlaps (TodayOverlayLayoutTests.everyDayNameFitsBetweenTheDateAndTheTemperature), but single-digit dates make a small day name. Worth asking the user (options: clamp the size, or write the day with two digits, 'JUL 01'). (b) Mono weight: the stills' times and wind look heavier than SF Mono regular. My guess is that the browser drew ui-monospace as Menlo, but that is unconfirmed; the CSS and plan say regular, so I kept regular. #145's rise/set marks show the same difference. (c) Unreferenced now: the WrappedCaps view (CapsWrapper is still used), SoftenedText, Font.dayName(_:), LineIcon.history, Palette.ink. Still used elsewhere, so keep: FontName.dayName / PTSansNarrow-Bold.ttf (Settings zip field), Palette.rule and dimText (Saved, Reading, Settings). (d) Today has no status or error lines to keep; the feed and calendar status lines are in Settings and are untouched. (e) r1-no-zip-sample-events.png was taken on the iPhone 16, which has a zip; the real no-zip shots are the SE ones. (f) memory/architecture.md needs Today/TodayOverlayLayout.swift.
 - 2026-11-19T05:18:12Z [implementer-2] status: in-progress → review
 - 2026-11-19T05:19:38Z [lead] Lead: viewed all twelve iPhone 16 screenshots (scratchpad/s146/v11/) above the twelve v11 stills, plus a 2x side-by-side of the mid-day header. Header, events box, hairline, wind line, buttons, numbered titles and ∀ match in position, type and colour. Seen differences: the date reads today's (expected); the mono type (event times, wind) is lighter than in the mockup, which the implementer also noted.
+- 2026-11-19T05:30:17Z [implementer-2] criterion 3 met: A second screen size (smaller or larger iPhone) is checked; nothing overlaps or clips, and ∀ clears the home bar
+- 2026-11-19T05:30:17Z [implementer-2] criterion 4 met: All tests pass on iPhone 16 / iOS 18.3 and iPhone 17 / iOS 27.2; VoiceOver labels for the header, events, buttons, titles and ∀ are present
+- 2026-11-19T05:30:18Z [implementer-2] review: CHANGES NEEDED. (1) Criterion 2 fails: an event title with no spaces (a URL, or CJK text) runs past the events box and off the right edge of the screen. CapsWrapper.wrap breaks only at whitespace and keeps an over-wide word whole; EventsColumn.swift:68-75 draws each line with .lineLimit(1).fixedSize() and no width limit. The old EventsColumn used Text with .lineLimit(2) in a fixed-width frame, which truncated, so this is a regression. Reproduced on iPhone 17 / iOS 27.2 with -debugEventTitles (a zoom URL and a Japanese title): both run off screen. Screenshot: /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6424297e-83a5-4014-a30d-15ca947f3cb0/scratchpad/rev146/overflow.png. Article titles have the same flaw, but the old WrappedCaps had it too, so that is a note, not a regression. Criterion 1 left to the lead's own screenshot check; I did not redo it. Criterion 3 ticked from the SE and Pro Max shots plus layout tests. Criterion 4 ticked: I ran 416/416 on iPhone 16 / iOS 18.3.1 and 416/416 on iPhone 17 / iOS 27.2; the labels are present in code (header, event rows, wind, buttons, titles, ∀, zip prompt), and the implementer's axe check covers them; not tried with VoiceOver itself. DEBUG keys and mockup strings are absent from a Release simulator build (checked with strings). Not verified: the zip prompt's 44-point target away from its centre (contentShape with a negative inset, EventsColumn.swift:95). Gaps in the tests: no 24-hour layout case, no large screen, no unbreakable word; the drop-an-event branch (TodayOverlayLayout.swift:240-242) cannot be reached at present.
+- 2026-11-19T05:31:16Z [lead] status: review → in-progress
+- 2026-11-19T05:31:16Z [lead] Lead: review says changes needed. Back to implementer-2 for: (1) blocking: an event title with no spaces (a pasted link, a Chinese or Japanese title) runs past the events box and off the screen; break inside an over-wide word or truncate to the title width, same for article titles, with a test. (2) day name: clamp its size to 20-28 pt x scale (lead's decision pending the user's word; the stills show about 22.8). (3) zip prompt's 44-pt target away from its centre. (4) tests: 24-hour layout, a large screen, an unbreakable word, the event-drop branch. (5) time-column widths from kept rows only.
