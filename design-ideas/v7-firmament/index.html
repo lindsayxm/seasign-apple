@@ -279,7 +279,7 @@ function draw(t) {
     const a = m.a + wheel * m.k;
     glow(x + m.d * Math.cos(a), HZ + m.d * Math.sin(a), m.s, m.s, ICE, .075 * (.5 + .5 * P), .5);
   }
-  for (const d of bits.stars) {
+  if (state.id !== "mid-day") for (const d of bits.stars) {                         // no stars at mid-day (the user asked); every other screen keeps them
     const a = d.a + wheel, px = x + d.d * Math.cos(a), py = HZ + d.d * Math.sin(a);
     if (py > HZ - 2 || py < -4 || px < -4 || px > W + 4) continue;
     const tw = .55 + .45 * Math.sin(t * 1.4 + d.ph), al = Math.min(1, (HZ - py) / 26) * tw * (look.night ? 1.25 : .95) * (.6 + .4 * hash(d.ph * 3.3));
