@@ -63,7 +63,7 @@ export function isRateLimitBody(body: unknown): boolean {
   if (body.error.status === "RESOURCE_EXHAUSTED") return true;
   const errors = Array.isArray(body.error.errors) ? body.error.errors : [];
   return errors.some(
-    (entry) => isRecord(entry) && ((typeof entry.reason === "string" && RATE_LIMIT_REASONS.has(entry.reason)) || entry.domain === "usageLimits"),
+    (entry) => isRecord(entry) && typeof entry.reason === "string" && RATE_LIMIT_REASONS.has(entry.reason),
   );
 }
 

@@ -242,6 +242,11 @@ async function readCalendar(id: string, token: string, now: Date): Promise<{ eve
         maxResults: String(PAGE_SIZE),
         fields: EVENT_FIELDS,
       });
+      // Ordinary events and ones Google made from mail (flights, bookings). Working
+      // location, focus time, out of office and birthdays are left out: the
+      // pasted-link feed does not carry them either (task 155).
+      params.append("eventTypes", "default");
+      params.append("eventTypes", "fromGmail");
       if (pageToken) params.set("pageToken", pageToken);
       const body = await getGoogleJson(path, params, token, signal);
       // With `fields`, Google leaves `items` out of an empty page.

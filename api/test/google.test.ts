@@ -325,6 +325,7 @@ describe("POST /v1/google/events", () => {
     expect(request!.url.origin).toBe(GOOGLE);
     expect(request!.url.pathname).toBe("/calendar/v3/calendars/primary/events");
     expect(Object.fromEntries(request!.url.searchParams)).toEqual({
+      eventTypes: "fromGmail", // the last of the two values sent; both are checked in the paging test
       singleEvents: "true",
       orderBy: "startTime",
       timeMin: "2026-11-18T15:00:00Z",
@@ -393,6 +394,8 @@ describe("POST /v1/google/events", () => {
     expect(sent.map((request) => request.url.searchParams.get("pageToken"))).toEqual([null, "p2", "p3"]);
     // Every page asks the same question.
     for (const request of sent) expect(request.url.searchParams.get("timeMin")).toBe("2026-11-18T15:00:00Z");
+    // Working location, focus time, out of office and birthdays are not asked for.
+    for (const request of sent) expect(request.url.searchParams.getAll("eventTypes")).toEqual(["default", "fromGmail"]);
   });
 
   it("stops after 4 pages and says the calendar is partial", async () => {
@@ -640,6 +643,8 @@ describe("storedEventOf", () => {
 describe("isRateLimitBody", () => {
   it("tells a rate limit from other refusals", () => {
     expect(isRateLimitBody({ error: { errors: [{ domain: "usageLimits", reason: "rateLimitExceeded" }] } })).toBe(true);
+    // The domain alone is not a rate limit: "API not enabled" uses it too and is a refusal.
+    expect(isRateLimitBody({ error: { errors: [{ domain: "usageLimits", reason: "accessNotConfigured" }] } })).toBe(false);
     expect(isRateLimitBody({ error: { errors: [{ domain: "global", reason: "quotaExceeded" }] } })).toBe(true);
     expect(isRateLimitBody({ error: { status: "RESOURCE_EXHAUSTED" } })).toBe(true);
     expect(isRateLimitBody({ error: { errors: [{ domain: "global", reason: "insufficientPermissions" }], status: "PERMISSION_DENIED" } })).toBe(false);

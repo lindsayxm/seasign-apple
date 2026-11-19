@@ -8,7 +8,7 @@ The plan (`plans/2026-11-15-v1-build.md`, "Rules for these open endpoints") requ
 - **Source.** https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/ (page dated 2026-11-12). Config is `{ name, namespace_id, simple: { limit, period } }`. `namespace_id` is a string holding a positive integer, unique in the Cloudflare account; bindings that share one also share counters. `period` must be 10 or 60. `limit({ key })` resolves `{ success }`, and a refused call does not add to the count.
 - **Approximate and per location.** Counts are kept separately in each Cloudflare location, and each location's count is eventually consistent: a check reads a locally cached count and the count is synced in the background. So a burst can get past a limit, and a client reaching several locations gets each location's allowance. A strict limit would need a Durable Object. Our limits slow abuse and cap cost; they are not exact quotas.
 - **Price.** Neither the binding page nor https://developers.cloudflare.com/workers/platform/pricing/ (dated 2026-11-13) gives a price or plan requirement for the binding. Recheck before deploy.
-- **Namespace IDs** are 19001 to 19005. Before the first deploy, check that no other Worker in the account uses them.
+- **Namespace IDs** are 19001 to 19006 (19006 is the `google` group, added 2026-11-19). Before the first deploy, check that no other Worker in the account uses them.
 
 ## The limits
 
@@ -21,6 +21,7 @@ All limits count requests per client per 60 seconds per location. They are in `R
 | feed | `POST /v1/feed` | 15 | Up to 50 sites, each with redirects; about 10 s of CPU in the worst case (estimated, not measured). The app asks at most every 15 minutes (`FeedModel.refreshInterval`). |
 | resolve | `POST /v1/sites/resolve` | 10 | Used only while the user adds a site. |
 | discover | `POST /v1/discover` | 5 | Relays the user's paid key, and its 401 tells a caller whether a key works. The phone caps searches at 1 to 20 a day (`DailyCap`). |
+| google | `GET /v1/google/calendars`, `POST /v1/google/events` | 600 | Added 2026-11-19 (tasks 153, 155). Until push exists the app polls events every 5 s while Today is open (12 a minute a phone), so 600 allows about fifty phones behind one shared address. A request is cheap for us (short JSON, at most 10 calendars of 4 pages, no KV) and spends the caller's own Google quota; a bad token costs one 401 per calendar. Revisit once push replaces polling. |
 
 **Why the headroom is large.** One person sends about one request per route every 10 to 15 minutes. The headroom covers carrier-grade NAT, where many phones share one IPv4 address (the binding docs advise against IP keys for this reason), and bursts while the user edits settings. For example, sky at 60 a minute allows about 600 phones behind one address at the app's cadence.
 
@@ -68,5 +69,5 @@ Each hop in a redirect chain counts as a subrequest.
 ## Checks after the first deploy
 
 1. **Rate limits.** Send a burst to the deployed `/v1/sky?zip=abc` from one machine and confirm 429s with `Retry-After: 60`. This checks that `CF-Connecting-IP` arrives and the binding works in production, which local runs cannot prove.
-2. **Observability and logs.** Open Workers observability and logs, including request traces and any recorded headers, and confirm that the `X-LLM-Key` header and calendar links are not recorded anywhere (`"observability": { "enabled": true }` is set in `wrangler.jsonc`). Confirm also that no client address appears beyond what Cloudflare itself shows.
+2. **Observability and logs.** Open Workers observability and logs, including request traces and any recorded headers, and confirm that neither the `X-LLM-Key` nor the `X-Google-Token` header (added 2026-11-19) is recorded; originally: confirm that the `X-LLM-Key` header and calendar links are not recorded anywhere (`"observability": { "enabled": true }` is set in `wrangler.jsonc`). Confirm also that no client address appears beyond what Cloudflare itself shows.
 3. **Unexplained 429s.** If honest users get 429s behind a shared address, raise the limit in both places: `RATE_LIMITS` and `wrangler.jsonc`.
