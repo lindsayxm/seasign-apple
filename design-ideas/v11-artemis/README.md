@@ -15,6 +15,8 @@ Open `index.html`. Same address switches as v8: `?state=<id>`, `&bare`, `&still`
 
 - **A hairline closes the header** (y 168, from the left margin at x 34 to the right edge of the events box at x 377), added at the user's request. The button column starts 6 points lower (y 186) to keep clear of it.
 
-Kept from v8: the full-screen sky and sea, the sun and moon as light on a centred path with bracket and tag, the rise and set marks on the horizon, one ink colour per screen, the numbered serif titles (seven), `∀` in the lower left, no stars at mid-day.
+- **`∀` is in the lower right corner** (its right edge on the right margin, x 359), moved from the lower left at the user's request.
+
+Kept from v8: the full-screen sky and sea, the sun and moon as light on a centred path with bracket and tag, the rise and set marks on the horizon, one ink colour per screen, the numbered serif titles (seven), no stars at mid-day.
 
 Stills `01-sunrise.png` … `12-moon-set.png` are rendered at 3× with headless Chrome, as for the other versions.
