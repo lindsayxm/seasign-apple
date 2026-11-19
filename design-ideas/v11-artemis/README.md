@@ -11,6 +11,8 @@ Open `index.html`. Same address switches as v8: `?state=<id>`, `&bare`, `&still`
 
 - **Tags only at rise and set.** Sunrise, sunset, moonrise and moonset keep their tag (`SUNSET 4:31 PM` and the wind). On every other screen the tag and its leader are gone at the user's request, so wind, cloud cover, the words `RAIN` and `SNOW` and the moon's lit share are no longer written anywhere; the corner brackets round the sun or moon were then removed on every screen as well. The dotted drop line to the horizon, the small square under the body and the rise and set marks stay.
 
+- **The date is white**, the same as the temperature (it was the ink colour); the day name between them keeps the ink colour.
+
 Kept from v8: the full-screen sky and sea, the sun and moon as light on a centred path with bracket and tag, the rise and set marks on the horizon, one ink colour per screen, the numbered serif titles (seven), `∀` in the lower left, no stars at mid-day.
 
 Stills `01-sunrise.png` … `12-moon-set.png` are rendered at 3× with headless Chrome, as for the other versions.
