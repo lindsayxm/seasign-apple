@@ -457,7 +457,7 @@ function draw(t) {
     const lx = bx + flip * hb, ly = by - hb;
     ctx.beginPath();
     if (state.turn < .05 || state.turn > .95) { ctx.moveTo(lx + flip * 3, ly - 3); ctx.lineTo(lx + flip * 11, ly - 11); ctx.lineTo(lx + flip * 19, ly - 11); }   // on the horizon: up and out to a tag above
-    else { ctx.moveTo(lx + flip * 4, by); ctx.lineTo(lx + flip * 18, by); }                                                                          // otherwise: straight out to a tag level with it
+    // away from the horizon there is no tag and no leader (the user had them removed in v11); the brackets stay
     ctx.lineWidth = .6; ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.stroke();
   }
   ctx.globalCompositeOperation = "lighter";
@@ -510,7 +510,7 @@ function show(id) {
   document.getElementById("tag1").style.display = edge || lit != null ? "block" : "none";   // away from the horizon the sun's tag does not say SUN; the moon's keeps its name and lit share
   document.getElementById("tag1").textContent = edge ? (lit == null ? "Sun" : "Moon") + edge + " " + state[edge] : lit == null ? "Sun" : "Moon " + lit + "%";
   document.getElementById("tag2").textContent = (state.snow ? "Snow · " : state.rain ? "Rain · " : state.clouds ? "Cloud " + Math.round(state.clouds * 100) + "% · " : "") + "Wind " + state.wind + " mph";
-  tag.classList.toggle("flip", flip); tag.style.left = tx + (flip ? -1 : 1) * (hb + 23) + "px"; tag.style.top = (edge ? ty - hb - 11 - 9 : ty - (lit == null ? 6 : 12)) + "px";   // on the horizon the tag is above; otherwise it is centred level with the sun or moon
+  tag.style.display = edge ? "block" : "none"; tag.classList.toggle("flip", flip); tag.style.left = tx + (flip ? -1 : 1) * (hb + 23) + "px"; tag.style.top = (edge ? ty - hb - 11 - 9 : ty - (lit == null ? 6 : 12)) + "px";   // on the horizon the tag is above; otherwise it is centred level with the sun or moon
   for (const [id, u] of [["rise", 0], ["set", 1]]) { const el = document.getElementById(id); el.textContent = state[id]; el.style.left = pathAt(u)[0] + "px"; el.style.top = HZ + 13 + "px"; el.style.visibility = id === edge ? "hidden" : "visible"; }
   if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : "") + (params.has("arc") ? "&arc" : ""));
 }
