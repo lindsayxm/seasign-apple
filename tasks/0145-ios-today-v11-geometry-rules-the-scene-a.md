@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-1
 depends_on: []
 created: 2026-11-19T03:09:05Z
-updated: 2026-11-19T03:09:22Z
+updated: 2026-11-19T03:31:35Z
 ---
 
 ## Goal
@@ -36,3 +36,4 @@ Read plans/2026-11-18-today-v11.md first; it is the spec. Then design-ideas/v11-
 - 2026-11-19T03:09:16Z [lead] status: todo → in-progress — claimed by lead
 - 2026-11-19T03:09:22Z [lead] status: in-progress → todo
 - 2026-11-19T03:09:22Z [implementer-1] status: todo → in-progress — claimed by implementer-1
+- 2026-11-19T03:31:35Z [implementer-1] Built the v11 scene. Rules in SkyMath (SkyPath: v11 path, lowness, body radius; SkyPass + RiseSetTimeline.pass(at:) for the known rise/set of the drawn pass) and SceneState (look, ink, starStrength, cloudAmount, windMph/windLabel, tickCount, tagEdge/showsTag, showsSquare, riseMark/setMark, tagLines, markTime). Geometry and resolved marks in SceneLayout.swift (SceneLayout v11: horizon 386*s, headlinesTop; SceneMarks). Renderer ported from draw(t): light layers in one drawLayer with a 1.56 colour-matrix gain standing in for the whole-frame bloom; sharp light drawn at 0.68; disc drawn outside the gain with a soft brightening. Stars and other bits from the mockup's own mulberry32 seeds (SceneAssets.swift), grain tile and moon face pre-rendered with Core Graphics. SceneMotion removed: the scene redraws at 30 fps (still frame under Reduce Motion). Headlines now hang from headlinesTop and are coloured Palette.seaText; history button in the ink colour.

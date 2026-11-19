@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import Seasign
@@ -272,5 +273,40 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         let sunset = SceneMarks(state: scene(sun: .up(progress: 1)), layout: layout, clock: .twelveHour)
         #expect(sunset.tag?.flipped == true)
         #expect(abs((sunset.tag?.corner.x ?? 0) - (331 - 58.4 - 23)) < 1e-9)
+    }
+}
+
+/// Task 145: the renderer draws every kind of sky without crashing, including
+/// a missing rise or set, the neutral scene and a night with no body up.
+@MainActor
+@Suite struct SceneRenderTests {
+    private func render(_ state: SceneState, time: Double = SceneRenderer.stillTime) -> CGImage? {
+        let renderer = SceneRenderer(
+            state: state, clock: .twelveHour, time: time, grain: SceneImages.grain,
+            moonFace: state.body?.kind == .moon ? SceneImages.moonFace(phase: state.moonPhase) : nil
+        )
+        let view = Canvas { context, size in renderer.draw(in: &context, size: size) }
+            .frame(width: 393, height: 852)
+        let image = ImageRenderer(content: view)
+        image.scale = 1
+        return image.cgImage
+    }
+
+    @Test func drawsEdgeCases() {
+        let states: [SceneState] = [
+            scene(sun: .up(progress: 0.01), sunPass: SkyPass(rise: nil, set: set)),
+            scene(sun: .up(progress: 0.99), sunPass: SkyPass(rise: rise, set: nil)),
+            scene(sun: .up(progress: 0.5), sunPass: .unknown),
+            scene(sun: night),
+            scene(sun: night, moon: .up(progress: 0.02), phase: 0.02, moonPass: SkyPass(rise: nil, set: nil)),
+            scene(sun: night, moon: .up(progress: 0.5), precipitation: .snow(.heavy), clouds: .overcast),
+            scene(precipitation: .rain(.heavy), clouds: .overcast, live: false),
+            SceneState.make(snapshot: nil, now: instant("2026-11-16T12:05:00Z"), deviceTimeZone: newYork),
+            SceneState.make(snapshot: nil, now: instant("2026-11-16T05:05:00Z"), deviceTimeZone: newYork),
+        ]
+        for state in states {
+            let image = render(state, time: 123.4)
+            #expect(image?.width == 393)
+        }
     }
 }

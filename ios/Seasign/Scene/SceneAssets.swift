@@ -164,26 +164,26 @@ enum SceneImages {
 
 /// The mockup's grain tile as pixels; inverted for the moon's multiply pass.
 func makeGrainTile(inverted: Bool) -> CGImage? {
-        let side = SceneImages.grainSide
-        var random = Mulberry32(seed: 77)
-        var bytes = [UInt8](repeating: 255, count: side * side * 4)
-        for index in stride(from: 0, to: bytes.count, by: 4) {
-            let v = random.next() * random.next() * 255
-            let channel = { (value: Double) -> UInt8 in
-                let clamped = min(255, max(0, value.rounded()))
-                return UInt8(inverted ? 255 - clamped : clamped)
-            }
-            bytes[index] = channel(v)
-            bytes[index + 1] = channel(v)
-            bytes[index + 2] = channel(v * 1.08)
+    let side = SceneImages.grainSide
+    var random = Mulberry32(seed: 77)
+    var bytes = [UInt8](repeating: 255, count: side * side * 4)
+    for index in stride(from: 0, to: bytes.count, by: 4) {
+        let v = random.next() * random.next() * 255
+        let channel = { (value: Double) -> UInt8 in
+            let clamped = min(255, max(0, value.rounded()))
+            return UInt8(inverted ? 255 - clamped : clamped)
         }
-        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
-        return CGImage(
-            width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
-            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
-        )
+        bytes[index] = channel(v)
+        bytes[index + 1] = channel(v)
+        bytes[index + 2] = channel(v * 1.08)
+    }
+    guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+    return CGImage(
+        width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
+        space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+        provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
+    )
 }
 
 /// Draws the moon's lit face with Core Graphics, after the mockup's
