@@ -30,7 +30,12 @@ import { GoogleHeadersSchema, MAX_CALENDARS, MAX_ID_LENGTH, isCalendarId } from 
 // carry fixed text, an index and a code; never a token, a device token, a
 // channel id or a calendar id.
 
-/** events.watch `params.ttl`: Google's default and, per the push guide, the most it grants for events. */
+/**
+ * events.watch `params.ttl`: 7 days, the default on the events.watch page.
+ * The push guide says Google applies the more restrictive of the requested
+ * expiry and its own limits, without stating a maximum; the answer's
+ * `expiration` is what is stored.
+ */
 export const CHANNEL_TTL_SECONDS = 7 * 24 * 60 * 60;
 const CHANNEL_TTL_MS = CHANNEL_TTL_SECONDS * 1000;
 /** An expiry Google gives further out than this is not believed. */

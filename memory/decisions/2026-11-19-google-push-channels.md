@@ -14,10 +14,14 @@ One row per Google channel: our random channel id (a UUID; Google allows up to 6
 - **APNs.** The provider token is ES256, signed with WebCrypto from a PKCS#8 PEM. It is cached per isolate for 40 minutes, inside Apple's 20 to 60 minute window, and remade early only after `ExpiredProviderToken`. The push uses `apns-push-type: background`, `apns-priority: 5`, `apns-expiration` one hour ahead, and the payload `{"aps":{"content-available":1},"type":"calendar-changed"}`. The host is `api.sandbox.push.apple.com` or `api.push.apple.com`, from the row. Without the secrets the sender returns `not_configured` and logs once.
 - **Secret types** are declared optional in `api/src/env.d.ts`, not with `secrets.required` in `wrangler.jsonc`. That setting also filters what `wrangler dev` loads from the local secrets file, and it makes `wrangler deploy` fail while a secret is missing. Whether to adopt it is a task D choice.
 
+## Trust boundary
+
+No account is involved: the APNs device token is the only thing that ties channels together. Anyone who knows a device token and holds any working Google token can replace that device's channels with watch, or remove them with unwatch. Unwatch forgets the rows even when Google refuses the stop. They could also make that phone receive background pushes on their own calendar's changes, which Apple throttles and which only cause a reload. Device tokens are not public, and the routes are rate limited. This follows the approved plan, but it departs from the AGENTS.md rule that queries on user data are scoped by the session's user. Revisit when sign-in exists (task 13).
+
 ## Open, to check at deploy (task D)
 
-- **Can a deployed Worker reach APNs?** APNs speaks only HTTP/2. Neither the Workers `fetch` page nor the other Cloudflare docs we found say which protocol an outbound `fetch` uses. Cloudflare's "HTTP/2 to Origin" page says it uses HTTP/2 when the server offers it through ALPN, but that page is about zones' origins. Measured on 2026-11-19:
-  - The local runtime (vitest and `wrangler dev`) fails with "Network connection lost".
+- **Can a deployed Worker reach APNs?** APNs speaks only HTTP/2. Neither the Workers `fetch` page nor the other Cloudflare docs we found say which protocol an outbound `fetch` uses. Cloudflare's "HTTP/2 to Origin" page says it uses HTTP/2 when the server offers it through ALPN, but that page is about zones' origins. The Workers protocols page (https://developers.cloudflare.com/workers/reference/protocols/) says only "Make HTTP subrequests using the fetch() API", with no HTTP version. Measured on 2026-11-19:
+  - The local runtime fails with "Network connection lost". This was measured in the vitest workerd only; `wrangler dev` uses the same runtime, so it is expected to fail too.
   - `curl --http1.1` gets no answer.
   - `curl --http2` gets 403 `MissingProviderToken`.
 

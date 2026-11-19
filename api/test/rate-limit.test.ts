@@ -284,6 +284,34 @@ describe.each(GROUPS)("%s, with a fake limiter", (group) => {
   });
 });
 
+describe("the other Google routes the app calls", () => {
+  const DEVICE = "00fc13adff785122b4ad28809a3420982341241421348097878e577c991de8f0";
+  const routes = [
+    ["/v1/google/calendars", { headers: { "x-google-token": FAKE_GOOGLE_TOKEN } }],
+    ["/v1/google/watch", json({ calendars: ["primary"], deviceToken: DEVICE, environment: "sandbox" }, { "x-google-token": FAKE_GOOGLE_TOKEN })],
+    ["/v1/google/unwatch", json({ deviceToken: DEVICE }, { "x-google-token": FAKE_GOOGLE_TOKEN })],
+  ] as const;
+
+  it.each(routes)("%s is in the google group and refused before any fetch or database use", async (path, init) => {
+    const fetchSpy = failFetch();
+    const { limiters, env: testEnv } = fakes();
+    limiters.google.mode = "refuse";
+    const prepare = vi.fn(() => {
+      throw new Error("no database use expected");
+    });
+    const sent = new Request(`https://example.com${path}`, { ...init, headers: { ...(init.headers as Record<string, string>), "cf-connecting-ip": "203.0.113.60" } });
+    const response = await app.fetch(sent, { ...testEnv, DB: { prepare } } as unknown as CloudflareBindings);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual(RATE_LIMITED);
+    expect(limiters.google.keys).toEqual(["4:203.0.113.60"]);
+    expect(limiters.notify.keys).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(sent.bodyUsed).toBe(false);
+  });
+});
+
 describe("/v1/health", () => {
   it("is never limited", async () => {
     const { limiters, env: testEnv } = fakes();

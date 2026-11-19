@@ -33,7 +33,8 @@ export const RATE_LIMITS = {
   /** Relays the user's paid key, and its 401 says whether a key works. */
   discover: { binding: "RATE_LIMIT_DISCOVER", namespaceId: "19005", limit: 5, period: 60 },
   /**
-   * Both /v1/google routes. Until push exists the app polls events about
+   * The /v1/google routes the app calls (calendars, events, watch, unwatch;
+   * not Google's webhook, which has `notify`). Until push exists the app polls events about
    * every 5 seconds while Today is open (12 a minute); 600 leaves room for
    * about fifty such phones behind one shared address (task 155, was 120). Each request is up to 10
    * calendars of at most 4 pages, short JSON, against the caller's own Google
