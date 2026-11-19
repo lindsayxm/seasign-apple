@@ -72,3 +72,5 @@ Then (#106): the large temperature went; the place box reads `CHICAGO · 55°F`,
 Then (#107, #108): the second control is labelled `LIST`; the button bar moved from the bottom to just under the events, the horizon went down to y 404 (path top 88) to clear it, and the list shows seven titles.
 
 Then (#109–#111): control labels removed; a hairline from the day number to the place box, level with the box's bottom; no stars on the mid-day screen (v7 had them by day at the user's earlier request, so this applies to v8 mid-day only unless they say more).
+
+Then (#112, #113): the header line stops short of the place box; away from the horizon the sun's tag drops the word SUN and every tag sits level with the body (never above it); rise and set tags unchanged.

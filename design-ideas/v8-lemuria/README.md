@@ -35,6 +35,12 @@ The user asked for the part above the horizontal bar to look more technical. It 
 
 At the user's request the row of four controls moved from the bottom of the screen to just under the calendar events (y 218), to leave more room for article titles. This supersedes rule 2 above where it says the controls are along the bottom. To keep the bar clear of the sun and moon's tag, the horizon moved down 16 points to y 404 and the top of the path is now 88 above it. The article list starts at y 504 and shows seven titles instead of six. The names under the four controls were then removed at the user's request; the symbols stand alone.
 
+## Tags on the sun and moon (2026-11-18, supersedes the tag description in the first pass below)
+
+- On the horizon (sunrise, sunset, moonrise, moonset) nothing changed: the tag is above the body on a bent leader and reads `SUNRISE 6:41 AM` and so on, with the wind under it.
+- Everywhere else the tag is level with the sun or moon, on a short straight leader out of the bracket's side, never above it.
+- Away from the horizon the sun's tag no longer says `SUN` (the user: "that's obvious"); it is one line: the wind, with cloud cover, `RAIN` or `SNOW` before it. The moon's tag keeps `MOON` and the lit share on its first line.
+
 ## What changed from v7 (first pass)
 
 - **One ink colour per screen.** The date, day name, event times, buttons and the tag's first line share one colour; everything else is white. Soft yellow by day and in weather, pale yellow at sunrise, pale peach at sunset, pale aqua at night. v7 used three colours per screen. The glow behind the day name is gone.
