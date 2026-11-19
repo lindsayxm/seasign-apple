@@ -70,3 +70,5 @@ Then (#105) the user had the right column stacked as boxed date, boxed place, te
 Then (#106): the large temperature went; the place box reads `CHICAGO · 55°F`, and the date and place boxes together are exactly as tall as the day name. Events moved up to y 118.
 
 Then (#107, #108): the second control is labelled `LIST`; the button bar moved from the bottom to just under the events, the horizon went down to y 404 (path top 88) to clear it, and the list shows seven titles.
+
+Then (#109–#111): control labels removed; a hairline from the day number to the place box, level with the box's bottom; no stars on the mid-day screen (v7 had them by day at the user's earlier request, so this applies to v8 mid-day only unless they say more).
