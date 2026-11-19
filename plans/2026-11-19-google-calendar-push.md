@@ -57,7 +57,7 @@ Cloudflare: nothing to do by hand; the lead asks before each `wrangler` command 
 | APNs key ID | `Z9TZFF5FAF` (the key file itself stays with the user, outside the project; it reaches Cloudflare only by the user typing `wrangler secret put`) |
 | Google iOS OAuth client ID | `347928684020-vs0cht1ik72su6d4fl4skogak6odtl82.apps.googleusercontent.com` (redirect scheme: `com.googleusercontent.apps.347928684020-vs0cht1ik72su6d4fl4skogak6odtl82`) |
 | Cloudflare | the user has an account and is logged in with wrangler on this Mac |
-| Deployed address | `workers.dev` to start (the user did not name a domain); revisit if Google requires a verified domain |
+| Deployed address | `https://api.seasign.app` (lead's proposal): the user owns `seasign.app`, bought through Cloudflare in the same account and not yet used for anything. Set as a Worker custom domain in `api/wrangler.jsonc` (`routes` with `custom_domain: true`) in task D; Cloudflare then creates the DNS record and certificate at deploy. If Google asks for domain verification, the user verifies `seasign.app` in Google Search Console |
 
 The bundle ID and team go into `app-identity.xcconfig` and `api/wrangler.jsonc` in task B (not while task #153 is editing `api/`). A new bundle ID installs as a new app: Settings entered under `com.example.seasign` on any Simulator do not carry over.
 
