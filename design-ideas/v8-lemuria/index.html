@@ -54,9 +54,9 @@
 
   /* below the horizon: the three symbols, then the article titles in the lower sea */
   svg.line { fill: none; stroke: rgb(var(--amber)); stroke-width: .085; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
-  /* three controls (settings, list, saved) in a bare column at the right of the events, spaced 36 points apart, so the column runs a little below the events;
+  /* three controls (settings, list, saved) in a bare column at the right of the events, centred on x 331 (the right end of the path, so it stands straight above the centre of the setting sun or moon), spaced 36 points apart, so the column runs a little below the events;
      the fourth, ∀ for all publications, is small in the lower left corner under the article list */
-  .col { right: 34px; top: 118px; display: flex; flex-direction: column; gap: 36px; }
+  .col { left: 321.5px; top: 118px; display: flex; flex-direction: column; gap: 36px; }
   .col svg { display: block; width: 19px; height: 19px; stroke: rgba(var(--btn), .38); stroke-width: .09; }   /* much quieter than the ∀, which keeps the full ink colour */
   .more { left: 34px; top: 812px; width: 10px; height: 10px; stroke: rgb(var(--btn)); stroke-width: .13; }
   body.nobtn .col, body.nobtn .more { display: none; }   /* ?nobtn: a frame without the controls */
