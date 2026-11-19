@@ -449,10 +449,7 @@ function draw(t) {
     if (state.turn > .05 && state.turn < .95) { ctx.fillStyle = col(ink, .95); ctx.fillRect(bx - 2, HZ + 1.5, 4, 4); }   // not when it is on the horizon, where the square is lost in the glare
     /* corner brackets round the sun or moon, and a short leader to its tag */
     const hb = R + 8, arm = Math.min(9, 4 + R * .1), flip = bx > W / 2 + 1 ? -1 : 1;
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
-      const cx = bx + sx * hb, cy = by + sy * hb; if (cy > HZ - 3) continue;   // only the corners above the horizon
-      ctx.beginPath(); ctx.moveTo(cx - sx * arm, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy - sy * arm); ctx.lineWidth = .7; ctx.strokeStyle = "rgba(255,255,255,.72)"; ctx.stroke();
-    }
+    // the corner brackets round the sun or moon were removed at the user's request (v11); hb still places the drop line and the rise and set tag
     if (by + hb < HZ - 6) for (let yy = by + hb + 3; yy < HZ - 1; yy += 4) hair(bx, yy, bx, yy + 1.6, "255,255,255", .4);   // a dotted drop line to the horizon when it is high
     const lx = bx + flip * hb, ly = by - hb;
     ctx.beginPath();
