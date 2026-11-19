@@ -15,7 +15,7 @@ Open `index.html`. Same address switches as v8: `?state=<id>`, `&bare`, `&still`
 
 - **A hairline closes the header** (y 168, from the left margin at x 34 to the right edge of the events box at x 377), added at the user's request. The button column starts 6 points lower (y 186) to keep clear of it.
 
-- **`∀` is in the lower right corner** moved from the lower left at the user's request, and centred on x 331 so it stands straight under the column of three buttons.
+- **`∀` is centred at the bottom of the screen** (x 196.5, y 794 to 804). At the user's request it went from the lower left to the lower right, then under the column of three buttons, then to the centre.
 
 - **Five article titles** instead of seven, at the user's request. They are spaced 57 points apart (44 before), which fills the room down to `∀` at y 794; the list still starts at y 486.
 
