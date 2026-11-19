@@ -12,6 +12,7 @@ Look-only mockups of the Today screen. Nothing here is in the app; an idea is bu
 | `v6-hud2/` | rotating portal ring with beams and swirling dust | refined over many rounds; base for v7 |
 | `v7-firmament/` | v6 without the ring and beams: open sky of slowly wheeling stars, sun and moon on a tall arc that rises from and sets into the sea | refined over many rounds on 2026-11-17 (section below); saved as it stood on 2026-11-18; base for v8 |
 | `v8-lemuria/` | v7 pushed towards a restrained HUD: one ink colour per screen, hairline button frame, sun and moon as light, bracket and tag on the body, rise and set marks on the horizon | refined through #100–#122 on 2026-11-18; the user then said "this one is done" |
+| `v9-pangea/` | clean slate: vintage machine screen (segment read-outs, ruled tables, wire-mesh scope, meters, keycaps) from the user's references in its `ref-img/` | first pass 2026-11-18 (#123) |
 | `v0-version-landing-page/` | index page: a thumbnail per version that opens it | made 2026-11-17 |
 
 How the mockups are made, so the next session can continue:
@@ -80,3 +81,7 @@ Then (#114): settings, list, saved became a column at the right of the events; a
 Then (#115–#120): bare button column, muted to 38%, 36 points apart, centred on x 331 above the setting sun or moon; small numbers `01`… before the article titles (the user asked for them back); event times shortened to `6:45p` / `TUE` (a stacked hour-over-PM form was tried and dropped).
 
 Then (#121, #122): more space between the events and the buttons; `∀` raised 18 points. After that the user said of v8: "great this one is done". Treat v8 as finished as it stands at the #122 commit; the full current state is in `design-ideas/v8-lemuria/README.md`. They have not yet said whether to build it in `ios/`.
+
+## 2026-11-18: v9-pangea
+
+After calling v8 done the user asked for "a few more designs first" and a clean-slate v9: "design a vintage computer interface that shows all the relevant info", from five references in `design-ideas/v9-pangea/ref-img/`. First pass built (#123); see its README. Nothing is being built in `ios/` yet.

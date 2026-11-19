@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seasign v9 — Pangea</title>
+<style>
+  @font-face { font-family: "Jost"; font-weight: 400; src: url("fonts/Jost-400-Book.ttf") format("truetype"); }
+  @font-face { font-family: "Jost"; font-weight: 500; src: url("fonts/Jost-500-Medium.ttf") format("truetype"); }
+
+  /* The machine's fixed colours: cream for print and keys, amber and red for the meters, teal for small labels.
+     --ink is the colour of the scope's trace, the only thing that changes with the time of day and the weather. */
+  :root { --cream: 236, 229, 204; --amber: 255, 178, 62; --teal: 112, 214, 200; --red: 240, 84, 48; --ink: 214, 226, 96; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #060707; color: #b9c2c2; font-family: "Jost", "Avenir Next", "Helvetica Neue", sans-serif;
+    display: flex; align-items: center; justify-content: center; gap: 48px; flex-wrap: wrap; padding: 24px;
+  }
+  body.bare { display: block; padding: 0; background: #000; overflow: hidden; }
+  .phone {
+    position: relative; width: 393px; height: 852px; flex: none; border-radius: 46px; overflow: hidden; background: #050505;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 0 0 9px #050506, 0 0 0 10px rgba(255,255,255,.10), 0 30px 90px rgba(0,0,0,.7);
+  }
+  body.bare .phone { border-radius: 0; box-shadow: none; }
+  canvas { position: absolute; inset: 0; width: 393px; height: 852px; display: block; }
+
+  .ui { position: absolute; inset: 0; color: rgb(var(--cream)); }
+  .ui > * { position: absolute; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; color: #fff; }
+
+  /* the title strip: reversed out, like a terminal's status line */
+  .strip { left: 20px; top: 54px; width: 353px; height: 15px; padding: 0 7px; display: flex; justify-content: space-between; align-items: center;
+           background: rgb(var(--cream)); color: #0a0a08; font: 700 8.5px/15px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .16em; text-transform: uppercase; }
+  /* small teal names under the two lit read-outs (the read-outs themselves are drawn on the canvas, segment by segment) */
+  .cap { top: 124px; font: 400 7.5px/9px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .2em; color: rgb(var(--teal)); text-transform: uppercase; text-shadow: 0 0 5px rgba(var(--teal), .5); }
+  .unit { left: 349px; top: 78px; font: 500 13px/14px "Jost", sans-serif; letter-spacing: .04em; color: rgb(var(--cream)); text-shadow: 0 0 6px rgba(var(--cream), .5); }
+
+  /* ruled tables in the manner of a printed specification sheet: thin frame, a headed row, a ruled first column */
+  .table { left: 20px; width: 353px; border: .6px solid rgba(var(--cream), .75); font-size: 11px; }
+  .table .head, .table .row { display: grid; }
+  .table .head { font: 500 7.5px/13px "Jost", sans-serif; letter-spacing: .16em; text-transform: uppercase; border-bottom: .6px solid rgba(var(--cream), .75); color: rgba(var(--cream), .8); }
+  .table .head > *, .table .row > * { padding: 0 8px; }
+  .table .head > :first-child, .table .row > :first-child { border-right: .6px solid rgba(var(--cream), .75); text-align: center; padding: 0; }
+  #events { top: 142px; }
+  #events .head, #events .row { grid-template-columns: 56px 1fr; }
+  #events .row { font: 400 11px/15px "Jost", sans-serif; letter-spacing: .1em; text-transform: uppercase; }
+  #events .row > * { padding-top: 3px; padding-bottom: 3px; }
+  #events .row > :first-child { font-weight: 500; letter-spacing: .04em; color: rgb(var(--amber)); text-shadow: 0 0 6px rgba(var(--amber), .45); text-transform: none; }
+  #index { top: 520px; }
+  #index .head, #index .row { grid-template-columns: 34px 1fr; }
+  #index .row { font: 400 12.5px/15px "Jost", sans-serif; letter-spacing: .01em; }
+  #index .row > * { padding-top: 5px; padding-bottom: 5px; }
+  #index .row > :first-child { font-weight: 500; letter-spacing: .04em; }
+
+  /* inside the scope: which weather lamp is lit (the others stay faintly visible, as on a glass display), and what is being tracked */
+  .lamps { left: 32px; top: 232px; display: flex; gap: 9px; font: 400 7.5px/9px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .16em; color: rgba(var(--ink), .2); }
+  .lamps .on { color: rgb(var(--ink)); text-shadow: 0 0 6px rgba(var(--ink), .7); }
+  .track { right: 32px; top: 232px; font: 400 7.5px/9px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .16em; color: rgb(var(--ink)); text-shadow: 0 0 6px rgba(var(--ink), .7); text-transform: uppercase; }
+
+  /* meters under the scope: how far the sun or moon is along its path, the wind, the cloud cover */
+  .meter { left: 20px; font: 400 7.5px/9px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .16em; color: rgb(var(--teal)); text-transform: uppercase; text-shadow: 0 0 5px rgba(var(--teal), .45); white-space: nowrap; }
+  .segs { display: flex; gap: 2px; }
+  .segs i { width: 7px; height: 9px; background: rgba(var(--amber), .13); }
+  .segs i.on { background: rgb(var(--amber)); box-shadow: 0 0 5px rgba(var(--amber), .6); }
+  .segs i.hot { background: rgba(var(--red), .16); }
+  .segs i.hot.on { background: rgb(var(--red)); box-shadow: 0 0 5px rgba(var(--red), .6); }
+  .segs.small i { width: 5px; height: 7px; background: rgba(var(--teal), .14); }
+  .segs.small i.on { background: rgb(var(--teal)); box-shadow: 0 0 4px rgba(var(--teal), .6); }
+  #m1 { top: 464px; width: 353px; display: grid; grid-template-columns: 1fr auto; align-items: center; row-gap: 4px; }
+  #m1 .ends { grid-column: 2; display: flex; justify-content: space-between; color: rgb(var(--amber)); text-shadow: 0 0 5px rgba(var(--amber), .45); text-transform: none; letter-spacing: .08em; }
+  #m2 { top: 496px; width: 353px; display: flex; justify-content: space-between; align-items: center; }
+  #m2 > span { display: flex; align-items: center; gap: 7px; }
+  #m2 b { font-weight: 400; color: rgb(var(--cream)); text-shadow: 0 0 5px rgba(var(--cream), .4); }
+
+  /* four keys, as on an old keyboard: cream caps, one teal, one orange, each with its name printed above it */
+  .keys { left: 20px; top: 760px; width: 353px; display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 11px; }
+  .keys div { display: flex; flex-direction: column; align-items: center; gap: 5px; font: 400 7px/8px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .2em; color: rgba(var(--cream), .7); text-transform: uppercase; }
+  .keys b { display: flex; align-items: center; justify-content: center; width: 100%; height: 40px; border-radius: 10px; background: rgb(var(--cream)); box-shadow: inset 0 -4px 0 rgba(0,0,0,.17); }
+  .keys .t b { background: rgb(84, 184, 196); } .keys .o b { background: rgb(238, 92, 44); }
+  .keys svg { width: 17px; height: 17px; margin-top: -3px; fill: none; stroke: #14130f; stroke-width: .11; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+  body.nobtn .keys { display: none; }
+
+  /* the glass: fine scan lines over everything, and darker corners */
+  .glass { inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(0,0,0,.26) 0 1px, transparent 1px 3px), radial-gradient(120% 90% at 50% 45%, transparent 60%, rgba(0,0,0,.5) 100%); }
+  .home { left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
+
+  nav { width: 250px; }
+  nav h1 { font-size: 13px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase; margin: 0 0 6px; color: #fff; }
+  nav p { font-size: 13px; line-height: 1.5; color: #8a9292; margin: 0 0 18px; }
+  nav button {
+    display: block; width: 100%; text-align: left; background: none; border: 0; border-left: 1px solid #252b2b;
+    color: #98a1a1; font: 400 12px "Jost", sans-serif; letter-spacing: .22em; text-transform: uppercase; padding: 9px 14px; cursor: pointer;
+  }
+  nav button:hover { color: #fff; }
+  nav button[aria-pressed="true"] { color: #fff; border-left-color: #fff; }
+  nav button:focus-visible { outline: 1px solid #fff; outline-offset: -1px; }
+  body.bare nav { display: none; }
+</style>
+</head>
+<body>
+
+<!-- The app's three symbols as it draws them (ios/Seasign/Design/Icons.swift), and the for-all sign for "all publications". -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-settings" viewBox="0 0 1 1"><path d="M.5 0V1M.02 .31H.98L.02 .69H.98"/></symbol>
+  <symbol id="i-list" viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".29"/><path d="M0 .5H1M.821 .117A.5 .5 0 0 1 .821 .883M.179 .883A.5 .5 0 0 1 .179 .117"/></symbol>
+  <symbol id="i-saved" viewBox="0 0 1 1"><path d="M.5 0V1M0 .5H1M.08 .08L.92 .92M.92 .08L.08 .92"/></symbol>
+  <symbol id="i-more" viewBox="0 0 1 1"><path d="M.08 .04L.5 .96L.92 .04M.226 .36H.774"/></symbol>
+</svg>
+
+<div class="phone" id="phone">
+  <canvas id="scene" width="393" height="852"></canvas>
+  <div class="ui">
+    <div class="clock" id="clock">11:36</div>
+
+    <div class="strip"><span>Seasign · 16 Nov 2026</span><span>Chicago</span></div>
+    <div class="cap" style="left: 24px">Day</div>
+    <div class="cap" style="left: 282px">Temp</div>
+    <div class="unit">°F</div>
+
+    <div class="table" id="events">
+      <div class="head"><span>Time</span><span>Next</span></div>
+      <div class="row"><span>6:45p</span><span>Hanna’s show</span></div>
+      <div class="row"><span>8:15p</span><span>Submit work hours for studio payroll</span></div>
+      <div class="row"><span>TUE</span><span>Brush pets teeth</span></div>
+    </div>
+
+    <div class="lamps" id="lamps"><span data-k="clear">CLEAR</span><span data-k="cloud">CLOUD</span><span data-k="rain">RAIN</span><span data-k="snow">SNOW</span></div>
+    <div class="track" id="track">Sun</div>
+
+    <div class="meter" id="m1"><span id="m1name">Daylight</span><span class="segs" id="daysegs"></span><span class="ends"><span id="rise">6:41a</span><span id="set">4:31p</span></span></div>
+    <div class="meter" id="m2">
+      <span>Wind <b id="windv">08 mph</b><span class="segs small" id="windsegs"></span></span>
+      <span>Cloud <b id="cloudv">00%</b><span class="segs small" id="cloudsegs"></span></span>
+    </div>
+
+    <div class="table" id="index">
+      <div class="head"><span>N°</span><span>Reading</span></div>
+      <div class="row"><span>01</span><span>A short explainer on how El Niño works [video]</span></div>
+      <div class="row"><span>02</span><span>It’s getting too dry for even cactuses to survive</span></div>
+      <div class="row"><span>03</span><span>‘Birdbrain’ is a misnomer. Crows make decisions faster than we can</span></div>
+      <div class="row"><span>04</span><span>What the Great Lakes remember about last winter</span></div>
+      <div class="row"><span>05</span><span>The quiet return of the paper map</span></div>
+      <div class="row"><span>06</span><span>Why lighthouse keepers kept such careful weather diaries</span></div>
+      <div class="row"><span>07</span><span>The cartographers redrawing the ocean floor</span></div>
+    </div>
+
+    <div class="keys">
+      <div>Settings<b><svg><use href="#i-settings"/></svg></b></div>
+      <div>List<b><svg><use href="#i-list"/></svg></b></div>
+      <div class="t">Saved<b><svg><use href="#i-saved"/></svg></b></div>
+      <div class="o">All<b><svg><use href="#i-more"/></svg></b></div>
+    </div>
+
+    <div class="glass"></div>
+    <div class="home"></div>
+  </div>
+</div>
+
+<nav id="nav" aria-label="Scene state">
+  <h1>Seasign v9 · Pangea</h1>
+  <p>The day as an old machine would show it: segment read-outs, ruled tables, a line-drawn scope of the sky and sea, meters, and four keys. Pick a state; arrow keys step through them.</p>
+</nav>
+
+<script>
+"use strict";
+const W = 393, H = 852, TAU = Math.PI * 2, PI = Math.PI;
+const SCOPE = { x: 20, y: 222, w: 353, h: 232, r: 16 };   // the scope's glass
+const HZ = SCOPE.y + 150;                                 // the sea's horizon, inside the scope
+const PATH = { x: W / 2, half: 132, top: 92 };            // the sun and moon's path: the top of a circle whose centre is under the horizon
+PATH.r = (PATH.half * PATH.half + PATH.top * PATH.top) / (2 * PATH.top); PATH.a0 = Math.asin((PATH.r - PATH.top) / PATH.r);
+
+/* ink: the colour of the scope's trace; hot: the colour of the sun or moon itself */
+const LOOK = {
+  sunrise: { ink: "255,190,92",  hot: "255,214,140" },
+  day:     { ink: "214,226,96",  hot: "255,240,170" },
+  sunset:  { ink: "255,122,72",  hot: "255,170,110" },
+  cloudy:  { ink: "196,210,150", hot: "236,232,190" },
+  rain:    { ink: "160,190,196", hot: "214,224,220" },
+  snow:    { ink: "222,234,236", hot: "255,255,255" },
+  dusk:    { ink: "120,214,204", hot: "226,244,240", night: true },
+  night:   { ink: "112,214,200", hot: "232,246,242", night: true },
+  full:    { ink: "170,236,226", hot: "255,255,255", night: true },
+};
+/* `turn`: how far along the path, 0 (on the horizon at the left) to 1 (on the horizon at the right). Wind and cloud are sample values. */
+const STATES = [
+  { id: "sunrise",     label: "Sunrise",     look: "sunrise", turn: .005, time: "06:41", rise: "6:41a", set: "4:31p", wind: 6 },
+  { id: "mid-day",     label: "Mid-day",     look: "day",     turn: .5,   time: "11:36", rise: "6:41a", set: "4:31p", wind: 8 },
+  { id: "sunset",      label: "Sunset",      look: "sunset",  turn: .995, time: "16:31", rise: "6:41a", set: "4:31p", wind: 11 },
+  { id: "clouds",      label: "Clouds",      look: "cloudy",  turn: .42,  time: "10:50", rise: "6:41a", set: "4:31p", wind: 14, clouds: .8 },
+  { id: "rain",        label: "Rain",        look: "rain",    turn: .58,  time: "12:25", rise: "6:41a", set: "4:31p", wind: 19, clouds: 1, rain: true },
+  { id: "snow",        label: "Snow",        look: "snow",    turn: .5,   time: "11:36", rise: "6:41a", set: "4:31p", wind: 5,  clouds: .6, snow: true },
+  { id: "moon-rise",   label: "Moon rise",   look: "dusk",    turn: .005, time: "17:12", rise: "5:12p", set: "7:03a", wind: 9,  phase: .5 },
+  { id: "mid-night",   label: "Mid-night",   look: "night",   turn: .5,   time: "00:08", rise: "5:12p", set: "7:03a", wind: 4,  phase: .5 },
+  { id: "moon-waxing", label: "Waxing moon", look: "night",   turn: .36,  time: "21:40", rise: "4:35p", set: "6:40a", wind: 7,  phase: .25 },
+  { id: "moon-waning", label: "Waning moon", look: "night",   turn: .64,  time: "02:30", rise: "5:32p", set: "7:32a", wind: 7,  phase: .75 },
+  { id: "moon-full",   label: "Full moon",   look: "full",    turn: .5,   time: "00:08", rise: "5:12p", set: "7:03a", wind: 3,  phase: .5 },
+  { id: "moon-set",    label: "Moon set",    look: "dusk",    turn: .995, time: "07:03", rise: "5:12p", set: "7:03a", wind: 10, phase: .5 },
+];
+const CREAM = "236,229,204", AMBER = "255,178,62";
+
+function prng(seed) {
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const canvas = document.getElementById("scene"), ctx = canvas.getContext("2d");
+const DPR = Math.min(3, window.devicePixelRatio || 1);
+canvas.width = W * DPR; canvas.height = H * DPR;
+const soft = document.createElement("canvas"); soft.width = W; soft.height = H; const sctx = soft.getContext("2d");
+const list = (n, f) => Array.from({ length: n }, f);
+const srnd = prng(901), wrnd = prng(902);
+const bits = {
+  stars: list(90, () => ({ x: srnd(), y: srnd(), ph: srnd() * TAU, big: srnd() < .14 })),
+  clouds: list(5, () => ({ x: wrnd(), y: wrnd(), w: 34 + wrnd() * 40, sp: .008 + wrnd() * .01, rows: list(4, () => .45 + wrnd() * .55) })),
+  rain: list(46, () => ({ x: wrnd(), y: wrnd(), sp: .45 + wrnd() * .4 })),
+  snow: list(34, () => ({ x: wrnd(), y: wrnd(), sp: .04 + wrnd() * .04, ph: wrnd() * TAU })),
+};
+let state, look;
+const col = (rgb, a) => `rgba(${rgb},${Math.max(0, Math.min(1, a))})`;
+const pathAt = u => { const q = PI - PATH.a0 - u * (PI - 2 * PATH.a0); return [PATH.x + PATH.r * Math.cos(q), HZ + PATH.r - PATH.top - PATH.r * Math.sin(q)]; };
+
+/* ---------- a fourteen-segment character, as on a glass display: every segment is faintly there, and the ones that make the character are lit ---------- */
+const SEG = {   // a top, b upper right, c lower right, d bottom, e lower left, f upper left, g/G middle left and right, h/j upper diagonals, i/l upper and lower centre, k/m lower diagonals
+  M: "efbchj", O: "abcdef", N: "efbchm", T: "ail", U: "bcdef", E: "adefgG", W: "efbckm", D: "abcdil", H: "bcefgG", F: "aefgG", R: "abefgGm", I: "adil", S: "afgGcd", A: "abcefgG",
+  0: "abcdef", 1: "bc", 2: "abgGed", 3: "abgGcd", 4: "fgGbc", 5: "afgGcd", 6: "afgGecd", 7: "abc", 8: "abcdefgG", 9: "abcdfgG", " ": "",
+};
+function seg14(ch, x, y, w, h, rgb) {
+  const th = w * .14, g = th * .75, xm = w / 2, ym = h / 2, lit = SEG[ch] || "";
+  const S = { a: [g, 0, w - g, 0], d: [g, h, w - g, h], f: [0, g, 0, ym - g], e: [0, ym + g, 0, h - g], b: [w, g, w, ym - g], c: [w, ym + g, w, h - g],
+    g: [g, ym, xm - g * .5, ym], G: [xm + g * .5, ym, w - g, ym], i: [xm, g, xm, ym - g], l: [xm, ym + g, xm, h - g],
+    h: [g * 1.5, g * 1.6, xm - g * 1.1, ym - g * 1.4], j: [w - g * 1.5, g * 1.6, xm + g * 1.1, ym - g * 1.4], k: [xm - g * 1.1, ym + g * 1.4, g * 1.5, h - g * 1.6], m: [xm + g * 1.1, ym + g * 1.4, w - g * 1.5, h - g * 1.6] };
+  ctx.save(); ctx.translate(x, y); ctx.transform(1, 0, -.1, 1, h * .1, 0); ctx.lineCap = "butt";
+  for (const k in S) {
+    const on = lit.includes(k), diag = "hjkm".includes(k);
+    ctx.beginPath(); ctx.moveTo(S[k][0], S[k][1]); ctx.lineTo(S[k][2], S[k][3]);
+    ctx.lineWidth = th * (diag ? .78 : 1); ctx.strokeStyle = col(rgb, on ? 1 : .07); ctx.stroke();
+  }
+  ctx.restore();
+}
+function word14(text, x, y, w, h, rgb) { [...text].forEach((ch, i) => seg14(ch, x + i * w * 1.42, y, w, h, rgb)); }
+
+function draw(t) {
+  const ink = look.ink, hot = look.hot, s = SCOPE;
+  const [bx, by] = pathAt(state.turn), lowness = Math.pow(Math.max(0, 1 - (HZ - by) / PATH.top), 2), R = 9 * (1 + 2.3 * lowness);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "#050505"; ctx.fillRect(0, 0, W, H);
+
+  /* ---- the two lit read-outs: the day, and the temperature ---- */
+  word14(state.day || "MON", 24, 80, 25, 38, AMBER);
+  word14("55", 282, 80, 25, 38, CREAM);
+
+  /* ---- the scope: a line drawing of the sky and the sea, behind rounded glass ---- */
+  ctx.save(); ctx.beginPath(); ctx.roundRect(s.x, s.y, s.w, s.h, s.r); ctx.clip();
+  ctx.fillStyle = "#020303"; ctx.fillRect(s.x, s.y, s.w, s.h);
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  const sky = () => { ctx.save(); ctx.beginPath(); ctx.rect(s.x, s.y, s.w, HZ - s.y); ctx.clip(); };
+
+  /* stars, at night and a few at dawn and dusk: points and small crosses */
+  if (look.night || state.look === "sunrise" || state.look === "sunset") {
+    const k = look.night ? 1 : .45;
+    for (const d of bits.stars) {
+      const px = s.x + d.x * s.w, py = s.y + 18 + d.y * (HZ - s.y - 26), a = (.35 + .65 * Math.pow(.5 + .5 * Math.sin(t * 1.1 + d.ph), 2)) * k;
+      ctx.strokeStyle = ctx.fillStyle = col(ink, a * .85);
+      if (d.big) { ctx.lineWidth = .7; ctx.beginPath(); ctx.moveTo(px - 2.2, py); ctx.lineTo(px + 2.2, py); ctx.moveTo(px, py - 2.2); ctx.lineTo(px, py + 2.2); ctx.stroke(); }
+      else ctx.fillRect(px, py, 1, 1);
+    }
+  }
+  /* the path: a dotted arc, with a longer mark at each hour's point on the horizon */
+  for (let i = 1; i < 60; i++) { const [px, py] = pathAt(i / 60); ctx.fillStyle = col(ink, i / 60 <= state.turn ? .75 : .32); ctx.fillRect(px - .5, py - .5, 1.1, 1.1); }
+  const hours = look.night ? 14 : 10;
+  for (let i = 0; i <= hours; i++) { const px = pathAt(i / hours)[0], end = i === 0 || i === hours; ctx.strokeStyle = col(ink, end ? .9 : .5); ctx.lineWidth = .7; ctx.beginPath(); ctx.moveTo(px, HZ - (end ? 6 : 3)); ctx.lineTo(px, HZ); ctx.stroke(); }
+
+  /* weather, drawn in lines round the sun or moon: clouds as stacked strokes, rain as dashes, snow as small crosses */
+  sky();
+  if (state.clouds) for (const c of bits.clouds) {
+    const f = (c.x + t * c.sp) % 1, cx = bx + (f * 2.4 - 1.2) * 110, cy = by - 26 + c.y * 60, edge = Math.pow(Math.sin(PI * f), .6);
+    c.rows.forEach((k, i) => { const half = c.w * k * (i === 0 || i === 3 ? .6 : 1); ctx.strokeStyle = col(ink, .6 * state.clouds * edge); ctx.lineWidth = .8;
+      ctx.beginPath(); ctx.moveTo(cx - half + i * 3, cy + i * 3.2); ctx.lineTo(cx + half + i * 2, cy + i * 3.2); ctx.stroke(); });
+  }
+  if (state.rain) for (const p of bits.rain) {
+    const f = (p.y + t * p.sp) % 1, px = bx + (p.x - .5) * 250 - f * 16, py = by - 10 + f * (HZ - by + 10);
+    ctx.strokeStyle = col(ink, .7 * Math.sin(PI * f)); ctx.lineWidth = .7; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - 2, py + 7); ctx.stroke();
+  }
+  if (state.snow) for (const p of bits.snow) {
+    const f = (p.y + t * p.sp) % 1, px = bx + (p.x - .5) * 260 + Math.sin(t * .6 + p.ph) * 4, py = by - 40 + f * (HZ - by + 40);
+    ctx.strokeStyle = col(ink, .85 * Math.sin(PI * f)); ctx.lineWidth = .6; ctx.beginPath(); ctx.moveTo(px - 1.8, py); ctx.lineTo(px + 1.8, py); ctx.moveTo(px, py - 1.8); ctx.lineTo(px, py + 1.8); ctx.stroke();
+  }
+  /* the sun: a lit disc inside a ring, with short rays that turn slowly. The moon: an outlined disc, its lit part filled and its dark part hatched */
+  ctx.fillStyle = "#020303"; ctx.beginPath(); ctx.arc(bx, by, R + 3, 0, TAU); ctx.fill();
+  if (state.phase == null) {
+    ctx.fillStyle = col(hot, 1); ctx.beginPath(); ctx.arc(bx, by, R * .72, 0, TAU); ctx.fill();
+    ctx.strokeStyle = col(hot, .95); ctx.lineWidth = .9; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.stroke();
+    for (let i = 0; i < 16; i++) { const q = i / 16 * TAU + t * .12, r0 = R + 3, r1 = R + (i % 2 ? 6 : 9) * (.8 + .2 * Math.sin(t * 2 + i));
+      ctx.strokeStyle = col(hot, .8); ctx.lineWidth = .8; ctx.beginPath(); ctx.moveTo(bx + r0 * Math.cos(q), by + r0 * Math.sin(q)); ctx.lineTo(bx + r1 * Math.cos(q), by + r1 * Math.sin(q)); ctx.stroke(); }
+  } else {
+    const k = Math.cos(TAU * state.phase), lit = (1 - k) / 2;
+    ctx.save(); ctx.translate(bx, by); if (state.phase > .5) ctx.scale(-1, 1);
+    ctx.save(); ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.clip();                                   // the dark part: hatching
+    for (let h = -R * 2; h < R * 2; h += 3) { ctx.strokeStyle = col(ink, .45); ctx.lineWidth = .6; ctx.beginPath(); ctx.moveTo(h, -R); ctx.lineTo(h + R, R); ctx.stroke(); }
+    ctx.restore();
+    ctx.beginPath();
+    if (lit > .985) ctx.arc(0, 0, R, 0, TAU);
+    else { ctx.arc(0, 0, R, -PI / 2, PI / 2); ctx.ellipse(0, 0, R * Math.abs(k), R, 0, PI / 2, PI * 1.5, lit < .5); }
+    ctx.fillStyle = col(hot, 1); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = col(hot, .95); ctx.lineWidth = .9; ctx.beginPath(); ctx.arc(bx, by, R, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = col(ink, .5); ctx.lineWidth = .6; ctx.setLineDash([1.5, 3]); ctx.beginPath(); ctx.arc(bx, by, R + 5, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+  }
+  ctx.restore();
+
+  /* the sea: a wire mesh running to the horizon, its lines rising and falling; brighter in a lane under the sun or moon */
+  ctx.fillStyle = "#020303"; ctx.fillRect(s.x, HZ, s.w, s.y + s.h - HZ);
+  const ROWS = 15, COLS = 30, depth = s.y + s.h - HZ + 6;
+  const pt = (k, j) => { const d = Math.pow(k / ROWS, 1.75), y = HZ + d * depth, x = PATH.x + j * (5.6 + 44 * d);
+    return [x, y + (.25 + d * 3.4) * (Math.sin(x * .045 + t * 1.1 + k * .9) + .5 * Math.sin(x * .1 - t * .8 + k * 2.1)) * (k ? 1 : 0), d]; };
+  const lane = x => Math.exp(-Math.pow((x - bx) / 46, 2));
+  for (let k = 0; k <= ROWS; k++) for (let j = -COLS; j < COLS; j++) {
+    const a = pt(k, j), b = pt(k, j + 1); if (b[0] < s.x - 4 || a[0] > s.x + s.w + 4) continue;
+    const L = lane((a[0] + b[0]) / 2) * (1 - a[2] * .5);
+    ctx.strokeStyle = col(L > .35 ? hot : ink, (k ? .2 + .5 * a[2] : .95) + L * .5); ctx.lineWidth = k ? .55 + a[2] * .35 : 1; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  }
+  for (let j = -COLS; j <= COLS; j++) for (let k = 0; k < ROWS; k++) {
+    const a = pt(k, j), b = pt(k + 1, j); if (a[0] < s.x - 4 && b[0] < s.x - 4 || a[0] > s.x + s.w + 4 && b[0] > s.x + s.w + 4) continue;
+    ctx.strokeStyle = col(ink, .1 + .34 * a[2] + lane(a[0]) * .3 * (1 - a[2])); ctx.lineWidth = .5; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  }
+  ctx.restore();
+  /* the glass's edge */
+  ctx.strokeStyle = col(CREAM, .8); ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(s.x, s.y, s.w, s.h, s.r); ctx.stroke();
+
+  /* ---- the glow of the phosphor: the whole picture, blurred and laid back over itself ---- */
+  if ("filter" in sctx) {
+    ctx.globalCompositeOperation = "lighter";
+    for (const [px, a] of [[3, .5], [10, .3]]) {
+      sctx.globalCompositeOperation = "copy"; sctx.filter = `blur(${px}px)`; sctx.drawImage(canvas, 0, 0, W, H);
+      ctx.globalAlpha = a; ctx.drawImage(soft, 0, 0, W, H); ctx.globalAlpha = 1;
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+}
+
+/* ---------- choosing a state ---------- */
+const params = new URLSearchParams(location.search);
+const still = params.has("still"), T0 = parseFloat(params.get("t")) || 19;
+if (params.has("bare")) document.body.classList.add("bare");
+if (params.has("nobtn")) document.body.classList.add("nobtn");
+const fill = (el, n, on, hotFrom = n) => { el.innerHTML = ""; for (let i = 0; i < n; i++) { const b = document.createElement("i"); if (i < on) b.classList.add("on"); if (i >= hotFrom) b.classList.add("hot"); el.appendChild(b); } };
+const two = n => String(n).padStart(2, "0");
+
+function show(id) {
+  state = STATES.find(s => s.id === id) || STATES[0];
+  look = LOOK[state.look];
+  document.getElementById("phone").style.setProperty("--ink", look.ink);
+  document.getElementById("clock").textContent = state.time.replace(/^0/, "");
+  const moon = state.phase != null, lit = moon ? Math.round((1 - Math.cos(TAU * state.phase)) / 2 * 100) : null, cloud = Math.round((state.clouds || 0) * 100);
+  const lamp = state.snow ? "snow" : state.rain ? "rain" : state.clouds ? "cloud" : "clear";
+  for (const el of document.querySelectorAll("#lamps span")) el.classList.toggle("on", el.dataset.k === lamp);
+  document.getElementById("track").textContent = state.turn < .05 ? (moon ? "Moonrise" : "Sunrise") : state.turn > .95 ? (moon ? "Moonset" : "Sunset") : moon ? "Moon " + lit + "%" : "Sun";
+  document.getElementById("m1name").textContent = moon ? "Moon up" : "Daylight";
+  fill(document.getElementById("daysegs"), 30, Math.max(1, Math.round(state.turn * 30)), 26);       // the last four segments are red: nearly set
+  document.getElementById("rise").textContent = state.rise; document.getElementById("set").textContent = state.set;
+  document.getElementById("windv").textContent = two(state.wind) + " mph"; fill(document.getElementById("windsegs"), 12, Math.round(state.wind / 30 * 12));
+  document.getElementById("cloudv").textContent = two(cloud) + "%"; fill(document.getElementById("cloudsegs"), 12, Math.round(cloud / 100 * 12));
+  for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
+  if (still) draw(T0); else history.replaceState(null, "", "?state=" + state.id + (params.has("bare") ? "&bare" : ""));
+}
+const nav = document.getElementById("nav");
+for (const s of STATES) {
+  const b = document.createElement("button");
+  b.textContent = s.label; b.dataset.id = s.id; b.onclick = () => show(s.id); nav.appendChild(b);
+}
+addEventListener("keydown", e => {
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  show(STATES[(STATES.indexOf(state) + step + STATES.length) % STATES.length].id);
+});
+((document.fonts && document.fonts.ready) || Promise.resolve()).then(() => {
+  show(params.get("state") || "mid-day");
+  if (still) { document.title = "ready"; return; }
+  const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const loop = ms => { draw(calm ? T0 : ms / 1000); if (!calm) requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
