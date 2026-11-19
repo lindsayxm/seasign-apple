@@ -345,6 +345,14 @@ private final class SeenRequest: @unchecked Sendable {
         #expect(again[1].id == familyID)
     }
 
+    @Test func choicesOfCalendarsNoLongerListedDoNotCountAsChosen() {
+        let rows = GoogleCalendarMerge.merge(
+            existing: [(UUID(), "old-account", true)],
+            fetched: [GoogleCalendarEntry(id: "new-primary", name: "", primary: true)]
+        )
+        #expect(rows.map(\.isOn) == [true])
+    }
+
     @Test func atMostTenStayOn() {
         let existing = (0..<12).map { (UUID(), "c\($0)", true) }
         let fetched = (0..<12).map { GoogleCalendarEntry(id: "c\($0)", name: "", primary: false) }
@@ -678,13 +686,33 @@ private final class SeenRequest: @unchecked Sendable {
         #expect(try context.fetch(FetchDescriptor<CachedGoogleEvents>()).isEmpty)
     }
 
-    @Test func aMissingScopeOnTheListAsksToConnectAgain() async throws {
+    @Test func aRefusedCalendarListIsAStatusNotADisconnection() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
-        let model = await connected(context, store: InMemoryGoogleTokenStore())
+        let store = InMemoryGoogleTokenStore()
+        let model = await connected(context, store: store)
         stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.error(.forbidden, "google_forbidden"))
         await model.loadCalendars()
-        #expect(model.connection == .missingScope)
-        #expect(model.upcoming(now: clock.now).isEmpty)
+        #expect(model.connection == .connected)
+        #expect(model.statusProblem == .listForbidden)
+        #expect(model.statusProblem?.message.contains("Google Calendar API") == true)
+        #expect(store.stored?.secret == FakeGoogle.refresh)
+        #expect(titles(model) == ["Coffee"])
+    }
+
+    @Test func anotherAccountConnectedAfterTheSignInEndedStartsWithItsPrimaryOn() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = InMemoryGoogleTokenStore()
+        let model = await connected(context, store: store)
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        await model.refresh()
+        #expect(model.connection == .expired)
+
+        stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.calendars([("other@example.test", "Other", true), ("work-id", "Work", false)]))
+        await model.connect(signIn: redirect { "state=\($0)&code=\(FakeGoogle.code)" })
+        #expect(model.connection == .connected)
+        #expect(model.calendars.map(\.calendarID) == ["other@example.test", "work-id"])
+        #expect(model.chosen.map(\.calendarID) == ["other@example.test"])
     }
 
     @Test func aLeftoverTokenFromAnEarlierInstallIsRemoved() throws {

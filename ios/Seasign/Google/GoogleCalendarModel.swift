@@ -66,6 +66,8 @@ final class GoogleCalendarModel {
         case authFailed
         /// Google refused to renew the token with this OAuth error code.
         case google(String)
+        /// Google refused the calendar list (403 `google_forbidden`).
+        case listForbidden
         /// The Keychain could not be read just now.
         case keychain
 
@@ -81,6 +83,8 @@ final class GoogleCalendarModel {
                 "Google refused to renew the sign-in (\(code)). Disconnect and connect again."
             case .keychain:
                 "The Google sign-in can't be read from this phone right now. Unlock your phone and try again."
+            case .listForbidden:
+                "Google refused to list your calendars. Check that the Google Calendar API is turned on in the app's Google Cloud project; if it is, disconnect and connect again, allowing Seasign to see your calendars."
             }
         }
     }
@@ -422,7 +426,11 @@ final class GoogleCalendarModel {
         case let failure as SeasignAPI.GoogleFailure:
             switch failure {
             case .forbidden:
-                endSignIn(.missingScope)
+                // Both scopes were checked at sign-in, so this is more
+                // likely the Calendar API being off in the Cloud project.
+                // The connection and the events stay.
+                statusProblem = .listForbidden
+                hold(Self.googleRateLimitHold)
             case .rateLimited(let seconds):
                 statusProblem = .rateLimited
                 hold(TimeInterval(seconds))

@@ -67,8 +67,6 @@ enum GoogleConnection: String, Sendable, Equatable {
     /// Google no longer takes the sign-in (`invalid_grant`: revoked, or the
     /// 7-day limit of an app in test mode) or it is gone from the Keychain.
     case expired
-    /// Google refused the calendar list: the sign-in lacks a scope.
-    case missingScope = "missing_scope"
 }
 
 /// Why one Google calendar could not be read; the API's per-calendar codes.
@@ -84,7 +82,7 @@ enum GoogleCalendarProblem: String, Codable, CaseIterable, Sendable {
     var message: String {
         switch self {
         case .forbidden:
-            "Google didn't let Seasign read this calendar."
+            "Google didn't let Seasign read this calendar. If every calendar says this, check that the Google Calendar API is turned on in the app's Google Cloud project."
         case .notFound:
             "Google can't find this calendar any more."
         case .rateLimited:
@@ -207,7 +205,11 @@ enum GoogleCalendarMerge {
         newID: () -> UUID = { UUID() }
     ) -> [Row] {
         let known = Dictionary(existing.map { ($0.calendarID, ($0.id, $0.isOn)) }, uniquingKeysWith: { first, _ in first })
-        let nothingChosen = !existing.contains { $0.isOn }
+        // Counted over the calendars that are still on the list, so a
+        // different account connected after the last one ended starts with
+        // its primary calendar on.
+        let listed = Set(fetched.map(\.id))
+        let nothingChosen = !existing.contains { $0.isOn && listed.contains($0.calendarID) }
         var onCount = 0
         var seen = Set<String>()
         var rows: [Row] = []

@@ -16,7 +16,8 @@ final class GoogleWebSignIn: NSObject, ASWebAuthenticationPresentationContextPro
     func signIn(url: URL, callbackScheme: String) async throws -> URL {
         session?.cancel()
         return try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) { [weak self] callback, error in
+            // `@Sendable`: the SDK does not say which thread calls this.
+            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) { @Sendable [weak self] callback, error in
                 Task { @MainActor in self?.session = nil }
                 if let callback {
                     continuation.resume(returning: callback)

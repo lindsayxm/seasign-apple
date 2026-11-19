@@ -26,10 +26,6 @@ struct GoogleSettingsSection: View {
                 note("Your Google sign-in has ended, so Google events are off Today. Google ends sign-ins after 7 days while Seasign is in testing, or when access is removed in your Google account. Connect again to bring them back.", warning: true)
                 connectButton("Connect again")
                 disconnectButton
-            case .missingScope:
-                note(GoogleCalendarModel.ConnectProblem.missingScope.message, warning: true)
-                connectButton("Connect again")
-                disconnectButton
             case .connected:
                 connectedContent
             }
