@@ -20,12 +20,9 @@ Given up on purpose from v7's settled layout, since the user invited a rethink: 
 
 ## What changed from v7 (first pass)
 
-Where this section disagrees with the reasoning above (button frame, layout), the section above is the current state.
-
 - **One ink colour per screen.** The date, day name, event times, buttons and the tag's first line share one colour; everything else is white. Soft yellow by day and in weather, pale yellow at sunrise, pale peach at sunset, pale aqua at night. v7 used three colours per screen. The glow behind the day name is gone.
 - **The sun reads as light, not as a drawn ball.** A near-white hot core, a warm limb, far fainter dark cells; its paler colours make the soft light round it stronger. It still churns and flickers, and the rippling outer line at rise and set is kept, thinner and paler. The rotating pale ring from v6 is gone.
 - **Thinner weather.** Clouds are flatter, wider bands; rain is longer, finer lines; snow is smaller.
-- **Button frame.** The rounded glowing panel is now a flat dark plate with a hairline edge, short ink-coloured corners and two faint dividers.
 - **Three instrument marks, each showing something the app knows:**
   1. Corner brackets round the sun or moon (only the corners above the horizon), with a short leader to a two-line tag in small mono type. First line: `SUN`, or `MOON` with the lit percentage; on the horizon it becomes `SUNRISE 6:41 AM`, `SUNSET …`, `MOONRISE …`, `MOONSET …`. Second line: wind, with the cloud cover, `RAIN` or `SNOW` before it when there is any. The tag sits to the right of the body in the left half of the sky and to the left in the right half.
   2. The horizon as a scale: one small tick an hour between rising and setting, longer at the two ends, where the rise and set times are written under the horizon. When the body is on the horizon the time under it is hidden (the glare swallows it; the tag gives it instead).
@@ -34,12 +31,11 @@ Where this section disagrees with the reasoning above (button frame, layout), th
 
 ## Kept from v7 on purpose
 
-Serif article titles without numbers, 12-hour times, temperature only at the top, the path line off (`&arc` shows it), the sky gradients, the stars, grain, water glints, the moon, and the size of the sun and moon at rise and set.
+Serif article titles without numbers, 12-hour times, temperature only at the top, the path line off (`&arc` shows it), the sky gradients, the stars, grain, water glints, and the size of the sun and moon at rise and set.
 
 ## Decided without being asked
 
 - The wind and cloud figures in the tag are sample values; the app has both from its weather source.
 - Nothing invented is shown (no coordinates, angles or decorative read-outs).
-- The moon's surface was not redrawn.
 
 Stills `01-sunrise.png` … `12-moon-set.png` are rendered at 3× with headless Chrome, as for the other versions.

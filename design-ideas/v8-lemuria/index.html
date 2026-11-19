@@ -481,8 +481,11 @@ function draw(t) {
   }
   /* film grain over the whole view */
   const nx = Math.floor(hash(Math.floor(t * 24)) * 180), ny = Math.floor(hash(Math.floor(t * 24) + 9.1) * 180);
-  ctx.globalAlpha = .11;
-  for (let yy = -ny; yy < H; yy += 180) for (let xx = -nx; xx < W; xx += 180) { ctx.globalAlpha = yy + 90 > HZ + 110 ? .07 : .11; ctx.drawImage(grain, xx, yy, 180, 180); }
+  for (const [y0, y1, a] of [[0, HZ + 110, .11], [HZ + 110, H, .07]]) {                             // a little finer under the article titles; the change is at a fixed row, in the dark
+    ctx.save(); ctx.beginPath(); ctx.rect(0, y0, W, y1 - y0); ctx.clip(); ctx.globalAlpha = a;
+    for (let yy = -ny; yy < H; yy += 180) for (let xx = -nx; xx < W; xx += 180) ctx.drawImage(grain, xx, yy, 180, 180);
+    ctx.restore();
+  }
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
 }
 
