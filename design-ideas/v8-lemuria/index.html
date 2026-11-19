@@ -32,12 +32,12 @@
   /* everything at the left lines up with the clock's left edge (x 34): date, day, weather, the ∀ button and the article list */
   .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; text-transform: none; color: #fff; }
 
-  /* the header, as an instrument read-out: two boxed labels (date, place); under them two large mono read-outs (day, temperature), each with a small
-     two-line note beside it (week and day of the year; latitude and longitude) */
-  .date, .place { top: 58px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8.5px; line-height: 11px; letter-spacing: .18em; white-space: nowrap; padding: 2px 3px 2px 6px; }
+  /* the header, as an instrument read-out: two large mono read-outs (day, temperature), each with a small
+     two-line note beside it (week and day of the year; latitude and longitude); under them two boxed labels (date, place) */
+  .date, .place { top: 108px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8.5px; line-height: 11px; letter-spacing: .18em; white-space: nowrap; padding: 2px 3px 2px 6px; }
   .date { left: 34px; color: rgb(var(--amber)); border: .5px solid rgba(var(--amber), .55); }
   .place { right: 34px; color: rgba(238,240,240,.85); border: .5px solid rgba(255,255,255,.3); }
-  .hero { top: 82px; display: flex; align-items: flex-end; gap: 11px; white-space: nowrap; }
+  .hero { top: 60px; display: flex; align-items: flex-end; gap: 11px; white-space: nowrap; }
   .hero.l { left: 33px; } .hero.r { right: 34px; flex-direction: row-reverse; text-align: right; }
   .hero b { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 200; font-size: 38px; line-height: 40px; }
   .day { letter-spacing: .1em; margin-right: -.1em; color: rgb(var(--hi)); }

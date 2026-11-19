@@ -62,3 +62,5 @@ Second pass the same day (#101), after "push v8 further - think from first princ
 Third pass (#102), "make the top a little more technical looking": boxed mono date and place labels, large light mono day and temperature with small two-line notes (week and day of year; latitude and longitude), and the bar as a seven-segment week ruler with today in ink.
 
 The week ruler was removed at the user's request straight after (#103); the header now has no bar.
+
+The boxed date and place labels were then moved below the day and temperature at the user's request (#104).
