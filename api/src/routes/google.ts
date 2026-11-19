@@ -2,6 +2,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { UPCOMING_DAYS, isTimeZone, upcomingEvents, type StoredEvent, type UpcomingEvent } from "../lib/calendar.ts";
 import {
+  GOOGLE_EVENT_TYPES,
   GoogleFailure,
   calendarOf,
   getGoogleJson,
@@ -24,9 +25,9 @@ import { CalendarEventSchema } from "./calendar.ts";
 // Every answer carries Cache-Control: no-store (set in app.ts, so that the
 // body-limit and rate-limit answers carry it too).
 
-const MAX_CALENDARS = 10;
+export const MAX_CALENDARS = 10;
 const MAX_EVENTS = 50;
-const MAX_ID_LENGTH = 512;
+export const MAX_ID_LENGTH = 512;
 /** events.list page size (Google allows up to 2500) and pages read per calendar. */
 const PAGE_SIZE = 250;
 const MAX_PAGES = 4;
@@ -44,13 +45,13 @@ export const MAX_TOKEN_LENGTH = 2048;
 const TOKEN_PATTERN = /^[A-Za-z0-9\-._~+/]+=*$/;
 /** Printable ASCII without spaces; `.` and `..` would change the request path. */
 const ID_PATTERN = /^[\x21-\x7e]+$/;
-const isCalendarId = (id: string) => ID_PATTERN.test(id) && id !== "." && id !== "..";
+export const isCalendarId = (id: string) => ID_PATTERN.test(id) && id !== "." && id !== "..";
 
 /** Only what is read, so that descriptions, attendees and the like never reach the Worker. */
 const EVENT_FIELDS = "items(status,summary,start,end,endTimeUnspecified),nextPageToken";
 const LIST_FIELDS = "items(id,summary,summaryOverride,primary,selected,backgroundColor,deleted),nextPageToken";
 
-const GoogleHeadersSchema = z.object({
+export const GoogleHeadersSchema = z.object({
   "x-google-token": z
     .string()
     .min(MIN_TOKEN_LENGTH)
@@ -211,7 +212,9 @@ google.onError((error, c) => {
   return c.json(INTERNAL_ERROR, 500);
 });
 
-const failureCode = (error: unknown): GoogleFailureCode => (error instanceof GoogleFailure ? error.code : "fetch_failed");
+// `webhook_refused` belongs to events.watch (routes/google-push.ts); on a read it can only be noise.
+const failureCode = (error: unknown): GoogleFailureCode =>
+  error instanceof GoogleFailure && error.code !== "webhook_refused" ? error.code : "fetch_failed";
 
 /** RFC 3339 in UTC, second precision. */
 const rfc3339 = (seconds: number) => new Date(seconds * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -245,8 +248,7 @@ async function readCalendar(id: string, token: string, now: Date): Promise<{ eve
       // Ordinary events and ones Google made from mail (flights, bookings). Working
       // location, focus time, out of office and birthdays are left out: the
       // pasted-link feed does not carry them either (task 155).
-      params.append("eventTypes", "default");
-      params.append("eventTypes", "fromGmail");
+      for (const type of GOOGLE_EVENT_TYPES) params.append("eventTypes", type);
       if (pageToken) params.set("pageToken", pageToken);
       const body = await getGoogleJson(path, params, token, signal);
       // With `fields`, Google leaves `items` out of an empty page.

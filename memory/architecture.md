@@ -20,14 +20,14 @@ iPhone app (ios/)  ──HTTPS, JSON──▶  API on Cloudflare Workers (api/) 
 
 ## Status
 
-Scaffolded by task 2. The API routes are `GET /v1/health`, `GET /v1/sky` (task 3: zip to place, weather, sun and moon) `POST /v1/calendar/events` (task 5: upcoming events from pasted calendar links), and `POST /v1/sites/resolve` and `POST /v1/feed` (task 7: how to follow a page, and recent articles from the followed sites), and `POST /v1/discover` (task 11: AI search with the user's own LLM key; the app side is task 12), and `GET /v1/google/calendars` and `POST /v1/google/events` (task 153: Google Calendar read with the user's own access token; plan `plans/2026-11-19-google-calendar-push.md`). The app has the Today screen with the drawn sky and water driven by `/v1/sky` (task 4), the zip in Settings, the Do/Get lists (task 10), calendar links in Settings with the next three events on Today (task 6), followed sites in Settings with headlines on Today and a reading view (task 8), the 7-day history and Saved with notes (task 9), and AI search in Settings with AI-found items blended into the feed and labelled (task 12). The Today screen was rebuilt to design v11 (tasks 145 and 146, `plans/2026-11-18-today-v11.md`); the other screens keep the look of the `ref-img/` mockups. The v1 plan is `plans/2026-11-15-v1-build.md`; the decisions behind it are in `memory/decisions/2026-11-15-v1-product-decisions.md`.
+Scaffolded by task 2. The API routes are `GET /v1/health`, `GET /v1/sky` (task 3: zip to place, weather, sun and moon) `POST /v1/calendar/events` (task 5: upcoming events from pasted calendar links), and `POST /v1/sites/resolve` and `POST /v1/feed` (task 7: how to follow a page, and recent articles from the followed sites), and `POST /v1/discover` (task 11: AI search with the user's own LLM key; the app side is task 12), and `GET /v1/google/calendars` and `POST /v1/google/events` (task 153: Google Calendar read with the user's own access token; plan `plans/2026-11-19-google-calendar-push.md`), and `POST /v1/google/watch`, `POST /v1/google/unwatch` and Google's webhook `POST /v1/google/notify` (task 156: Google push channels in D1 table `calendar_channels`, background pushes through APNs; `memory/decisions/2026-11-19-google-push-channels.md`). The app has the Today screen with the drawn sky and water driven by `/v1/sky` (task 4), the zip in Settings, the Do/Get lists (task 10), calendar links in Settings with the next three events on Today (task 6), followed sites in Settings with headlines on Today and a reading view (task 8), the 7-day history and Saved with notes (task 9), and AI search in Settings with AI-found items blended into the feed and labelled (task 12). The Today screen was rebuilt to design v11 (tasks 145 and 146, `plans/2026-11-18-today-v11.md`); the other screens keep the look of the `ref-img/` mockups. The v1 plan is `plans/2026-11-15-v1-build.md`; the decisions behind it are in `memory/decisions/2026-11-15-v1-product-decisions.md`.
 
 ## Layout
 
 ```
 app-identity.xcconfig            bundle ID and team ID, the one place they are set
 api/
-  wrangler.jsonc                 Worker config: vars.APPLE_APP_BUNDLE_ID, D1 binding DB, KV binding CACHE (placeholder IDs), six Rate Limiting bindings RATE_LIMIT_* (task 19; GOOGLE added by task 153)
+  wrangler.jsonc                 Worker config: vars.APPLE_APP_BUNDLE_ID and GOOGLE_WEBHOOK_URL, D1 binding DB, KV binding CACHE (placeholder IDs), seven Rate Limiting bindings RATE_LIMIT_* (task 19; GOOGLE added by task 153, NOTIFY by task 156)
   src/index.ts                   Worker entry, exports the app
   src/app.ts                     OpenAPIHono app; the 64 KB request body limit; mounts the routes; loadable in Node for the spec writer
   src/routes/                    one file per resource, routes defined with createRoute + Zod
@@ -46,13 +46,16 @@ api/
   src/routes/discover.ts         POST /v1/discover: X-LLM-Key header, validation, fixed error bodies, no KV
   src/lib/google.ts              Google Calendar API calls (fixed origin, no redirects, deadline, capped bodies), error classing, Google items to StoredEvent
   src/routes/google.ts           GET /v1/google/calendars, POST /v1/google/events: X-Google-Token header, fixed error bodies, no KV
+  src/routes/google-push.ts      POST /v1/google/watch and /unwatch (channels per device in D1), POST /v1/google/notify (Google's webhook, not in the spec): channel token check, background push
+  src/lib/apns.ts                APNs sender: ES256 provider token (WebCrypto, cached 40 min), background push, outcome classes; secrets APNS_KEY, APNS_KEY_ID, APNS_TEAM_ID
+  src/env.d.ts                   optional secret types (no values in the repo)
   src/llm/types.ts               Adapter interface, provider ids, DiscoverFailure and its fixed codes
   src/llm/http.ts                callProvider: the one fetch to a provider (25 s deadline, 1 MB cap, no redirects)
   src/llm/prompt.ts              the fixed instructions and the user turn (interests as a JSON array inside tags)
   src/llm/results.ts             model text to items: JSON scan, Zod per item, citation matching, cleaning, dates
   src/llm/anthropic.ts, openai.ts, gemini.ts, perplexity.ts   one adapter each: host, model constant, request, response reader, error map
-  src/db/schema.ts               Drizzle schema (empty until task 13)
-  migrations/                    drizzle-kit output (empty)
+  src/db/schema.ts               Drizzle schema: calendar_channels (task 156)
+  migrations/                    drizzle-kit output; the tests apply them through TEST_MIGRATIONS (vitest.config.ts)
   scripts/openapi.ts             npm run openapi: writes ../openapi/openapi.json
   scripts/check-identity.mjs     first step of npm test: bundle ID in wrangler.jsonc must equal the identity file
   scripts/calendar-memory.ts     V8 old space parseCalendar needs per file shape, in Node (see Calendar memory limits)

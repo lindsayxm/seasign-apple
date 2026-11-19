@@ -933,6 +933,153 @@
         "required": [
           "calendars"
         ]
+      },
+      "GoogleWatch": {
+        "type": "object",
+        "properties": {
+          "calendars": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GoogleWatchStatus"
+            },
+            "description": "One entry per calendar id, in request order"
+          },
+          "expiresAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "When the first of the new channels ends (RFC 3339, UTC), or null when none was made. Channels cannot be renewed: watch again before this, for example when the app opens and less than two days are left",
+            "example": "2026-11-26T15:00:00Z"
+          }
+        },
+        "required": [
+          "calendars",
+          "expiresAt"
+        ]
+      },
+      "GoogleWatchStatus": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Index of the calendar id in the request",
+            "example": 0
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "True when Google now notifies us of changes to this calendar"
+          },
+          "error": {
+            "type": "string",
+            "enum": [
+              "forbidden",
+              "not_found",
+              "rate_limited",
+              "fetch_failed",
+              "timeout",
+              "too_large",
+              "webhook_refused"
+            ],
+            "description": "Why the calendar could not be watched: forbidden (Google refused access, or the token lacks the scope), not_found, rate_limited (Google is limiting requests; try later), fetch_failed (Google unreachable, an error status or an unreadable answer), timeout, too_large, webhook_refused (Google refused the API's webhook address: a server setting, not the user's; trying again will not help until it is fixed)"
+          }
+        },
+        "required": [
+          "index",
+          "ok"
+        ]
+      },
+      "GooglePushError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "google_auth",
+              "rate_limited",
+              "push_unavailable",
+              "internal_error"
+            ],
+            "description": "Machine-readable reason"
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed human-readable text for the code; never Google's own words"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "GoogleWatchRequest": {
+        "type": "object",
+        "properties": {
+          "calendars": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Google calendar ids from /v1/google/calendars (or \"primary\"): 1 to 10. Every calendar the device should be woken for, not only new ones",
+            "example": [
+              "primary"
+            ]
+          },
+          "deviceToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 400,
+            "pattern": "^(?:[0-9a-fA-F]{2})+$",
+            "description": "The APNs device token from application(_:didRegisterForRemoteNotificationsWithDeviceToken:), as hex (an even number of 32 to 400 hex digits, either case)",
+            "example": "00fc13adff785122b4ad28809a3420982341241421348097878e577c991de8f0"
+          },
+          "environment": {
+            "type": "string",
+            "enum": [
+              "sandbox",
+              "production"
+            ],
+            "description": "Which APNs the device token belongs to: sandbox for development builds (aps-environment development), production for TestFlight and App Store builds",
+            "example": "production"
+          }
+        },
+        "required": [
+          "calendars",
+          "deviceToken",
+          "environment"
+        ]
+      },
+      "GoogleUnwatch": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "integer",
+            "description": "How many channels this device had; all are now forgotten, and each was stopped at Google if Google allowed it",
+            "example": 2
+          }
+        },
+        "required": [
+          "removed"
+        ]
+      },
+      "GoogleUnwatchRequest": {
+        "type": "object",
+        "properties": {
+          "deviceToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 400,
+            "pattern": "^(?:[0-9a-fA-F]{2})+$",
+            "description": "The APNs device token from application(_:didRegisterForRemoteNotificationsWithDeviceToken:), as hex (an even number of 32 to 400 hex digits, either case)",
+            "example": "00fc13adff785122b4ad28809a3420982341241421348097878e577c991de8f0"
+          }
+        },
+        "required": [
+          "deviceToken"
+        ]
       }
     },
     "parameters": {}
@@ -1557,6 +1704,196 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GoogleError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/google/watch": {
+      "post": {
+        "operationId": "postGoogleWatch",
+        "summary": "Wake this device with a background push whenever one of these Google calendars changes",
+        "description": "Replaces the device's earlier channels: they are stopped at Google and forgotten once at least one new channel is made. When none could be made, the earlier channels are kept. The push is {\"aps\":{\"content-available\":1},\"type\":\"calendar-changed\"}: it carries no event data, so the app reloads with /v1/google/events",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 2048,
+              "pattern": "^[A-Za-z0-9\\-._~+/]+=*$",
+              "description": "The user's Google OAuth access token, without \"Bearer \". Used for this request's calls to the Google Calendar API and never stored or logged. 16 to 2048 characters of the RFC 6750 token alphabet",
+              "example": "ya29.example-token-not-real"
+            },
+            "required": true,
+            "description": "The user's Google OAuth access token, without \"Bearer \". Used for this request's calls to the Google Calendar API and never stored or logged. 16 to 2048 characters of the RFC 6750 token alphabet",
+            "name": "x-google-token",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleWatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The state of each calendar and when the new channels end",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleWatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request: no X-Google-Token header or one of the wrong shape, a body that is not JSON or not sent as application/json, no calendar ids or more than 10, an id of the wrong shape, a device token that is not hex of 32 to 400 digits, or an unknown environment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GooglePushError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "google_auth: Google did not accept the token (expired or revoked). Nothing was changed. Refresh the access token and ask again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GooglePushError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many requests from this network; wait Retry-After seconds",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GooglePushError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal_error: something went wrong in the API; nothing was changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GooglePushError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "push_unavailable: this server has no webhook address configured, so Google cannot be asked to notify it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GooglePushError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/google/unwatch": {
+      "post": {
+        "operationId": "postGoogleUnwatch",
+        "summary": "Stop waking this device for Google calendar changes",
+        "description": "For sign-out and Disconnect. The device's channels are forgotten even when Google refuses to stop them (they then end by themselves within 7 days, and their calls are ignored)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 2048,
+              "pattern": "^[A-Za-z0-9\\-._~+/]+=*$",
+              "description": "The user's Google OAuth access token, without \"Bearer \". Used for this request's calls to the Google Calendar API and never stored or logged. 16 to 2048 characters of the RFC 6750 token alphabet",
+              "example": "ya29.example-token-not-real"
+            },
+            "required": true,
+            "description": "The user's Google OAuth access token, without \"Bearer \". Used for this request's calls to the Google Calendar API and never stored or logged. 16 to 2048 characters of the RFC 6750 token alphabet",
+            "name": "x-google-token",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleUnwatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The device's channels are gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleUnwatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request: no X-Google-Token header or one of the wrong shape, a body that is not JSON or not sent as application/json, or a device token that is not hex of 32 to 400 digits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GooglePushError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited: too many requests from this network; wait Retry-After seconds",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before asking again",
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "example": 60
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GooglePushError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal_error: something went wrong in the API",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GooglePushError"
                 }
               }
             }

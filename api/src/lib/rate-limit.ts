@@ -40,6 +40,17 @@ export const RATE_LIMITS = {
    * quota.
    */
   google: { binding: "RATE_LIMIT_GOOGLE", namespaceId: "19006", limit: 600, period: 60 },
+  /**
+   * POST /v1/google/notify, Google's webhook (task 156). Its callers are
+   * Google's servers, shared by every channel, so a per-address limit sized
+   * for one phone would refuse Google itself; 1200 a minute per address is
+   * far above one change notification per calendar edit at this scale. A
+   * refused call is a lost wake-up, not lost data (the app reloads when it
+   * opens). A forged call costs one header check, or one D1 read by primary
+   * key when its channel id has our shape; it cannot send a push without the
+   * channel token.
+   */
+  notify: { binding: "RATE_LIMIT_NOTIFY", namespaceId: "19007", limit: 1200, period: 60 },
 } as const satisfies Record<string, { binding: keyof CloudflareBindings; namespaceId: string; limit: number; period: 10 | 60 }>;
 
 export type RateLimitGroup = keyof typeof RATE_LIMITS;

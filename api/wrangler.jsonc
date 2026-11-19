@@ -17,7 +17,11 @@
 	"vars": {
 		// Must equal APP_BUNDLE_ID in ../app-identity.xcconfig.
 		// `npm test` runs scripts/check-identity.mjs and fails when they differ.
-		"APPLE_APP_BUNDLE_ID": "technology.artisan.seasign"
+		"APPLE_APP_BUNDLE_ID": "technology.artisan.seasign",
+		// Where Google sends calendar change notifications (events.watch
+		// `address`, task 156). Must be https with a valid certificate; it is
+		// the deployed Worker's own /v1/google/notify. Not a secret.
+		"GOOGLE_WEBHOOK_URL": "https://api.seasign.app/v1/google/notify"
 	},
 	// Placeholder IDs: enough for `wrangler dev` and the tests, which run locally.
 	// The real resources are created only with the user's go-ahead (see AGENTS.md).
@@ -48,6 +52,7 @@
 		{ "name": "RATE_LIMIT_FEED", "namespace_id": "19003", "simple": { "limit": 15, "period": 60 } },
 		{ "name": "RATE_LIMIT_RESOLVE", "namespace_id": "19004", "simple": { "limit": 10, "period": 60 } },
 		{ "name": "RATE_LIMIT_DISCOVER", "namespace_id": "19005", "simple": { "limit": 5, "period": 60 } },
-		{ "name": "RATE_LIMIT_GOOGLE", "namespace_id": "19006", "simple": { "limit": 600, "period": 60 } }
+		{ "name": "RATE_LIMIT_GOOGLE", "namespace_id": "19006", "simple": { "limit": 600, "period": 60 } },
+		{ "name": "RATE_LIMIT_NOTIFY", "namespace_id": "19007", "simple": { "limit": 1200, "period": 60 } }
 	]
 }

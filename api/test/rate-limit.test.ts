@@ -17,7 +17,7 @@ const FAKE_GOOGLE_TOKEN = "ya29.fake-google-token-for-tests";
  * every outbound fetch failing (see `failFetch`), so it reaches the route,
  * tries the network, and answers without a 429.
  */
-const ROUTES: Record<RateLimitGroup, { path: string; init: () => RequestInit }> = {
+const ROUTES: Record<RateLimitGroup, { path: string; init: () => RequestInit; offline?: true }> = {
   sky: { path: "/v1/sky?zip=10001", init: () => ({}) },
   calendar: { path: "/v1/calendar/events", init: () => json({ links: ["https://calendar.example.com/a.ics"] }) },
   resolve: { path: "/v1/sites/resolve", init: () => json({ url: "https://news.example.com/" }) },
@@ -27,17 +27,35 @@ const ROUTES: Record<RateLimitGroup, { path: string; init: () => RequestInit }> 
     init: () => json({ provider: "openai", interests: ["tide pools"] }, { "x-llm-key": FAKE_KEY }),
   },
   google: { path: "/v1/google/events", init: () => json({ calendars: ["primary"] }, { "x-google-token": FAKE_GOOGLE_TOKEN }) },
+  // Google's webhook: a sync message is answered 200 at once, with no fetch and no database read.
+  notify: { path: "/v1/google/notify", init: () => googleCall(), offline: true },
 };
 
 /** The same routes with a request each one refuses with a 400 before any fetch: cheap to send in bulk. */
-const INVALID: Record<RateLimitGroup, { path: string; init: () => RequestInit }> = {
+const INVALID: Record<RateLimitGroup, { path: string; init: () => RequestInit; status?: number }> = {
   sky: { path: "/v1/sky?zip=nope", init: () => ({}) },
   calendar: { path: "/v1/calendar/events", init: () => json({ links: [] }) },
   resolve: { path: "/v1/sites/resolve", init: () => json({}) },
   feed: { path: "/v1/feed", init: () => json({ sites: [] }) },
   discover: { path: "/v1/discover", init: () => json({ provider: "openai", interests: [] }, { "x-llm-key": FAKE_KEY }) },
   google: { path: "/v1/google/events", init: () => json({ calendars: [] }, { "x-google-token": FAKE_GOOGLE_TOKEN }) },
+  // The webhook refuses nothing: whatever arrives is answered 200.
+  notify: { path: "/v1/google/notify", init: () => googleCall(), status: 200 },
 };
+
+/** A call as Google makes it to the webhook: the first message on a channel. */
+function googleCall(): RequestInit {
+  return {
+    method: "POST",
+    headers: {
+      "x-goog-channel-id": "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+      "x-goog-channel-token": "fake-channel-token",
+      "x-goog-resource-state": "sync",
+      "x-goog-resource-id": "fake-resource",
+      "x-goog-message-number": "1",
+    },
+  };
+}
 
 const GROUPS = Object.keys(RATE_LIMITS) as RateLimitGroup[];
 
@@ -152,6 +170,12 @@ describe("the limits", () => {
     expect(resolve.limit).toBeGreaterThan(discover.limit);
   });
 
+  it("let Google's webhook take far more than any one client route", () => {
+    const { notify, google } = RATE_LIMITS;
+    expect(notify.period).toBe(60);
+    expect(notify.limit).toBeGreaterThan(google.limit);
+  });
+
   it("let the Google routes be polled every 5 seconds with room for a shared address", () => {
     const { google } = RATE_LIMITS;
     expect(google.period).toBe(60);
@@ -170,8 +194,9 @@ describe.each(GROUPS)("%s, with a fake limiter", (group) => {
     const response = await app.fetch(request(route, { "cf-connecting-ip": "203.0.113.10" }), testEnv);
     expect(response.status).not.toBe(429);
     expect(limiters[group].keys).toEqual(["4:203.0.113.10"]);
-    // It reached the route, which went to the network.
-    expect(fetchSpy).toHaveBeenCalled();
+    // It reached the route, which went to the network (the webhook answers without it).
+    if (route.offline) expect(response.status).toBe(200);
+    else expect(fetchSpy).toHaveBeenCalled();
     // No other group's limiter was asked.
     for (const other of GROUPS.filter((name) => name !== group)) expect(limiters[other].keys).toEqual([]);
   });
@@ -217,7 +242,7 @@ describe.each(GROUPS)("%s, with a fake limiter", (group) => {
     limiters[group].mode = "throw";
     const response = await app.fetch(request(route, { "cf-connecting-ip": "203.0.113.30" }), testEnv);
     expect(response.status).not.toBe(429);
-    expect(fetchSpy).toHaveBeenCalled();
+    if (!route.offline) expect(fetchSpy).toHaveBeenCalled();
     expect(logs.error).toHaveBeenCalledWith(`rate-limit: ${group} limiter failed; request served`);
     expect(logs.text()).not.toContain("203.0.113.30");
   });
@@ -232,7 +257,7 @@ describe.each(GROUPS)("%s, with a fake limiter", (group) => {
       const response = await app.fetch(request(route, { "cf-connecting-ip": "203.0.113.31" }), withoutBinding);
       expect(response.status).not.toBe(429);
     }
-    expect(fetchSpy).toHaveBeenCalled();
+    if (!route.offline) expect(fetchSpy).toHaveBeenCalled();
     const line = `rate-limit: binding ${binding} is missing; ${group} is not limited`;
     expect(logs.error.mock.calls.filter(([text]) => text === line)).toHaveLength(1);
     expect(logs.text()).not.toContain("203.0.113.31");
@@ -295,14 +320,15 @@ describe("with the real local binding from wrangler.jsonc", () => {
       else await response.body?.cancel();
     }
     const sameWindow = window() === startWindow;
-    expect(statuses[0]).toBe(400);
+    const answer = INVALID[group].status ?? 400;
+    expect(statuses[0]).toBe(answer);
     expect(refused).toBeDefined();
     expect(refused!.headers.get("retry-after")).toBe(String(period));
     expect(await refused!.json()).toEqual(RATE_LIMITED);
     const passed = statuses.filter((status) => status !== 429).length;
     if (sameWindow) {
       expect(passed).toBe(limit);
-      expect(statuses.slice(0, limit).every((status) => status === 400)).toBe(true);
+      expect(statuses.slice(0, limit).every((status) => status === answer)).toBe(true);
     }
     expect(fetchSpy).not.toHaveBeenCalled();
   }, 30_000);

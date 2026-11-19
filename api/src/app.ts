@@ -4,6 +4,7 @@ import { calendar } from "./routes/calendar.ts";
 import { discover } from "./routes/discover.ts";
 import { feed } from "./routes/feed.ts";
 import { google } from "./routes/google.ts";
+import { NOTIFY_PATH, googlePush } from "./routes/google-push.ts";
 import { health } from "./routes/health.ts";
 import { sites } from "./routes/sites.ts";
 import { sky } from "./routes/sky.ts";
@@ -28,7 +29,11 @@ app.use("/v1/calendar/events", rateLimit("calendar"));
 app.use("/v1/sites/resolve", rateLimit("resolve"));
 app.use("/v1/feed", rateLimit("feed"));
 app.use("/v1/discover", rateLimit("discover"));
-app.use("/v1/google/*", rateLimit("google"));
+// Google's webhook has its own, much higher limit: its callers are Google's
+// servers, which many channels share (see RATE_LIMITS.notify).
+const googleLimit = rateLimit("google");
+const notifyLimit = rateLimit("notify");
+app.use("/v1/google/*", (c, next) => (c.req.path === NOTIFY_PATH ? notifyLimit(c, next) : googleLimit(c, next)));
 
 /**
  * The largest request body any route reads. The biggest honest one is a
@@ -78,6 +83,7 @@ app.route("/", sites);
 app.route("/", feed);
 app.route("/", discover);
 app.route("/", google);
+app.route("/", googlePush);
 
 export const openAPIConfig = {
   openapi: "3.0.3",

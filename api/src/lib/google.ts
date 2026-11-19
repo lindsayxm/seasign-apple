@@ -8,6 +8,11 @@
 // - errors: https://developers.google.com/workspace/calendar/api/guides/errors
 // - partial responses (`fields`): https://developers.google.com/workspace/calendar/api/guides/performance
 //
+// Read on 2026-11-19 for the push channels (task 156):
+// - push guide: https://developers.google.com/workspace/calendar/api/guides/push
+// - events.watch: https://developers.google.com/workspace/calendar/api/v3/reference/events/watch
+// - channels.stop: https://developers.google.com/workspace/calendar/api/v3/reference/channels/stop
+//
 // The token goes into one place only, the Authorization header of a request to
 // GOOGLE_ORIGIN. It is never put into an error, a log line or a return value.
 // Nothing Google sends back in an error (status text, message, headers) is
@@ -23,6 +28,14 @@ export const GOOGLE_TIMEOUT_MS = 8000;
 export const GOOGLE_MAX_BYTES = 1024 * 1024;
 /** The largest error body read; it is only parsed to tell a rate limit from other 403s. */
 export const GOOGLE_ERROR_MAX_BYTES = 64 * 1024;
+
+/**
+ * The event types read and watched: ordinary events and ones Google made from
+ * mail (flights, bookings). Working location, focus time, out of office and
+ * birthdays are left out, as the pasted-link feed does not carry them either
+ * (task 155); watching the same set keeps their changes from waking the phone.
+ */
+export const GOOGLE_EVENT_TYPES = ["default", "fromGmail"] as const;
 
 /** The deadline the routes use. Only the tests change it, to see a timeout without waiting 8 s. */
 export const googleDeadline = { ms: GOOGLE_TIMEOUT_MS };
@@ -41,7 +54,13 @@ export type GoogleFailureCode =
   /** The deadline passed. */
   | "timeout"
   /** A body over the cap. */
-  | "too_large";
+  | "too_large"
+  /**
+   * events.watch only: Google refused our webhook address (an error reason
+   * starting `push.`, such as push.webhookUrlUnauthorized). A server setting,
+   * not the user's token, so it must not read as `auth`.
+   */
+  | "webhook_refused";
 
 export class GoogleFailure extends Error {
   readonly code: GoogleFailureCode;
@@ -67,7 +86,15 @@ export function isRateLimitBody(body: unknown): boolean {
   );
 }
 
+/** True when an error body names a push-channel problem (reason `push.*`), not the token. */
+export function isWebhookRefusal(body: unknown): boolean {
+  if (!isRecord(body) || !isRecord(body.error)) return false;
+  const errors = Array.isArray(body.error.errors) ? body.error.errors : [];
+  return errors.some((entry) => isRecord(entry) && typeof entry.reason === "string" && entry.reason.startsWith("push."));
+}
+
 function classify(status: number, body: unknown): GoogleFailureCode {
+  if (status >= 400 && status < 500 && isWebhookRefusal(body)) return "webhook_refused";
   if (status === 401) return "auth";
   if (status === 429) return "rate_limited";
   if (status === 403) return isRateLimitBody(body) ? "rate_limited" : "forbidden";
@@ -99,19 +126,40 @@ export async function withGoogleDeadline<T>(work: (signal: AbortSignal) => Promi
  * followed (one would carry the token wherever it points).
  */
 export async function getGoogleJson(path: string, params: URLSearchParams, token: string, signal: AbortSignal): Promise<Record<string, unknown>> {
+  const response = await sendGoogle("GET", path, params, undefined, token, signal);
+  return readGoogleJson(response, signal);
+}
+
+/**
+ * POSTs a JSON body to one Google Calendar API path (events.watch,
+ * channels.stop) under the same rules as getGoogleJson. Returns the parsed
+ * JSON object, or an empty object for a 2xx with an empty body (channels.stop
+ * answers 204 or 200 with nothing).
+ */
+export async function postGoogleJson(path: string, params: URLSearchParams, body: unknown, token: string, signal: AbortSignal): Promise<Record<string, unknown>> {
+  const response = await sendGoogle("POST", path, params, JSON.stringify(body), token, signal);
+  return readGoogleJson(response, signal, true);
+}
+
+/** The request itself, origin and path checked first; a non-2xx is thrown as its failure code. */
+async function sendGoogle(
+  method: "GET" | "POST",
+  path: string,
+  params: URLSearchParams,
+  body: string | undefined,
+  token: string,
+  signal: AbortSignal,
+): Promise<Response> {
   if (!path.startsWith("/calendar/v3/")) throw new GoogleFailure("fetch_failed");
   const url = new URL(path, GOOGLE_ORIGIN);
   if (url.origin !== GOOGLE_ORIGIN || !url.pathname.startsWith("/calendar/v3/")) throw new GoogleFailure("fetch_failed");
   url.search = params.toString();
 
+  const headers: Record<string, string> = { authorization: `Bearer ${token}`, accept: "application/json" };
+  if (body !== undefined) headers["content-type"] = "application/json";
   let response: Response;
   try {
-    response = await fetch(url, {
-      method: "GET",
-      headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-      redirect: "manual",
-      signal,
-    });
+    response = await fetch(url, { method, headers, body, redirect: "manual", signal });
   } catch {
     throw new GoogleFailure(signal.aborted ? "timeout" : "fetch_failed");
   }
@@ -130,8 +178,13 @@ export async function getGoogleJson(path: string, params: URLSearchParams, token
     }
     throw new GoogleFailure(classify(response.status, parsed));
   }
+  return response;
+}
 
+/** A 2xx body as a JSON object; with `emptyIsOk`, no body at all is an empty object. */
+async function readGoogleJson(response: Response, signal: AbortSignal, emptyIsOk = false): Promise<Record<string, unknown>> {
   const bytes = await readCapped(response, GOOGLE_MAX_BYTES, signal);
+  if (emptyIsOk && new TextDecoder().decode(bytes).trim() === "") return {};
   let body: unknown;
   try {
     body = JSON.parse(new TextDecoder().decode(bytes));
