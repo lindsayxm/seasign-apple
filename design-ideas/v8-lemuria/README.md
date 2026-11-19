@@ -35,6 +35,10 @@ The user asked for the part above the horizontal bar to look more technical. It 
 
 At the user's request the row of four controls moved from the bottom of the screen to just under the calendar events (y 218), to leave more room for article titles. This supersedes rule 2 above where it says the controls are along the bottom. To keep the bar clear of the sun and moon's tag, the horizon moved down 16 points to y 404 and the top of the path is now 88 above it. The article list starts at y 504 and shows seven titles instead of six. The names under the four controls were then removed at the user's request; the symbols stand alone.
 
+## Buttons beside the events (2026-11-18, supersedes "Button bar under the events" below)
+
+At the user's request the row of four buttons was split. Settings, list and saved are one column at the right of the calendar events, exactly as tall as the events block (y 118 to 206), behind a vertical hairline with ink ends; the events are narrower (280 points) to make room. `∀` (all publications) is smaller and sits in the lower left corner under the article list. With the row gone, the horizon moved back up to y 386 and the list starts at y 486, still with seven titles.
+
 ## Tags on the sun and moon (2026-11-18, supersedes the tag description in the first pass below)
 
 - On the horizon (sunrise, sunset, moonrise, moonset) nothing changed: the tag is above the body on a bent leader and reads `SUNRISE 6:41 AM` and so on, with the wind under it.

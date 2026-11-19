@@ -74,3 +74,5 @@ Then (#107, #108): the second control is labelled `LIST`; the button bar moved f
 Then (#109–#111): control labels removed; a hairline from the day number to the place box, level with the box's bottom; no stars on the mid-day screen (v7 had them by day at the user's earlier request, so this applies to v8 mid-day only unless they say more).
 
 Then (#112, #113): the header line stops short of the place box; away from the horizon the sun's tag drops the word SUN and every tag sits level with the body (never above it); rise and set tags unchanged.
+
+Then (#114): settings, list, saved became a column at the right of the events; a smaller `∀` went to the lower left corner; horizon back up to y 386.
