@@ -11,7 +11,7 @@ Open `index.html`. Same address switches as v8: `?state=<id>`, `&bare`, `&still`
 
 - **Tags only at rise and set.** Sunrise, sunset, moonrise and moonset keep their tag (`SUNSET 4:31 PM` and the wind). On every other screen the tag and its leader are gone at the user's request, so wind, cloud cover, the words `RAIN` and `SNOW` and the moon's lit share are no longer written anywhere; the corner brackets round the sun or moon were then removed on every screen as well. The dotted drop line to the horizon, the small square under the body and the rise and set marks stay.
 
-- **The date is white**, the same as the temperature (it was the ink colour); the day name between them keeps the ink colour.
+- **The date is white**, the same as the temperature (it was the ink colour). The day name was then made white as well, with a softer white glow, so the whole left column is white; the ink colour remains on the event times, their rules, the buttons, the numbers and the rise and set tag.
 
 - **A hairline closes the header** (y 168, from the left margin at x 34 to the right edge of the events box at x 377), added at the user's request. The button column starts 6 points lower (y 186) to keep clear of it.
 
