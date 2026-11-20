@@ -1,5 +1,5 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { and, eq, inArray, lte, notInArray } from "drizzle-orm";
+import { and, eq, lte, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -314,19 +314,30 @@ googlePush.openapi(postGoogleWatch, async (c) => {
 
   const db = drizzle(c.env.DB);
   let replaced: Pick<CalendarChannel, "id" | "resourceId">[] = [];
+  // Rows Google no longer calls would otherwise stay for good.
+  const sweepExpired = db.delete(calendarChannels).where(lte(calendarChannels.expiresAt, now));
   try {
     if (made.length > 0) {
-      await db.insert(calendarChannels).values(made.map((channel) => ({ ...channel, deviceToken, environment, createdAt: now })));
-      // Every other channel of this device, including one a concurrent watch
-      // just made: the last watch wins.
-      replaced = await db
-        .select({ id: calendarChannels.id, resourceId: calendarChannels.resourceId })
-        .from(calendarChannels)
-        .where(and(eq(calendarChannels.deviceToken, deviceToken), notInArray(calendarChannels.id, made.map((channel) => channel.id))));
-      if (replaced.length > 0) await db.delete(calendarChannels).where(inArray(calendarChannels.id, replaced.map((channel) => channel.id)));
+      // One D1 batch is one SQL transaction, and D1 runs batches one after
+      // another (https://developers.cloudflare.com/d1/worker-api/d1-database/#batch),
+      // so two overlapping watches for this device cannot interleave here: the
+      // batch that commits second reads the first one's rows as `replaced`,
+      // deletes them and stops them at Google below. The device ends with
+      // exactly one request's channels, as if the two had run back to back.
+      // The first request has already answered ok by then; it cannot know a
+      // later batch will replace it (see the task 156 log).
+      const madeIds = made.map((channel) => channel.id);
+      const others = and(eq(calendarChannels.deviceToken, deviceToken), notInArray(calendarChannels.id, madeIds));
+      const [, selected] = await db.batch([
+        db.insert(calendarChannels).values(made.map((channel) => ({ ...channel, deviceToken, environment, createdAt: now }))),
+        db.select({ id: calendarChannels.id, resourceId: calendarChannels.resourceId }).from(calendarChannels).where(others),
+        db.delete(calendarChannels).where(others),
+        sweepExpired,
+      ]);
+      replaced = selected;
+    } else {
+      await sweepExpired;
     }
-    // Rows Google no longer calls would otherwise stay for good.
-    await db.delete(calendarChannels).where(lte(calendarChannels.expiresAt, now));
   } catch {
     console.error("google-watch: database failed");
     // A channel without a row would only be ignored, but stop them anyway.

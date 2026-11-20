@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/app.ts";
 import { calendarChannels, type CalendarChannel } from "../src/db/schema.ts";
-import { APNS_HOSTS, PROVIDER_TOKEN_TTL_MS, PUSH_PAYLOAD, apnsConfig, pemBytes, providerToken, resetApnsCache } from "../src/lib/apns.ts";
+import { APNS_HOSTS, PROVIDER_TOKEN_TTL_MS, PUSH_PAYLOAD, apnsConfig, apnsDeadline, pemBytes, providerToken, resetApnsCache } from "../src/lib/apns.ts";
 import { CHANNEL_TTL_SECONDS, resetNotifyLogs, sha256Hex } from "../src/routes/google-push.ts";
 import { startWorker } from "./start-worker.ts";
 
@@ -57,7 +57,7 @@ function testEnv(extra: Record<string, unknown> = {}): CloudflareBindings {
 
 // ───────────────────────── outbound mock ─────────────────────────
 
-type Sent = { url: URL; method: string; headers: Headers; body: string };
+type Sent = { url: URL; method: string; headers: Headers; body: string; signal: AbortSignal };
 type Reply = (sent: Sent) => Response | Promise<Response>;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -97,7 +97,7 @@ function mockFetch(reply: Reply = defaultReply) {
   const sent: Sent[] = [];
   const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
-    const record = { url: new URL(request.url), method: request.method, headers: request.headers, body: await request.text() };
+    const record = { url: new URL(request.url), method: request.method, headers: request.headers, body: await request.text(), signal: request.signal };
     sent.push(record);
     return reply(record);
   });
@@ -280,6 +280,50 @@ describe("POST /v1/google/watch", () => {
     // The watch came before the stops.
     const firstStop = google.sent.findIndex((call) => call.url.pathname === "/calendar/v3/channels/stop");
     expect(google.sent.findIndex((call) => calendarOfWatch(call.url) !== null)).toBeLessThan(firstStop);
+  });
+
+  it("leaves exactly one of two overlapping watches for a device, and stops the other's channels at Google", async () => {
+    const old = await seed({ resourceId: "res-old" });
+    // Google answers neither watch until both have been sent, so the two
+    // requests reach the database together.
+    let release!: () => void;
+    const bothSent = new Promise<void>((resolve) => (release = resolve));
+    const google = mockFetch(async (sent) => {
+      if (calendarOfWatch(sent.url) !== null) {
+        if (google.watches().length === 3) release();
+        await bothSent;
+      }
+      return defaultReply(sent);
+    });
+    const [first, second] = await Promise.all([
+      watch({ calendars: ["primary", "work"], deviceToken: DEVICE_A, environment: "sandbox" }),
+      watch({ calendars: [CALENDAR_EMAIL], deviceToken: DEVICE_A, environment: "sandbox" }),
+    ]);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const idsOf = (calendars: string[]) =>
+      google
+        .watches()
+        .filter((call) => calendars.includes(calendarOfWatch(call.url)!))
+        .map((call) => (JSON.parse(call.body) as { id: string }).id)
+        .sort();
+    const firstIds = idsOf(["primary", "work"]);
+    const secondIds = idsOf([CALENDAR_EMAIL]);
+    expect(firstIds).toHaveLength(2);
+    expect(secondIds).toHaveLength(1);
+
+    const stored = (await rows()).map((row) => row.id).sort();
+    const winner = stored.length === 2 ? firstIds : secondIds;
+    const loser = winner === firstIds ? secondIds : firstIds;
+    expect(stored).toEqual(winner);
+    // Every channel that lost its row, the old one and the other request's, is
+    // stopped at Google exactly once; none that kept its row is.
+    const stopped = google
+      .stops()
+      .map((call) => (JSON.parse(call.body) as { id: string }).id)
+      .sort();
+    expect(stopped).toEqual([old.row.id, ...loser].sort());
   });
 
   it("forgets the old channels even when Google will not stop them", async () => {
@@ -587,22 +631,88 @@ describe("POST /v1/google/notify (Google's call)", () => {
     expect(JSON.parse(new TextDecoder().decode(fromBase64url(fresh.split(".")[1]!))).iat).toBe((NOW.getTime() + PROVIDER_TOKEN_TTL_MS) / 1000);
   });
 
-  it("makes a fresh provider token after APNs calls the old one expired", async () => {
+  /** A provider token made at `iat`, cached as the one in use, as an isolate that has run for a while has. */
+  async function cacheTokenFrom(iat: number) {
+    return providerToken({ key: pem, keyId: KEY_ID, teamId: TEAM_ID, topic: BUNDLE_ID }, iat);
+  }
+  const iatOf = (call: Sent) => JSON.parse(new TextDecoder().decode(fromBase64url(call.headers.get("authorization")!.split(".")[1]!))).iat as number;
+
+  it("resends the push once with a fresh provider token after APNs calls the old one expired", async () => {
     const { row, channelToken } = await seed();
-    let first = true;
+    const stale = await cacheTokenFrom(NOW.getTime() - 10 * 60_000);
     const outbound = mockFetch((sent) => {
-      if (sent.url.pathname.startsWith("/3/device/") && first) {
-        first = false;
-        return json({ reason: "ExpiredProviderToken" }, 403);
-      }
+      if (sent.url.pathname.startsWith("/3/device/") && sent.headers.get("authorization") === `bearer ${stale}`) return json({ reason: "ExpiredProviderToken" }, 403);
       return defaultReply(sent);
     });
+    const logs = captureConsole();
+    await expectBare(await googleCall(changeHeaders(row, channelToken)));
+    const pushes = outbound.pushes();
+    expect(pushes).toHaveLength(2);
+    expect(pushes[0]!.headers.get("authorization")).toBe(`bearer ${stale}`);
+    expect(pushes[1]!.headers.get("authorization")).not.toBe(`bearer ${stale}`);
+    expect(iatOf(pushes[1]!)).toBe(NOW.getTime() / 1000);
+    expect(pushes[1]!.url.toString()).toBe(pushes[0]!.url.toString());
+    expect(pushes[1]!.body).toBe(PUSH_PAYLOAD);
+    // The resend went through: nothing to report.
+    expect(logs.lines()).toEqual([]);
+
+    // The fresh token is the one kept for the next push.
+    await googleCall(changeHeaders(row, channelToken));
+    expect(outbound.pushes()[2]!.headers.get("authorization")).toBe(pushes[1]!.headers.get("authorization"));
+  });
+
+  it("resends only once when the fresh provider token is called expired too", async () => {
+    const { row, channelToken } = await seed();
+    const outbound = mockFetch((sent) => (sent.url.pathname.startsWith("/3/device/") ? json({ reason: "ExpiredProviderToken" }, 403) : defaultReply(sent)));
+    const logs = captureConsole();
+    await expectBare(await googleCall(changeHeaders(row, channelToken)));
+    expect(outbound.pushes()).toHaveLength(2);
+    expect(logs.lines()).toEqual(["google-notify: push auth_failed"]);
+    expect(await rows()).toEqual([row]);
+  });
+
+  it("does not resend after any other 403", async () => {
+    const { row, channelToken } = await seed();
+    const outbound = mockFetch((sent) => (sent.url.pathname.startsWith("/3/device/") ? json({ reason: "InvalidProviderToken" }, 403) : defaultReply(sent)));
     captureConsole();
     await googleCall(changeHeaders(row, channelToken));
-    vi.setSystemTime(NOW.getTime() + 60_000);
     await googleCall(changeHeaders(row, channelToken));
-    const [a, b] = outbound.pushes().map((call) => call.headers.get("authorization"));
-    expect(a).not.toBe(b);
+    const pushes = outbound.pushes();
+    expect(pushes).toHaveLength(2);
+    // One push per call, and the token kept.
+    expect(pushes[1]!.headers.get("authorization")).toBe(pushes[0]!.headers.get("authorization"));
+  });
+
+  it("gives the push and its resend one deadline between them", async () => {
+    const { row, channelToken } = await seed();
+    await cacheTokenFrom(NOW.getTime() - 10 * 60_000);
+    let calls = 0;
+    let resendStartedAborted: boolean | null = null;
+    const outbound = mockFetch(async (sent) => {
+      if (!sent.url.pathname.startsWith("/3/device/")) return defaultReply(sent);
+      calls += 1;
+      if (calls === 1) {
+        // The first answer comes after the whole deadline has passed.
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        return json({ reason: "ExpiredProviderToken" }, 403);
+      }
+      resendStartedAborted = sent.signal.aborted;
+      if (sent.signal.aborted) throw sent.signal.reason;
+      // Otherwise it hangs until the deadline cuts it off, as fetch does.
+      return new Promise<Response>((_, reject) => sent.signal.addEventListener("abort", () => reject(sent.signal.reason)));
+    });
+    const logs = captureConsole();
+    const deadline = apnsDeadline.ms;
+    apnsDeadline.ms = 30;
+    try {
+      await expectBare(await googleCall(changeHeaders(row, channelToken)));
+    } finally {
+      apnsDeadline.ms = deadline;
+    }
+    expect(outbound.pushes()).toHaveLength(2);
+    // The resend had no time of its own left: the deadline had already passed.
+    expect(resendStartedAborted).toBe(true);
+    expect(logs.lines()).toEqual(["google-notify: push failed"]);
   });
 
   it("ignores the sync message that opens a channel", async () => {

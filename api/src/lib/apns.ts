@@ -198,51 +198,71 @@ export async function sendBackgroundPush(
   if (!config) return "not_configured";
   if (!/^[0-9a-f]+$/.test(deviceToken)) return "unregistered";
 
-  let token: string;
-  try {
-    token = await providerToken(config);
-  } catch {
-    return "bad_key";
-  }
-
+  // One deadline for the push and its one resend, so the webhook still answers within it.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), apnsDeadline.ms);
   try {
-    const response = await fetch(`${APNS_HOSTS[environment]}/3/device/${deviceToken}`, {
-      method: "POST",
-      headers: {
-        authorization: `bearer ${token}`,
-        "apns-topic": config.topic,
-        "apns-push-type": "background",
-        "apns-priority": "5",
-        // Stored by APNs for up to an hour if the phone is offline; a later
-        // change sends a fresh push anyway.
-        "apns-expiration": String(Math.floor(Date.now() / 1000) + 3600),
-        "content-type": "application/json",
-      },
-      body: PUSH_PAYLOAD,
-      redirect: "manual",
-      signal: controller.signal,
-    });
-    if (response.status === 200) {
-      void response.body?.cancel().catch(() => {});
-      return "sent";
+    let token: string;
+    try {
+      token = await providerToken(config);
+    } catch {
+      return "bad_key";
     }
-    const reason = await readReason(response);
-    if (response.status === 410) return "unregistered";
-    if (response.status === 400 && reason !== null && UNREGISTERED_REASONS.has(reason)) return "unregistered";
-    if (response.status === 403) {
-      // A stale token: make a fresh one next time. Any other 403 (a wrong key
-      // or team) keeps the token, since remaking it on every push would earn
-      // 429 TooManyProviderTokenUpdates on top.
-      if (reason === "ExpiredProviderToken") cachedToken = null;
-      return "auth_failed";
+    let answer = await attempt(config, token, deviceToken, environment, controller.signal);
+    if (answer.status === 403 && answer.reason === "ExpiredProviderToken") {
+      // A stale token (an isolate clock or cache gone wrong): drop it and send
+      // this push once more with a fresh one. Only once: a fresh token refused
+      // as expired again is reported, not retried. Any other 403 (a wrong key
+      // or team) keeps the token and is not resent, since remaking it on every
+      // push would earn 429 TooManyProviderTokenUpdates on top.
+      cachedToken = null;
+      try {
+        token = await providerToken(config);
+      } catch {
+        return "bad_key";
+      }
+      answer = await attempt(config, token, deviceToken, environment, controller.signal);
     }
-    if (response.status === 429) return "throttled";
-    return "failed";
+    return outcomeOf(answer);
   } catch {
     return "failed";
   } finally {
     clearTimeout(timer);
   }
+}
+
+type ApnsAnswer = { status: number; reason: string | null };
+
+/** One POST to APNs. Throws when it is unreachable or the deadline passes. */
+async function attempt(config: ApnsConfig, token: string, deviceToken: string, environment: ApnsEnvironment, signal: AbortSignal): Promise<ApnsAnswer> {
+  const response = await fetch(`${APNS_HOSTS[environment]}/3/device/${deviceToken}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${token}`,
+      "apns-topic": config.topic,
+      "apns-push-type": "background",
+      "apns-priority": "5",
+      // Stored by APNs for up to an hour if the phone is offline; a later
+      // change sends a fresh push anyway.
+      "apns-expiration": String(Math.floor(Date.now() / 1000) + 3600),
+      "content-type": "application/json",
+    },
+    body: PUSH_PAYLOAD,
+    redirect: "manual",
+    signal,
+  });
+  if (response.status === 200) {
+    void response.body?.cancel().catch(() => {});
+    return { status: 200, reason: null };
+  }
+  return { status: response.status, reason: await readReason(response) };
+}
+
+function outcomeOf({ status, reason }: ApnsAnswer): PushOutcome {
+  if (status === 200) return "sent";
+  if (status === 410) return "unregistered";
+  if (status === 400 && reason !== null && UNREGISTERED_REASONS.has(reason)) return "unregistered";
+  if (status === 403) return "auth_failed";
+  if (status === 429) return "throttled";
+  return "failed";
 }
