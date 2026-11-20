@@ -102,6 +102,22 @@ import Testing
         #expect(parse("state=abc") == .failure(.malformed))
         #expect(parse("state=abc&code=") == .failure(.malformed))
     }
+
+    @Test func onlyOurRedirectPathWithNoHostIsTaken() {
+        func code(_ rest: String) -> Result<GoogleSecret, GoogleAuthorization.RedirectProblem> {
+            GoogleAuthorization.code(from: URL(string: "\(scheme)\(rest)?state=abc&code=the-code")!, config: config, state: "abc")
+        }
+        #expect(code(":/oauth2redirect") == .success(GoogleSecret("the-code")))
+        // The scheme is matched without regard to case, as before.
+        #expect(GoogleAuthorization.code(
+            from: URL(string: "\(scheme.uppercased()):/oauth2redirect?state=abc&code=the-code")!, config: config, state: "abc"
+        ) == .success(GoogleSecret("the-code")))
+        #expect(code(":/other") == .failure(.malformed))
+        #expect(code(":/oauth2redirect/more") == .failure(.malformed))
+        #expect(code(":/") == .failure(.malformed))
+        #expect(code("://evil.example/oauth2redirect") == .failure(.malformed))
+        #expect(code("://oauth2redirect") == .failure(.malformed))
+    }
 }
 
 // MARK: - Token endpoint
@@ -283,6 +299,30 @@ import Testing
         stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.error(.badGateway, "google_unavailable"))
         await #expect(throws: SeasignAPI.GoogleFailure.unavailable) { try await api.googleCalendars(token: token) }
     }
+
+    @Test func releaseBuildsSendTheTokenOnlyOverHTTPS() async throws {
+        let stub = GoogleAPIStub()
+        stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.events([], statuses: [nil]))
+        stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.calendars([("primary-id", "Me", true)]))
+        let token = GoogleSecret(FakeGoogle.access)
+
+        let plain = SeasignAPI(serverURL: URL(string: "http://example.test")!, transport: stub, keyNeedsHTTPS: true)
+        await #expect(throws: SeasignAPI.GoogleFailure.unavailable) { try await plain.googleCalendars(token: token) }
+        await #expect(throws: SeasignAPI.GoogleFailure.unavailable) {
+            try await plain.googleEvents(token: token, calendars: ["primary-id"], timezone: nil)
+        }
+        #expect(stub.seen.isEmpty)
+
+        let secure = SeasignAPI(serverURL: URL(string: "https://example.test")!, transport: stub, keyNeedsHTTPS: true)
+        _ = try await secure.googleCalendars(token: token)
+        _ = try await secure.googleEvents(token: token, calendars: ["primary-id"], timezone: nil)
+        #expect(stub.seen.count == 2)
+
+        // Debug builds talk to `wrangler dev` over http on this Mac.
+        let debug = SeasignAPI(serverURL: URL(string: "http://localhost:8787")!, transport: stub, keyNeedsHTTPS: false)
+        _ = try await debug.googleCalendars(token: token)
+        #expect(stub.seen.count == 3)
+    }
 }
 
 private final class SeenRequest: @unchecked Sendable {
@@ -313,6 +353,35 @@ private final class SeenRequest: @unchecked Sendable {
         #expect(next.map(\.title) == ["Coffee", "Dentist", "Swim"])
         let labels = TodayEvents.labels(links: links, google: [], now: now, timeZone: TimeZone(identifier: "UTC")!, clock: .twelveHour)
         #expect(labels.map(\.title) == ["Dentist", "Later"])
+    }
+
+    @Test func allDayAndTimedEventsOfBothKindsMergeInOneOrder() {
+        // Noon on Thursday 19 November in Chicago.
+        let noon = instant("2026-11-19T18:00:00Z")
+        let chicago = TimeZone(identifier: "America/Chicago")!
+        let link = UUID()
+        let google = UUID()
+        let links = [
+            UpcomingEvent(link: link, title: "Dentist", start: instant("2026-11-19T20:00:00Z"), end: instant("2026-11-19T21:00:00Z"), allDay: false),
+            // Tomorrow, all day: the same instant as the Google flight below.
+            UpcomingEvent(link: link, title: "Trip", start: instant("2026-11-20T06:00:00Z"), end: instant("2026-11-21T06:00:00Z"), allDay: true, date: "2026-11-20"),
+            // Yesterday, all day: over.
+            UpcomingEvent(link: link, title: "Gone", start: instant("2026-11-18T06:00:00Z"), end: instant("2026-11-19T06:00:00Z"), allDay: true, date: "2026-11-18"),
+        ]
+        let fromGoogle = [
+            UpcomingEvent(link: google, title: "Early flight", start: instant("2026-11-20T06:00:00Z"), end: instant("2026-11-20T08:00:00Z"), allDay: false),
+            // Today, all day: began before now, still running.
+            UpcomingEvent(link: google, title: "Holiday", start: instant("2026-11-19T06:00:00Z"), end: instant("2026-11-20T06:00:00Z"), allDay: true, date: "2026-11-19"),
+        ]
+        #expect(TodayEvents.next(links: links, google: fromGoogle, now: noon, limit: 4).map(\.title)
+            == ["Holiday", "Dentist", "Trip", "Early flight"])
+        // Either order of the two lists gives the same answer.
+        #expect(TodayEvents.next(links: fromGoogle, google: links, now: noon, limit: 4).map(\.title)
+            == ["Holiday", "Dentist", "Trip", "Early flight"])
+
+        let labels = TodayEvents.labels(links: links, google: fromGoogle, now: noon, timeZone: chicago, clock: .twelveHour)
+        #expect(labels.map(\.title) == ["Holiday", "Dentist", "Trip"])
+        #expect(labels.map(\.time) == ["ALL DAY", "2:00PM", "FRI ALL DAY"])
     }
 
     @Test func pollingRunsOnlyWhileActiveOnTodayAndConnected() {
@@ -684,6 +753,160 @@ private final class SeenRequest: @unchecked Sendable {
         #expect(model.connection == .notConnected)
         #expect(model.snapshot == nil)
         #expect(try context.fetch(FetchDescriptor<CachedGoogleEvents>()).isEmpty)
+    }
+
+    /// Waits (up to two seconds) until `condition` holds, for a request that
+    /// another task has started.
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        for _ in 0..<200 where !condition() {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(condition())
+    }
+
+    @Test func aCancelledPollShowsNothingAndDoesNotHoldTheNextAsk() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = await connected(context, store: InMemoryGoogleTokenStore())
+        clock.advance(5)
+        let before = stub.count(GoogleAPIStub.postEvents)
+        stub.hold()
+        // The poll's task is cancelled mid-request: the app left the
+        // foreground, or a sheet opened over Today.
+        let poll = Task { await model.refresh() }
+        try await waitUntil { stub.count(GoogleAPIStub.postEvents) == before + 1 }
+        poll.cancel()
+        await poll.value
+        stub.release()
+        #expect(model.statusProblem == nil)
+        #expect(model.retryNotBefore == nil)
+        #expect(model.connection == .connected)
+        #expect(titles(model) == ["Coffee"])
+
+        // Back on Today: the first poll asks at once, unforced.
+        stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.events(
+            [(0, "Lunch", "2026-11-19T20:00:00Z", "2026-11-19T21:00:00Z")], statuses: [nil]
+        ))
+        await model.refresh()
+        #expect(stub.count(GoogleAPIStub.postEvents) == before + 2)
+        #expect(titles(model) == ["Lunch"])
+        #expect(model.statusProblem == nil)
+    }
+
+    @Test func aPollCancelledWhileTheTokenIsRenewedShowsNothing() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = await connected(context, store: InMemoryGoogleTokenStore())
+        clock.advance(3600)  // the access token has expired
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.tokens(access: FakeGoogle.access2, refresh: nil))
+        endpoint.holdRefreshes()
+        let before = stub.count(GoogleAPIStub.postEvents)
+        let poll = Task { await model.refresh() }
+        try await waitUntil { endpoint.sent(grant: "refresh_token").count == 1 }
+        poll.cancel()
+        endpoint.release()
+        await poll.value
+        #expect(model.statusProblem == nil)
+        #expect(model.retryNotBefore == nil)
+        #expect(model.connection == .connected)
+
+        // The renewal finished anyway, so the next ask reuses its token.
+        await model.refresh()
+        #expect(stub.count(GoogleAPIStub.postEvents) > before)
+        #expect(stub.seen.last?.token == FakeGoogle.access2)
+        #expect(endpoint.sent(grant: "refresh_token").count == 1)
+        #expect(model.statusProblem == nil)
+    }
+
+    @Test func settingsClosingMidLoadShowsNothingAndDoesNotHoldTheNextAsk() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = await connected(context, store: InMemoryGoogleTokenStore())
+        clock.advance(5)
+        let lists = stub.count(GoogleAPIStub.getCalendars)
+        stub.hold()
+        let load = Task { await model.loadCalendars() }
+        try await waitUntil { stub.count(GoogleAPIStub.getCalendars) == lists + 1 }
+        load.cancel()
+        await load.value
+        stub.release()
+        #expect(model.statusProblem == nil)
+        #expect(model.retryNotBefore == nil)
+        #expect(model.calendars.map(\.displayName) == ["Me", "Family"])
+
+        // Today polls at once when Settings has closed.
+        let events = stub.count(GoogleAPIStub.postEvents)
+        await model.refresh()
+        #expect(stub.count(GoogleAPIStub.postEvents) == events + 1)
+        // And Settings reads the list again when it opens again.
+        await model.loadCalendars()
+        #expect(stub.count(GoogleAPIStub.getCalendars) == lists + 2)
+        #expect(model.statusProblem == nil)
+    }
+
+    @Test func aRealFailureStillShowsAndHolds() async throws {
+        // The cancellation rule does not hide failures of a task still running.
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = await connected(context, store: InMemoryGoogleTokenStore())
+        clock.advance(5)
+        stub.setOffline(true)
+        await model.refresh()
+        #expect(model.statusProblem == .unavailable)
+        #expect(model.retryNotBefore != nil)
+    }
+
+    @Test func ourRateLimitAlsoHoldsTheCalendarList() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = await connected(context, store: InMemoryGoogleTokenStore())
+        stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: "30"))
+        await model.refresh(force: true)
+        #expect(model.statusProblem == .rateLimited)
+        let lists = stub.count(GoogleAPIStub.getCalendars)
+        clock.advance(10)
+        await model.loadCalendars()
+        #expect(stub.count(GoogleAPIStub.getCalendars) == lists)
+        #expect(model.calendars.map(\.displayName) == ["Me", "Family"])
+        #expect(model.statusProblem == .rateLimited)
+        clock.advance(25)
+        await model.loadCalendars()
+        #expect(stub.count(GoogleAPIStub.getCalendars) == lists + 1)
+        #expect(model.statusProblem == nil)
+    }
+
+    @Test func disconnectDuringTheCodeExchangeIsNotUndone() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = InMemoryGoogleTokenStore()
+        let model = await connected(context, store: store)
+        // The sign-in ends, so Settings shows Connect again and Disconnect.
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        await model.refresh()
+        #expect(model.connection == .expired)
+
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(access: FakeGoogle.access2))
+        endpoint.hold(grant: "authorization_code")
+        let seen = stub.seen.count
+        let connecting = Task { await model.connect(signIn: redirect { "state=\($0)&code=\(FakeGoogle.code)" }) }
+        try await waitUntil { endpoint.sent(grant: "authorization_code").count == 2 }
+        #expect(model.isConnecting)
+        await model.disconnect()
+        endpoint.release()
+        await connecting.value
+
+        #expect(model.connection == .notConnected)
+        #expect(model.connectProblem == nil)
+        #expect(store.stored == nil)
+        #expect(model.calendars.isEmpty)
+        #expect(model.snapshot == nil)
+        #expect(!model.canPoll)
+        #expect(try context.fetch(FetchDescriptor<GoogleAccount>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<GoogleCalendarChoice>()).isEmpty)
+        #expect(stub.seen.count == seen)
+        // The grant that arrived after Disconnect is handed back to Google.
+        try await waitUntil { endpoint.revoked.contains(FakeGoogle.refresh) }
+
+        // A later Connect works as normal.
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens())
+        await model.connect(signIn: redirect { "state=\($0)&code=\(FakeGoogle.code)" })
+        #expect(model.connection == .connected)
+        #expect(store.stored?.secret == FakeGoogle.refresh)
     }
 
     @Test func aRefusedCalendarListIsAStatusNotADisconnection() async throws {

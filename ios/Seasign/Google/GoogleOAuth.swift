@@ -150,10 +150,14 @@ enum GoogleAuthorization {
     }
 
     /// The authorization code from the redirect `url`, after checking that it
-    /// is this sign-in's (`state`). The URL is read once and not kept.
+    /// is our redirect URI (scheme, no host, path) and this sign-in's
+    /// (`state`). The URL is read once and not kept.
     static func code(from url: URL, config: GoogleOAuthConfig, state: String) -> Result<GoogleSecret, RedirectProblem> {
         guard url.scheme?.lowercased() == config.redirectScheme.lowercased(),
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let expected = URLComponents(string: config.redirectURI),
+              (components.host ?? "") == (expected.host ?? ""),
+              components.path == expected.path
         else { return .failure(.malformed) }
         let items = components.queryItems ?? []
         func value(_ name: String) -> String? {

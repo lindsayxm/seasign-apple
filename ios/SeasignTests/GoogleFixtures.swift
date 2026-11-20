@@ -38,7 +38,7 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
     private var recorded: [Sent] = []
     private var offline = false
     private var gate: CheckedContinuation<Void, Never>?
-    private var holdsRefresh = false
+    private var heldGrants: Set<String> = []
 
     static func tokens(access: String = FakeGoogle.access, refresh: String? = FakeGoogle.refresh, expiresIn: Int = 3599, scope: String = FakeGoogle.bothScopes) -> Answer {
         var object: [String: Any] = ["access_token": access, "expires_in": expiresIn, "token_type": "Bearer", "scope": scope]
@@ -62,12 +62,18 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
 
     /// Refreshes wait until `release()`.
     func holdRefreshes() {
-        lock.withLock { holdsRefresh = true }
+        hold(grant: "refresh_token")
+    }
+
+    /// Requests of `grant` ("authorization_code" or "refresh_token") wait
+    /// until `release()`.
+    func hold(grant: String) {
+        _ = lock.withLock { heldGrants.insert(grant) }
     }
 
     func release() {
         let gate = lock.withLock { () -> CheckedContinuation<Void, Never>? in
-            holdsRefresh = false
+            heldGrants = []
             defer { self.gate = nil }
             return self.gate
         }
@@ -100,7 +106,7 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
         )
         let (isOffline, waits) = lock.withLock { () -> (Bool, Bool) in
             recorded.append(sent)
-            return (offline, holdsRefresh && form["grant_type"] == "refresh_token")
+            return (offline, heldGrants.contains(form["grant_type"] ?? ""))
         }
         if waits {
             await withCheckedContinuation { continuation in
@@ -202,10 +208,27 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
             return holds
         }
         if waits {
-            await withCheckedContinuation { continuation in
-                lock.withLock { gate = continuation }
+            // A held request ends when released or when its task is
+            // cancelled, whichever comes first.
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    let resumeNow = lock.withLock { () -> Bool in
+                        if !holds || Task.isCancelled { return true }
+                        gate = continuation
+                        return false
+                    }
+                    if resumeNow { continuation.resume() }
+                }
+            } onCancel: {
+                let gate = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+                    defer { self.gate = nil }
+                    return self.gate
+                }
+                gate?.resume()
             }
         }
+        // As URLSession does: a request whose task is cancelled fails.
+        if Task.isCancelled { throw URLError(.cancelled) }
         let (isOffline, answer) = lock.withLock { () -> (Bool, Answer?) in
             var list = answers[operationID] ?? []
             let first = list.first

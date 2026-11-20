@@ -17,8 +17,8 @@ struct SeasignAPI: Sendable {
         #endif
     }
 
-    /// Whether `discover` refuses to send the key to a server that is not
-    /// https. On in Release builds; Debug builds talk to `wrangler dev` over
+    /// Whether `discover` and the `/v1/google/*` calls refuse to send the
+    /// LLM key or the Google token to a server that is not https. On in Release builds; Debug builds talk to `wrangler dev` over
     /// plain http on this Mac.
     static var keyNeedsHTTPSByDefault: Bool {
         #if DEBUG
@@ -87,10 +87,19 @@ struct SeasignAPI: Sendable {
         case unavailable
     }
 
+    /// Whether a request carrying the user's LLM key or Google token may go
+    /// to `serverURL`: Release builds (`keyNeedsHTTPS`) send them only over
+    /// https.
+    private var secretMayBeSent: Bool {
+        !keyNeedsHTTPS || serverURL.scheme?.lowercased() == "https"
+    }
+
     /// `GET /v1/google/calendars`: the calendars on the user's Google
     /// calendar list, read with `token` (sent in `X-Google-Token` and nowhere
-    /// else). Throws a `GoogleFailure`.
+    /// else). When `keyNeedsHTTPS` is on and the server is not https,
+    /// nothing is sent and it fails as `unavailable`. Throws a `GoogleFailure`.
     func googleCalendars(token: GoogleSecret) async throws -> [GoogleCalendarEntry] {
+        guard secretMayBeSent else { throw GoogleFailure.unavailable }
         let output: Operations.getGoogleCalendars.Output
         do {
             output = try await client.getGoogleCalendars(headers: .init(x_hyphen_google_hyphen_token: token.secret))
@@ -119,9 +128,11 @@ struct SeasignAPI: Sendable {
     /// `POST /v1/google/events`: the events of up to ten Google calendars
     /// (by Google's calendar id) that have not ended and start within seven
     /// days, and how reading each went, read with `token`. A calendar that
-    /// cannot be read is reported in `calendars`, not thrown. Throws a
+    /// cannot be read is reported in `calendars`, not thrown. Not sent over
+    /// plain http when `keyNeedsHTTPS` is on (as `googleCalendars`). Throws a
     /// `GoogleFailure`.
     func googleEvents(token: GoogleSecret, calendars: [String], timezone: String?) async throws -> GoogleEventsAnswer {
+        guard secretMayBeSent else { throw GoogleFailure.unavailable }
         let output: Operations.postGoogleEvents.Output
         do {
             output = try await client.postGoogleEvents(
@@ -351,9 +362,7 @@ struct SeasignAPI: Sendable {
         interests: [String],
         timezone: String?
     ) async throws -> DiscoverAnswer {
-        guard !keyNeedsHTTPS || serverURL.scheme?.lowercased() == "https" else {
-            throw DiscoverFailure.unavailable
-        }
+        guard secretMayBeSent else { throw DiscoverFailure.unavailable }
         let output: Operations.postDiscover.Output
         do {
             output = try await client.postDiscover(

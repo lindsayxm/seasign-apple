@@ -210,6 +210,9 @@ final class GoogleCalendarModel {
         isConnecting = true
         connectProblem = nil
         defer { isConnecting = false }
+        // A Disconnect tapped while this runs (the expired state shows one)
+        // moves the generation; this sign-in then keeps nothing.
+        let started = generation
 
         let pkce = GooglePKCE()
         let callback: URL
@@ -221,6 +224,7 @@ final class GoogleCalendarModel {
             connectProblem = .couldNotOpen
             return
         }
+        guard started == generation else { return }
         let code: GoogleSecret
         switch GoogleAuthorization.code(from: callback, config: client.config, state: pkce.state) {
         case .success(let value):
@@ -239,17 +243,26 @@ final class GoogleCalendarModel {
         let fresh: GoogleTokens
         do {
             fresh = try await client.exchange(code: code, verifier: pkce.verifier)
-        } catch GoogleTokenError.invalidGrant {
-            connectProblem = .google("invalid_grant")
-            return
-        } catch GoogleTokenError.rejected(let error) {
-            connectProblem = .google(error)
-            return
-        } catch GoogleTokenError.incomplete {
-            connectProblem = .badAnswer
-            return
         } catch {
-            connectProblem = .unavailable
+            // Disconnected meanwhile: there is nothing to report.
+            guard started == generation else { return }
+            switch error {
+            case GoogleTokenError.invalidGrant:
+                connectProblem = .google("invalid_grant")
+            case GoogleTokenError.rejected(let reason):
+                connectProblem = .google(reason)
+            case GoogleTokenError.incomplete:
+                connectProblem = .badAnswer
+            default:
+                connectProblem = .unavailable
+            }
+            return
+        }
+        guard started == generation else {
+            // Disconnected during the exchange: the new grant is handed back
+            // to Google and nothing is kept.
+            let token = fresh.refresh ?? fresh.access
+            Task { await client.revoke(token) }
             return
         }
         guard fresh.grantsNeededScopes, let refreshToken = fresh.refresh else {
@@ -276,15 +289,20 @@ final class GoogleCalendarModel {
         await refresh(force: true)
     }
 
-    /// Fetches the account's calendar list and folds it into the choices.
+    /// Fetches the account's calendar list and folds it into the choices,
+    /// unless a hold is on (our 429's delay, a back-off); the list kept from
+    /// last time stays.
     func loadCalendars() async {
         guard !isFrozen, connection == .connected, access != nil else { return }
+        if let retryNotBefore, now() < retryNotBefore { return }
         let started = generation
         let list: [GoogleCalendarEntry]
         do {
             list = try await withToken { api, token in try await api.googleCalendars(token: token) }
         } catch {
-            guard started == generation else { return }
+            // Cancelled (Settings closed mid-load): not a failure, so no
+            // status and no hold (see `refresh`).
+            guard started == generation, !Task.isCancelled else { return }
             handle(error)
             return
         }
@@ -366,7 +384,10 @@ final class GoogleCalendarModel {
                 try await api.googleEvents(token: token, calendars: googleIDs, timezone: zone)
             }
         } catch {
-            guard started == generation else { return }
+            // Cancelled (the app left the foreground, a sheet opened over
+            // Today, Settings closed): not a failure. No status and no hold,
+            // so the ask on return goes out at once.
+            guard started == generation, !Task.isCancelled else { return }
             handle(error)
             return
         }
