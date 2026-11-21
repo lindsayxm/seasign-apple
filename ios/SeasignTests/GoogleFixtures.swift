@@ -37,7 +37,7 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
     private var answers: [String: [Answer]] = [:]
     private var recorded: [Sent] = []
     private var offline = false
-    private var gate: CheckedContinuation<Void, Never>?
+    private var gates: [CheckedContinuation<Void, Never>] = []
     private var heldGrants: Set<String> = []
 
     static func tokens(access: String = FakeGoogle.access, refresh: String? = FakeGoogle.refresh, expiresIn: Int = 3599, scope: String = FakeGoogle.bothScopes) -> Answer {
@@ -72,12 +72,12 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
     }
 
     func release() {
-        let gate = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+        let open = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
             heldGrants = []
-            defer { self.gate = nil }
-            return self.gate
+            defer { gates = [] }
+            return gates
         }
-        gate?.resume()
+        for gate in open { gate.resume() }
     }
 
     var sent: [Sent] {
@@ -110,7 +110,7 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
         }
         if waits {
             await withCheckedContinuation { continuation in
-                lock.withLock { gate = continuation }
+                lock.withLock { gates.append(continuation) }
             }
         }
         if isOffline { throw URLError(.notConnectedToInternet) }
@@ -143,7 +143,9 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
 }
 
 /// Answers the API's `/v1/google/*` routes. Records the request headers and
-/// bodies; answers from a queue per operation (the last repeats).
+/// bodies; answers from a queue per operation (the last repeats). Requests
+/// can be held, all of them or one operation's, and how many of each are
+/// out at once is counted (for the one-at-a-time watch rule).
 final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
     struct Answer {
         var status: HTTPResponse.Status
@@ -156,14 +158,25 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
         var token: String?
         var calendars: [String]
         var timezone: String?
+        var deviceToken: String? = nil
+        var environment: String? = nil
+    }
+
+    private struct Gate {
+        var id: UUID
+        var operationID: String
+        var continuation: CheckedContinuation<Void, Never>
     }
 
     private let lock = NSLock()
     private var answers: [String: [Answer]] = [:]
     private var recorded: [Seen] = []
     private var offline = false
-    private var gate: CheckedContinuation<Void, Never>?
-    private var holds = false
+    private var gates: [Gate] = []
+    private var holdsAll = false
+    private var heldOperations: Set<String> = []
+    private var inFlight: [String: Int] = [:]
+    private var peaks: [String: Int] = [:]
 
     func answer(_ operationID: String, _ list: Answer...) {
         lock.withLock { answers[operationID] = list }
@@ -175,16 +188,33 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
 
     /// Requests wait until `release()`.
     func hold() {
-        lock.withLock { holds = true }
+        lock.withLock { holdsAll = true }
+    }
+
+    /// Requests of `operationID` wait until `release(operationID)` or `release()`.
+    func hold(_ operationID: String) {
+        _ = lock.withLock { heldOperations.insert(operationID) }
     }
 
     func release() {
-        let gate = lock.withLock { () -> CheckedContinuation<Void, Never>? in
-            holds = false
-            defer { self.gate = nil }
-            return self.gate
+        let open = lock.withLock { () -> [Gate] in
+            holdsAll = false
+            heldOperations = []
+            defer { gates = [] }
+            return gates
         }
-        gate?.resume()
+        for gate in open { gate.continuation.resume() }
+    }
+
+    func release(_ operationID: String) {
+        let open = lock.withLock { () -> [Gate] in
+            heldOperations.remove(operationID)
+            guard !holdsAll else { return [] }
+            let matching = gates.filter { $0.operationID == operationID }
+            gates.removeAll { $0.operationID == operationID }
+            return matching
+        }
+        for gate in open { gate.continuation.resume() }
     }
 
     var seen: [Seen] {
@@ -195,6 +225,16 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
         seen.filter { $0.operationID == operationID }.count
     }
 
+    /// The most requests of `operationIDs` that were out at the same time.
+    func peak(_ operationIDs: String...) -> Int {
+        lock.withLock { operationIDs.compactMap { peaks[$0] }.max() ?? 0 }
+    }
+
+    /// Requests of `operationID` out now.
+    func outstanding(_ operationID: String) -> Int {
+        lock.withLock { inFlight[operationID] ?? 0 }
+    }
+
     func send(_ request: HTTPRequest, body: HTTPBody?, baseURL: URL, operationID: String) async throws -> (HTTPResponse, HTTPBody?) {
         var entry = Seen(operationID: operationID, token: request.headerFields[RawGoogleTokenHeader.name], calendars: [], timezone: nil)
         if let body {
@@ -202,29 +242,44 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
             let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             entry.calendars = object?["calendars"] as? [String] ?? []
             entry.timezone = object?["timezone"] as? String
+            entry.deviceToken = object?["deviceToken"] as? String
+            entry.environment = object?["environment"] as? String
         }
         let waits = lock.withLock { () -> Bool in
             recorded.append(entry)
-            return holds
+            // Watch and unwatch count together: the API sees both as one device's state.
+            let key = Self.isPush(operationID) ? Self.pushKey : operationID
+            inFlight[key, default: 0] += 1
+            peaks[key] = max(peaks[key] ?? 0, inFlight[key] ?? 0)
+            if key != operationID { inFlight[operationID, default: 0] += 1 }
+            return holdsAll || heldOperations.contains(operationID)
+        }
+        defer {
+            lock.withLock {
+                let key = Self.isPush(operationID) ? Self.pushKey : operationID
+                inFlight[key, default: 1] -= 1
+                if key != operationID { inFlight[operationID, default: 1] -= 1 }
+            }
         }
         if waits {
             // A held request ends when released or when its task is
             // cancelled, whichever comes first.
+            let id = UUID()
             await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
                     let resumeNow = lock.withLock { () -> Bool in
-                        if !holds || Task.isCancelled { return true }
-                        gate = continuation
+                        if !(holdsAll || heldOperations.contains(operationID)) || Task.isCancelled { return true }
+                        gates.append(Gate(id: id, operationID: operationID, continuation: continuation))
                         return false
                     }
                     if resumeNow { continuation.resume() }
                 }
             } onCancel: {
-                let gate = lock.withLock { () -> CheckedContinuation<Void, Never>? in
-                    defer { self.gate = nil }
-                    return self.gate
+                let gate = lock.withLock { () -> Gate? in
+                    guard let index = gates.firstIndex(where: { $0.id == id }) else { return nil }
+                    return gates.remove(at: index)
                 }
-                gate?.resume()
+                gate?.continuation.resume()
             }
         }
         // As URLSession does: a request whose task is cancelled fails.
@@ -245,6 +300,13 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
         }
         return (response, HTTPBody(answer.json))
     }
+
+    private static func isPush(_ operationID: String) -> Bool {
+        operationID == postWatch || operationID == postUnwatch
+    }
+
+    /// The key under which watch and unwatch are counted together.
+    static let pushKey = "push"
 
     static func calendars(_ list: [(id: String, name: String, primary: Bool)]) -> Answer {
         let items = list.map { ["id": $0.id, "name": $0.name, "primary": $0.primary, "selected": true] as [String: Any] }
@@ -269,8 +331,27 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
         Answer(status: status, json: #"{"error":"\#(code)","message":"Made-up message."}"#, retryAfter: retryAfter)
     }
 
+    /// A watch answer: per calendar index, nil for ok or an error code;
+    /// `expiresAt` nil when no channel was made.
+    static func watch(_ statuses: [String?], expiresAt: String?) -> Answer {
+        let calendars = statuses.enumerated().map { index, error -> [String: Any] in
+            var status: [String: Any] = ["index": index, "ok": error == nil]
+            status["error"] = error
+            return status
+        }
+        let object: [String: Any] = ["calendars": calendars, "expiresAt": expiresAt as Any? ?? NSNull()]
+        let data = try! JSONSerialization.data(withJSONObject: object)
+        return Answer(status: .ok, json: String(decoding: data, as: UTF8.self))
+    }
+
+    static func unwatched(_ removed: Int) -> Answer {
+        Answer(status: .ok, json: #"{"removed":\#(removed)}"#)
+    }
+
     static let getCalendars = "getGoogleCalendars"
     static let postEvents = "postGoogleEvents"
+    static let postWatch = "postGoogleWatch"
+    static let postUnwatch = "postGoogleUnwatch"
 }
 
 /// A clock the tests move.

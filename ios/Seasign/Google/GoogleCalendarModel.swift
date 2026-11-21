@@ -106,6 +106,13 @@ final class GoogleCalendarModel {
     private(set) var limitReached = false
     /// Polls and unforced refreshes are not sent before this.
     @ObservationIgnored private(set) var retryNotBefore: Date?
+    /// The hold is our own 429's delay (not a back-off or Google's limit).
+    @ObservationIgnored private var holdIsServerLimit = false
+    /// Settings asked for the calendar list during a hold, so it was not
+    /// read; it is read when the hold ends while Settings stays open.
+    private(set) var listHeld = false
+    /// The push channels for the chosen calendars (task 158).
+    @ObservationIgnored let watch: GoogleWatchKeeper
 
     @ObservationIgnored private let api: SeasignAPI
     @ObservationIgnored private let store: GoogleCalendarStore
@@ -114,7 +121,18 @@ final class GoogleCalendarModel {
     @ObservationIgnored private let access: GoogleAccess?
     @ObservationIgnored private let timeZone: @MainActor () -> TimeZone
     @ObservationIgnored private let now: @Sendable () -> Date
+    @ObservationIgnored private let sleep: @Sendable (TimeInterval) async -> Void
+    @ObservationIgnored private let pushWindow: Duration
+    @ObservationIgnored private let pushDeadline: Duration
     @ObservationIgnored private var isRefreshing = false
+    /// Waiting for the running refresh to end (a push behind a poll).
+    @ObservationIgnored private var refreshWaiters: [CheckedContinuation<Void, Never>] = []
+    /// A push came in that no fetch has started on yet.
+    @ObservationIgnored private var pushPending = false
+    /// The fetch every push arriving now shares.
+    @ObservationIgnored private var pushFetch: Task<GooglePushOutcome, Never>?
+    /// Moves with each Connect, so only the latest one clears `isConnecting`.
+    @ObservationIgnored private var connectAttempt = 0
     /// When the last answer arrived (memory only, so a poll that changes
     /// nothing redraws nothing).
     @ObservationIgnored private var lastFetch: Date?
@@ -133,13 +151,21 @@ final class GoogleCalendarModel {
         tokens: any GoogleTokenStore = KeychainGoogleTokenStore(),
         http: @escaping GoogleHTTP = GoogleTokenClient.liveHTTP,
         timeZone: @escaping @MainActor () -> TimeZone,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        environment: APNsEnvironment = .current,
+        sleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) },
+        pushWindow: Duration = GooglePushHandling.coalescingWindow,
+        pushDeadline: Duration = GooglePushHandling.deadline
     ) {
         self.api = api
         store = GoogleCalendarStore(context: context)
         self.tokens = tokens
         self.timeZone = timeZone
         self.now = now
+        self.sleep = sleep
+        self.pushWindow = pushWindow
+        self.pushDeadline = pushDeadline
+        watch = GoogleWatchKeeper(api: api, context: context, environment: environment, now: now)
         if let config {
             let client = GoogleTokenClient(config: config, http: http, now: now)
             self.client = client
@@ -160,6 +186,7 @@ final class GoogleCalendarModel {
                 try? tokens.delete()
             }
         }
+        watch.host = self
     }
 
     var config: GoogleOAuthConfig? {
@@ -207,9 +234,12 @@ final class GoogleCalendarModel {
             connectProblem = .notConfigured
             return
         }
+        connectAttempt += 1
+        let attempt = connectAttempt
         isConnecting = true
         connectProblem = nil
-        defer { isConnecting = false }
+        // A Disconnect (or a newer Connect) has already cleared it otherwise.
+        defer { if attempt == connectAttempt { isConnecting = false } }
         // A Disconnect tapped while this runs (the expired state shows one)
         // moves the generation; this sign-in then keeps nothing.
         let started = generation
@@ -291,10 +321,20 @@ final class GoogleCalendarModel {
 
     /// Fetches the account's calendar list and folds it into the choices,
     /// unless a hold is on (our 429's delay, a back-off); the list kept from
-    /// last time stays.
-    func loadCalendars() async {
-        guard !isFrozen, connection == .connected, access != nil else { return }
-        if let retryNotBefore, now() < retryNotBefore { return }
+    /// last time stays. With no list at all (the first load failed), only
+    /// our 429 holds it back. Returns how long to wait before asking again
+    /// when the list is still missing or was held back; nil otherwise.
+    @discardableResult
+    func loadCalendars() async -> TimeInterval? {
+        guard !isFrozen, connection == .connected, access != nil else {
+            listHeld = false
+            return nil
+        }
+        if let wait = listHold() {
+            listHeld = true
+            return wait
+        }
+        listHeld = false
         let started = generation
         let list: [GoogleCalendarEntry]
         do {
@@ -302,16 +342,39 @@ final class GoogleCalendarModel {
         } catch {
             // Cancelled (Settings closed mid-load): not a failure, so no
             // status and no hold (see `refresh`).
-            guard started == generation, !Task.isCancelled else { return }
+            guard started == generation, !Task.isCancelled else { return nil }
             handle(error)
-            return
+            guard calendars.isEmpty, let retryNotBefore else { return nil }
+            return max(1, retryNotBefore.timeIntervalSince(now()))
         }
-        guard started == generation else { return }
+        guard started == generation else { return nil }
         statusProblem = nil
         let existing = calendars.map { (id: $0.id, calendarID: $0.calendarID, isOn: $0.isOn) }
         store.replaceChoices(with: GoogleCalendarMerge.merge(existing: existing, fetched: list))
         calendars = store.choices()
         if let snapshot { setSnapshot(snapshot.keeping(Set(chosen.map(\.id)))) }
+        watch.sync(.calendars)
+        return nil
+    }
+
+    /// While Settings is open: reads the calendar list, and again each time
+    /// a hold that kept it back ends (or a first load that failed can be
+    /// tried again). Ends when Settings closes (the task is cancelled).
+    func loadCalendarsWhileShown() async {
+        defer { listHeld = false }
+        while !Task.isCancelled {
+            guard let wait = await loadCalendars() else { return }
+            await sleep(wait)
+        }
+    }
+
+    /// How long the hold has left if it keeps the list from being read.
+    private func listHold() -> TimeInterval? {
+        guard let retryNotBefore, now() < retryNotBefore else { return nil }
+        // A missing list ignores back-offs: Settings would otherwise say
+        // it is loading while nothing is.
+        guard holdIsServerLimit || !calendars.isEmpty else { return nil }
+        return retryNotBefore.timeIntervalSince(now())
     }
 
     /// Turns a calendar's events on or off on Today. At most ten are on.
@@ -326,15 +389,25 @@ final class GoogleCalendarModel {
         store.save()
         calendars = store.choices()
         if let snapshot { setSnapshot(snapshot.keeping(Set(chosen.map(\.id)))) }
+        watch.sync(.calendars)
     }
 
     /// Disconnects: drops the token from memory and the Keychain, the
-    /// calendars and the cached events, then asks Google to revoke the
-    /// sign-in (best effort; nothing waits on it).
+    /// calendars and the cached events, and shows the not-connected state at
+    /// once (even while a Connect is still exchanging its code). Then, best
+    /// effort and in this order: stops the push channels (after any watch
+    /// already out), and asks Google to revoke the sign-in; revoking first
+    /// would leave the API no token to stop the channels with.
     func disconnect() async {
         guard !isFrozen else { return }
         generation += 1
+        connectAttempt += 1
+        isConnecting = false
         let token = try? tokens.read()
+        let valid = access?.validToken
+        let last = access?.lastToken
+        let canUnwatch = watch.canUnwatch
+        watch.forget()
         try? tokens.delete()
         access?.forget()
         store.deleteChoices()
@@ -346,7 +419,16 @@ final class GoogleCalendarModel {
         statusProblem = nil
         connectProblem = nil
         limitReached = false
+        listHeld = false
         setConnection(.notConnected)
+        if canUnwatch {
+            var unwatchToken = valid
+            if unwatchToken == nil, let token, let client {
+                // One fresh token for the unwatch alone; it is not kept.
+                unwatchToken = try? await client.refresh(token).access
+            }
+            await watch.stop(using: unwatchToken ?? last)
+        }
         if let token, let client { await client.revoke(token) }
     }
 
@@ -356,11 +438,26 @@ final class GoogleCalendarModel {
     /// running, a hold is on, or (unforced) the last answer is under
     /// `minimumGap` old. If it fails as a whole, what is on screen stays.
     func refresh(force: Bool = false) async {
-        guard !isFrozen, connection == .connected, access != nil else { return }
+        await fetch(force: force)
+    }
+
+    /// What one `fetch` did.
+    enum FetchResult: Equatable {
+        /// Nothing was asked (a hold, too soon, one running, not connected).
+        case skipped
+        case unchanged
+        case changed
+        case failed
+    }
+
+    /// `refresh`, saying what came of it.
+    @discardableResult
+    private func fetch(force: Bool) async -> FetchResult {
+        guard !isFrozen, connection == .connected, access != nil else { return .skipped }
         let on = chosen
         guard !on.isEmpty else {
             setSnapshot(nil)
-            return
+            return .skipped
         }
         let zone = timeZone().identifier
         if let snapshot, snapshot.timezone != zone { setSnapshot(nil) }
@@ -369,12 +466,17 @@ final class GoogleCalendarModel {
             let pruned = snapshot.pruned(at: now())
             if pruned != snapshot { setSnapshot(pruned) }
             let covers = Set(pruned.statuses.map(\.calendar)) == Set(ids)
-            if !force, covers, let lastFetch, now().timeIntervalSince(lastFetch) < Self.minimumGap { return }
+            if !force, covers, let lastFetch, now().timeIntervalSince(lastFetch) < Self.minimumGap { return .skipped }
         }
-        guard !isRefreshing else { return }
-        if let retryNotBefore, now() < retryNotBefore { return }
+        guard !isRefreshing else { return .skipped }
+        if let retryNotBefore, now() < retryNotBefore { return .skipped }
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+            let waiters = refreshWaiters
+            refreshWaiters = []
+            for waiter in waiters { waiter.resume() }
+        }
 
         let started = generation
         let googleIDs = on.map(\.calendarID)
@@ -387,13 +489,13 @@ final class GoogleCalendarModel {
             // Cancelled (the app left the foreground, a sheet opened over
             // Today, Settings closed): not a failure. No status and no hold,
             // so the ask on return goes out at once.
-            guard started == generation, !Task.isCancelled else { return }
+            guard started == generation, !Task.isCancelled else { return .skipped }
             handle(error)
-            return
+            return .failed
         }
         // Disconnected, reconnected, or the calendars or zone changed while
         // the request was out: whatever changed them asks again.
-        guard started == generation, ids == chosen.map(\.id), zone == timeZone().identifier else { return }
+        guard started == generation, ids == chosen.map(\.id), zone == timeZone().identifier else { return .skipped }
         failures = 0
         statusProblem = nil
         retryNotBefore = nil
@@ -402,7 +504,49 @@ final class GoogleCalendarModel {
         if fresh.statuses.contains(where: { $0.problem == .rateLimited }) {
             hold(Self.googleRateLimitHold)
         }
-        setSnapshot(fresh)
+        return setSnapshot(fresh) ? .changed : .unchanged
+    }
+
+    // MARK: Push
+
+    /// A background push from the Worker (`type` from its payload). For
+    /// `calendar-changed` while connected: one forced events fetch, shared by
+    /// every push that arrives before it starts (within `pushWindow` of the
+    /// first); a push arriving while it is out gets one more fetch after it,
+    /// since that fetch may have missed the change. A poll already running
+    /// is waited for, not doubled. Answers by `pushDeadline` whatever happens.
+    func handlePush(type: String?) async -> GooglePushOutcome {
+        guard type == GooglePushHandling.calendarChanged, canPoll else { return .noData }
+        pushPending = true
+        let task: Task<GooglePushOutcome, Never>
+        if let pushFetch {
+            task = pushFetch
+        } else {
+            task = Task { [weak self] in await self?.drainPushes() ?? .noData }
+            pushFetch = task
+        }
+        return await PushDeadline.race(task, deadline: pushDeadline)
+    }
+
+    private func drainPushes() async -> GooglePushOutcome {
+        var outcome = GooglePushOutcome.noData
+        while pushPending {
+            try? await Task.sleep(for: pushWindow)
+            pushPending = false
+            while isRefreshing {
+                await withCheckedContinuation { refreshWaiters.append($0) }
+            }
+            switch await fetch(force: true) {
+            case .changed:
+                outcome = .newData
+            case .failed:
+                if outcome != .newData { outcome = .failed }
+            case .unchanged, .skipped:
+                if outcome == .failed { outcome = .noData }
+            }
+        }
+        pushFetch = nil
+        return outcome
     }
 
     /// Runs `call` with an access token; on a 401 `google_auth` renews the
@@ -454,7 +598,7 @@ final class GoogleCalendarModel {
                 hold(Self.googleRateLimitHold)
             case .rateLimited(let seconds):
                 statusProblem = .rateLimited
-                hold(TimeInterval(seconds))
+                hold(TimeInterval(seconds), serverLimit: true)
             case .googleAuth, .invalidRequest, .unavailable:
                 statusProblem = .unavailable
                 backOff()
@@ -470,6 +614,15 @@ final class GoogleCalendarModel {
     /// the same account connects again.
     private func endSignIn(_ state: GoogleConnection) {
         generation += 1
+        // The channels are stopped with the last token had (it is probably
+        // no longer good at Google, but the API forgets the channels anyway).
+        // With none in memory (the sign-in was found ended at launch), no
+        // unwatch can be sent; the channels end by themselves.
+        let last = access?.lastToken
+        watch.forget()
+        if let last {
+            Task { [watch] in await watch.stop(using: last) }
+        }
         try? tokens.delete()
         access?.forget()
         setSnapshot(nil)
@@ -484,8 +637,9 @@ final class GoogleCalendarModel {
         hold(GooglePoll.backoff(failures: failures))
     }
 
-    private func hold(_ seconds: TimeInterval) {
+    private func hold(_ seconds: TimeInterval, serverLimit: Bool = false) {
         retryNotBefore = now().addingTimeInterval(seconds)
+        holdIsServerLimit = serverLimit
     }
 
     private func setConnection(_ state: GoogleConnection) {
@@ -493,13 +647,108 @@ final class GoogleCalendarModel {
         store.setConnection(state)
     }
 
-    private func setSnapshot(_ value: GoogleEventsSnapshot?) {
+    /// Returns whether what Today shows changed.
+    @discardableResult
+    private func setSnapshot(_ value: GoogleEventsSnapshot?) -> Bool {
         // A poll that changes nothing but the time neither writes the
         // cache nor redraws Today.
-        if let value, value.sameContent(as: snapshot) { return }
-        guard value != snapshot else { return }
+        if let value, value.sameContent(as: snapshot) { return false }
+        guard value != snapshot else { return false }
         snapshot = value
         store.cache(value)
+        return true
+    }
+}
+
+extension GoogleCalendarModel: GoogleWatchHost {
+    var watchCalendars: [String]? {
+        guard !isFrozen, connection == .connected, access != nil else { return nil }
+        return chosen.map(\.calendarID)
+    }
+
+    func watchToken() async throws -> GoogleSecret {
+        guard let access else { throw GoogleAccess.Failure.signInEnded }
+        return try await access.token()
+    }
+
+    func watchTokenRejected() {
+        access?.invalidate()
+    }
+}
+
+extension GoogleCalendarModel: RemotePushReceiver {
+    func launched() {
+        watch.sync(.launch)
+    }
+
+    func registered(_ token: APNsDeviceToken) {
+        watch.registered(token)
+    }
+
+    func registrationFailed() {
+        watch.registrationFailed()
+    }
+
+    func received(type: String?) async -> GooglePushOutcome {
+        await handlePush(type: type)
+    }
+}
+
+extension GoogleCalendarModel {
+    /// The app came to the front: the channels are replaced if they end
+    /// within `GoogleWatchKeeper.renewalWindow` (or were never made).
+    func appOpened() {
+        watch.sync(.opened)
+    }
+
+    /// How often Today polls now: slowly while push channels cover every
+    /// calendar that is on.
+    var pollInterval: Duration {
+        GooglePoll.interval(channelLive: watch.isLive)
+    }
+
+    /// The line under a calendar in Settings when it could not be watched.
+    func watchMessage(for choice: GoogleCalendarChoice) -> String? {
+        guard choice.isOn, connection == .connected, let code = watch.calendarProblems[choice.calendarID] else { return nil }
+        return code == "webhook_refused"
+            ? "Instant updates aren't available right now (a Seasign server setting). Today checks this calendar every few seconds instead."
+            : "Instant updates for this calendar couldn't be set up. Today checks it every few seconds instead."
+    }
+}
+
+/// Answers by a deadline whatever the task does; the task itself goes on.
+enum PushDeadline {
+    static func race(_ task: Task<GooglePushOutcome, Never>, deadline: Duration) async -> GooglePushOutcome {
+        let once = Once()
+        return await withCheckedContinuation { continuation in
+            once.set(continuation)
+            let timer = Task {
+                try? await Task.sleep(for: deadline)
+                once.resume(.failed)
+            }
+            Task {
+                let value = await task.value
+                timer.cancel()
+                once.resume(value)
+            }
+        }
+    }
+
+    private final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<GooglePushOutcome, Never>?
+
+        func set(_ value: CheckedContinuation<GooglePushOutcome, Never>) {
+            lock.withLock { continuation = value }
+        }
+
+        func resume(_ value: GooglePushOutcome) {
+            let continuation = lock.withLock { () -> CheckedContinuation<GooglePushOutcome, Never>? in
+                defer { self.continuation = nil }
+                return self.continuation
+            }
+            continuation?.resume(returning: value)
+        }
     }
 }
 
@@ -508,8 +757,16 @@ struct GoogleSignInCancelled: Error {}
 
 /// When Today polls Google, and how it backs off.
 enum GooglePoll {
-    /// How often Today asks while it is on screen and the app is active.
+    /// How often Today asks while it is on screen and the app is active,
+    /// with no push channel to rely on.
     static let interval: Duration = .seconds(5)
+    /// How often it asks while push channels cover every calendar that is
+    /// on: the fallback for a push iOS delays or drops. The one place it is set.
+    static let intervalWithPush: Duration = .seconds(60)
+
+    static func interval(channelLive: Bool) -> Duration {
+        channelLive ? intervalWithPush : interval
+    }
 
     /// Whether Today should poll: the app active, Today itself on screen
     /// (no sheet over it), and Google connected with a calendar on.
@@ -583,6 +840,7 @@ extension GoogleCalendarModel {
             now: { now }
         )
         model.isFrozen = true
+        model.watch.showSampleProblem(calendar: "sample-family", code: "webhook_refused")
         return model
     }
 }

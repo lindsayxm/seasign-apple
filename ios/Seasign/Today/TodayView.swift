@@ -39,6 +39,9 @@ struct TodayView: View {
     /// `-debugPullSpinner 5`: each pull's spinner stays up at least this
     /// many seconds, for screenshots.
     @AppStorage("debugPullSpinner") private var debugPullSpinner = 0.0
+    /// `-debugOpenSettings YES`: Settings opens over Today at launch, for
+    /// screenshots when UI automation cannot reach the always-moving scene.
+    @AppStorage("debugOpenSettings") private var debugOpenSettings = false
     #endif
 
     enum Destination: String, Identifiable {
@@ -53,6 +56,11 @@ struct TodayView: View {
             content(clock: timeline.date)
         }
         .preferredColorScheme(.dark)
+        #if DEBUG
+        .onAppear {
+            if debugOpenSettings { destination = .settings }
+        }
+        #endif
         .task {
             // Headlines at launch and on return to the foreground only (at
             // most every 15 minutes, see `FeedModel.refreshInterval`), not on
@@ -70,15 +78,16 @@ struct TodayView: View {
             }
         }
         // Google events: while the app is active and Today itself is on
-        // screen, one request every 5 seconds for all chosen calendars (a
-        // stand-in until push exists). The task starts again, asking at
-        // once, whenever the gate opens: back to the foreground, a sheet
-        // closed, a calendar turned on. No spinner.
-        .task(id: googlePolls) {
-            guard googlePolls else { return }
+        // screen, one request for all chosen calendars every 5 seconds, or
+        // once a minute while push channels cover them (`GooglePoll`). The
+        // task starts again, asking at once, whenever the gate opens (back
+        // to the foreground, a sheet closed, a calendar turned on) or the
+        // rate changes. No spinner.
+        .task(id: googlePoll) {
+            guard let interval = googlePoll else { return }
             while !Task.isCancelled {
                 await google.refresh()
-                try? await Task.sleep(for: GooglePoll.interval)
+                try? await Task.sleep(for: interval)
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -97,6 +106,8 @@ struct TodayView: View {
                 // read at launch (before the first unlock) may be readable now.
                 ai.refreshKeyStatus()
                 Task { await ai.refreshIfDue() }
+                // Google push channels with under two days left are replaced.
+                google.appOpened()
             }
         }
         // Events are asked for in the zip's time zone; when that changes (a
@@ -360,13 +371,15 @@ struct TodayView: View {
         )
     }
 
-    /// Whether Today polls Google now (`GooglePoll.isOn`).
-    private var googlePolls: Bool {
-        GooglePoll.isOn(
+    /// How often Today polls Google now, or nil when it does not
+    /// (`GooglePoll.isOn`, `GoogleCalendarModel.pollInterval`).
+    private var googlePoll: Duration? {
+        let on = GooglePoll.isOn(
             appActive: scenePhase == .active,
             todayOnScreen: destination == nil && reading == nil,
             canPoll: google.canPoll
         )
+        return on ? google.pollInterval : nil
     }
 
     /// The time zone events are asked for and shown in.

@@ -14,7 +14,7 @@ import SwiftData
 ///   and the app shows `StoreErrorView`.
 /// - the **cache store** (`SkyCache.store`): `SeasignSchema.cacheModels`
 ///   (`CachedSky`, `CachedEvents`, `FeedItem`, `CachedFeedState`,
-///   `CachedGoogleEvents`), copies of
+///   `CachedGoogleEvents`, `GoogleWatchRecord`), copies of
 ///   API responses. If the container will not open and the user store is
 ///   healthy, this file is deleted and made again; the next refresh refills it.
 ///

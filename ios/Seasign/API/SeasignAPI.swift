@@ -158,6 +158,94 @@ struct SeasignAPI: Sendable {
         }
     }
 
+    /// Why `googleWatch` or `googleUnwatch` failed as a whole. Payload-free,
+    /// like `GoogleFailure`: these requests carry the Google token in a
+    /// header and the device token in the body.
+    enum GooglePushFailure: Error, Equatable {
+        /// 401 `google_auth`: renew the access token and ask once more.
+        case googleAuth
+        /// 400: the request was refused.
+        case invalidRequest
+        /// The API's own per-network limit (429): wait `retryAfter` seconds.
+        case rateLimited(retryAfter: Int)
+        /// 503 `push_unavailable`: this server has no webhook address (local
+        /// `wrangler dev`, say), so it cannot ask Google for notifications.
+        case pushUnavailable
+        /// The server could not be reached, failed, or sent something unreadable.
+        case unavailable
+    }
+
+    /// `POST /v1/google/watch`: asks the API to wake this device (`deviceToken`,
+    /// lowercase hex, on the `environment` APNs) whenever one of `calendars`
+    /// (Google's ids, 1 to 10) changes. Replaces the device's earlier
+    /// channels. Sent with `token` in `X-Google-Token`; never over plain http
+    /// when `keyNeedsHTTPS` is on. Throws a `GooglePushFailure`.
+    func googleWatch(
+        token: GoogleSecret, calendars: [String], deviceToken: APNsDeviceToken, environment: APNsEnvironment
+    ) async throws -> GoogleWatchAnswer {
+        guard secretMayBeSent else { throw GooglePushFailure.unavailable }
+        let output: Operations.postGoogleWatch.Output
+        do {
+            output = try await client.postGoogleWatch(
+                headers: .init(x_hyphen_google_hyphen_token: token.secret),
+                body: .json(.init(
+                    calendars: calendars,
+                    deviceToken: deviceToken.hex,
+                    environment: environment == .production ? .production : .sandbox
+                ))
+            )
+        } catch {
+            // Dropped on purpose: its description includes the token header and the body.
+            if let delay = ServerRateLimit.delay(after: error) { throw GooglePushFailure.rateLimited(retryAfter: delay) }
+            throw GooglePushFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let body = try? response.body.json else { throw GooglePushFailure.unavailable }
+            return GoogleWatchAnswer(body)
+        case .badRequest:
+            throw GooglePushFailure.invalidRequest
+        case .unauthorized:
+            throw GooglePushFailure.googleAuth
+        case .tooManyRequests(let response):
+            throw GooglePushFailure.rateLimited(retryAfter: ServerRateLimit.delay(response.headers.Retry_hyphen_After))
+        case .serviceUnavailable:
+            throw GooglePushFailure.pushUnavailable
+        default:
+            throw GooglePushFailure.unavailable
+        }
+    }
+
+    /// `POST /v1/google/unwatch`: stops waking this device; returns how many
+    /// channels it had. Sent with `token` (Google stops the channels only if
+    /// it still takes the token; the API forgets them either way). Throws a
+    /// `GooglePushFailure`.
+    @discardableResult
+    func googleUnwatch(token: GoogleSecret, deviceToken: APNsDeviceToken) async throws -> Int {
+        guard secretMayBeSent else { throw GooglePushFailure.unavailable }
+        let output: Operations.postGoogleUnwatch.Output
+        do {
+            output = try await client.postGoogleUnwatch(
+                headers: .init(x_hyphen_google_hyphen_token: token.secret),
+                body: .json(.init(deviceToken: deviceToken.hex))
+            )
+        } catch {
+            if let delay = ServerRateLimit.delay(after: error) { throw GooglePushFailure.rateLimited(retryAfter: delay) }
+            throw GooglePushFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let body = try? response.body.json else { throw GooglePushFailure.unavailable }
+            return body.removed
+        case .badRequest:
+            throw GooglePushFailure.invalidRequest
+        case .tooManyRequests(let response):
+            throw GooglePushFailure.rateLimited(retryAfter: ServerRateLimit.delay(response.headers.Retry_hyphen_After))
+        default:
+            throw GooglePushFailure.unavailable
+        }
+    }
+
     /// `GET /v1/health`. Throws when the server is unreachable or answers with anything but 200.
     func health() async throws -> Components.Schemas.Health {
         try await client.getHealth().ok.body.json
@@ -569,6 +657,32 @@ extension GoogleEventsAnswer {
                 error: status.error.flatMap { GoogleCalendarProblem(rawValue: $0.rawValue) }
             )
         }
+    }
+}
+
+/// A `POST /v1/google/watch` response in the app's own types. Calendars are
+/// named by their index in the request.
+struct GoogleWatchAnswer: Sendable, Equatable {
+    struct Status: Sendable, Equatable {
+        var index: Int
+        var ok: Bool
+        /// The API's code (`forbidden`, `not_found`, `rate_limited`,
+        /// `fetch_failed`, `timeout`, `too_large`, `webhook_refused`); nil when ok.
+        var error: String?
+    }
+
+    var calendars: [Status]
+    /// When the first new channel ends; nil when none was made (or the
+    /// answer's time could not be read).
+    var expiresAt: Date?
+}
+
+extension GoogleWatchAnswer {
+    init(_ body: Components.Schemas.GoogleWatch) {
+        calendars = body.calendars.map { status in
+            Status(index: status.index, ok: status.ok, error: status.ok ? nil : (status.error?.rawValue ?? "fetch_failed"))
+        }
+        expiresAt = body.expiresAt.flatMap { try? Date($0, strategy: .iso8601) }
     }
 }
 

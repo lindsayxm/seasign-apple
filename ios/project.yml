@@ -68,6 +68,20 @@ targets:
             CFBundleTypeRole: Viewer
             CFBundleURLSchemes:
               - com.googleusercontent.apps.$(GOOGLE_CLIENT_ID)
+        # Google Calendar push (task 158): the Worker wakes the app with a
+        # background push (content-available, no alert) when a chosen Google
+        # calendar changes. Background pushes need no notification permission,
+        # so the app never asks for one.
+        UIBackgroundModes:
+          - remote-notification
+    # Push Notifications capability (approved by the user in
+    # plans/2026-11-19-google-calendar-push.md). XcodeGen writes the file and
+    # sets CODE_SIGN_ENTITLEMENTS. "development" is the sandbox APNs; an
+    # App Store or TestFlight export signs it as production.
+    entitlements:
+      path: Seasign/Seasign.entitlements
+      properties:
+        aps-environment: development
     dependencies:
       - package: swift-openapi-runtime
         product: OpenAPIRuntime

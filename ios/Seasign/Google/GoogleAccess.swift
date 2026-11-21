@@ -25,7 +25,13 @@ final class GoogleAccess {
     private let client: GoogleTokenClient
     private let store: any GoogleTokenStore
     private let now: @Sendable () -> Date
-    private var current: (token: GoogleSecret, expiresAt: Date)?
+    private var current: (token: GoogleSecret, expiresAt: Date)? {
+        didSet { if let current { last = current.token } }
+    }
+    /// The last token had, kept after `invalidate()` (not after `forget()`)
+    /// for the unwatch sent when the sign-in ends: the API forgets the
+    /// channels whatever Google makes of the token.
+    private var last: GoogleSecret?
     private var renewal: Task<GoogleSecret, any Error>?
     /// Moves on `forget()`, so a renewal that ends afterwards is not kept.
     private var generation = 0
@@ -42,6 +48,17 @@ final class GoogleAccess {
             return current.token
         }
         return try await renew()
+    }
+
+    /// The token in memory if it has at least `renewalMargin` left; never renews.
+    var validToken: GoogleSecret? {
+        guard let current, current.expiresAt.timeIntervalSince(now()) > Self.renewalMargin else { return nil }
+        return current.token
+    }
+
+    /// The last token had this session, even an expired or refused one; never renews.
+    var lastToken: GoogleSecret? {
+        current?.token ?? last
     }
 
     /// Drops the token in memory (after Google refused it with a 401), so
@@ -64,6 +81,7 @@ final class GoogleAccess {
         renewal?.cancel()
         renewal = nil
         current = nil
+        last = nil
     }
 
     private func renew() async throws(Failure) -> GoogleSecret {

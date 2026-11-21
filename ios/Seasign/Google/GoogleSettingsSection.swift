@@ -36,11 +36,15 @@ struct GoogleSettingsSection: View {
             if model.connection == .connected, let problem = model.statusProblem {
                 note(problem.message, warning: true)
             }
+            if model.connection == .connected, let problem = model.watch.problem {
+                note(problem.message, warning: true)
+            }
         }
         .task {
             // The list is read again each time Settings opens, for names and
-            // calendars added or removed in Google Calendar.
-            await model.loadCalendars()
+            // calendars added or removed in Google Calendar, and again when
+            // a hold that kept it back ends while Settings is open.
+            await model.loadCalendarsWhileShown()
         }
         .confirmationDialog(
             Text(verbatim: "Disconnect Google Calendar?"),
@@ -62,9 +66,12 @@ struct GoogleSettingsSection: View {
     @ViewBuilder
     private var connectedContent: some View {
         if model.calendars.isEmpty {
-            note("Connected. Loading your calendars…")
+            note(model.listHeld ? "Connected. Your calendars will load in a moment." : "Connected. Loading your calendars…")
         } else {
             note("Choose which calendars show on Today, up to \(GoogleCalendarModel.maxCalendars).")
+            if model.listHeld {
+                note("Your calendar list will be read again in a moment.")
+            }
             ForEach(model.calendars, id: \.id) { choice in
                 row(choice)
             }
@@ -98,6 +105,12 @@ struct GoogleSettingsSection: View {
                     .capsRelative(10, tracking: 0.12)
                     .lineSpacing(3)
                     .foregroundStyle(message.isProblem ? Palette.sun : Palette.dimText)
+            }
+            if let watchMessage = model.watchMessage(for: choice) {
+                Text(caps: watchMessage)
+                    .capsRelative(10, tracking: 0.12)
+                    .lineSpacing(3)
+                    .foregroundStyle(Palette.dimText)
             }
             Rectangle()
                 .fill(Palette.rule)

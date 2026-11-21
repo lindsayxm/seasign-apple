@@ -11,6 +11,8 @@ struct SeasignApp: App {
     }
 
     @State private var session: Session
+    /// Remote-notification callbacks (Google Calendar push, task 158).
+    @UIApplicationDelegateAdaptor(SeasignAppDelegate.self) private var appDelegate
 
     init() {
         _session = State(initialValue: Self.start())
@@ -57,6 +59,8 @@ struct SeasignApp: App {
             let liveGoogle = GoogleCalendarModel(context: container.mainContext) {
                 EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent)
             }
+            // Asked only while Google is connected (`GoogleWatchKeeper`).
+            liveGoogle.watch.register = { UIApplication.shared.registerForRemoteNotifications() }
             let lists = ListsModel(context: container.mainContext)
             let feed = FeedModel(context: container.mainContext)
             let saved = SavedModel(context: container.mainContext)
@@ -87,9 +91,11 @@ struct SeasignApp: App {
             let ai = sample.ai ?? (showAI
                 ? AISearchModel.debugFallback(feed: sample.feed, context: container.mainContext)
                 : AISearchModel(context: container.mainContext, feed: sample.feed, zone: zone))
+            RemotePushRelay.shared.attach(google)
             return .ready(container, today, lists, events, google, sample.feed, sample.saved, ai)
             #else
             let ai = AISearchModel(context: container.mainContext, feed: feed, zone: zone)
+            RemotePushRelay.shared.attach(liveGoogle)
             return .ready(container, today, lists, live, liveGoogle, feed, saved, ai)
             #endif
         } catch {

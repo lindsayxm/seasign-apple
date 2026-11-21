@@ -98,6 +98,7 @@ enum SeasignSchema {
     /// Copies of what the API returned. Safe to throw away.
     static let cacheModels: [any PersistentModel.Type] = [
         CachedSky.self, CachedEvents.self, FeedItem.self, CachedFeedState.self, CachedGoogleEvents.self,
+        GoogleWatchRecord.self,
     ]
     static let models: [any PersistentModel.Type] = userModels + cacheModels
 

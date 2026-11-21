@@ -39,5 +39,9 @@
 		<string>Jost-500-Medium.ttf</string>
 		<string>PTSansNarrow-Bold.ttf</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>

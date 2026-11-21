@@ -822,7 +822,7 @@ private final class SeenRequest: @unchecked Sendable {
         clock.advance(5)
         let lists = stub.count(GoogleAPIStub.getCalendars)
         stub.hold()
-        let load = Task { await model.loadCalendars() }
+        let load = Task { _ = await model.loadCalendars() }
         try await waitUntil { stub.count(GoogleAPIStub.getCalendars) == lists + 1 }
         load.cancel()
         await load.value
@@ -887,6 +887,8 @@ private final class SeenRequest: @unchecked Sendable {
         try await waitUntil { endpoint.sent(grant: "authorization_code").count == 2 }
         #expect(model.isConnecting)
         await model.disconnect()
+        // The not-connected state shows at once, before the exchange returns.
+        #expect(!model.isConnecting)
         endpoint.release()
         await connecting.value
 
