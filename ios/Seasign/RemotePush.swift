@@ -63,21 +63,24 @@ final class RemotePushRelay {
 /// Worker sends background pushes only. Nothing here logs the device token
 /// or the registration error.
 final class SeasignAppDelegate: NSObject, UIApplicationDelegate {
+    /// The shared relay; tests give their own.
+    var relay = RemotePushRelay.shared
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        RemotePushRelay.shared.launched()
+        relay.launched()
         return true
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        RemotePushRelay.shared.registered(APNsDeviceToken(deviceToken))
+        relay.registered(APNsDeviceToken(deviceToken))
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
         // Asked again when the app next opens. The error is not kept.
-        RemotePushRelay.shared.registrationFailed()
+        relay.registrationFailed()
     }
 
     func application(
@@ -86,8 +89,9 @@ final class SeasignAppDelegate: NSObject, UIApplicationDelegate {
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         let type = userInfo["type"] as? String
+        let relay = relay
         Task { @MainActor in
-            let outcome = await RemotePushRelay.shared.received(type: type)
+            let outcome = await relay.received(type: type)
             completionHandler(outcome.fetchResult)
         }
     }

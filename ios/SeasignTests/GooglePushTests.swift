@@ -96,19 +96,21 @@ final class FakeReceiver: RemotePushReceiver {
 }
 
 @Suite @MainActor struct SeasignAppDelegateTests {
-    /// Only a push type the app does not know, so the app the tests run in
-    /// fetches nothing whatever its own Google state.
-    @Test func aPushCallsTheCompletionHandlerOnce() async throws {
+    /// With its own relay, so the app the tests run in is not involved.
+    @Test func aPushIsPassedOnAndTheCompletionHandlerCalledOnce() async throws {
         let delegate = SeasignAppDelegate()
+        let relay = RemotePushRelay()
+        let receiver = FakeReceiver()
+        relay.attach(receiver)
+        delegate.relay = relay
         var results: [UIBackgroundFetchResult] = []
-        delegate.application(.shared, didReceiveRemoteNotification: ["type": "not-a-seasign-push"]) { results.append($0) }
-        // The app the tests run in may keep the main actor busy for a while
-        // at launch, so the handler is given up to ten seconds.
-        for _ in 0..<1000 where results.isEmpty {
+        delegate.application(.shared, didReceiveRemoteNotification: ["type": "calendar-changed"]) { results.append($0) }
+        for _ in 0..<500 where results.isEmpty {
             try await Task.sleep(for: .milliseconds(10))
         }
         try await Task.sleep(for: .milliseconds(50))
-        #expect(results == [.noData])
+        #expect(results == [.newData])
+        #expect(receiver.pushes == ["calendar-changed"])
     }
 }
 
@@ -526,20 +528,53 @@ final class FakeReceiver: RemotePushReceiver {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let model = try await watching(context)
         let family = try #require(model.calendars.first { $0.calendarID == "family-id" })
-        stub.answer(GoogleAPIStub.postWatch, GoogleAPIStub.watch([nil, nil], expiresAt: weekLater))
+        // The held request reads its answer when released, so both are queued now, in order.
+        stub.answer(
+            GoogleAPIStub.postWatch,
+            GoogleAPIStub.watch([nil, nil], expiresAt: weekLater),
+            GoogleAPIStub.watch([nil], expiresAt: weekLater)
+        )
         stub.hold(GoogleAPIStub.postWatch)
         model.setOn(family, true)
         try await waitUntil { stub.outstanding(GoogleAPIStub.postWatch) == 1 }
         model.setOn(family, false)
-        stub.answer(GoogleAPIStub.postWatch, GoogleAPIStub.watch([nil], expiresAt: weekLater))
         stub.release(GoogleAPIStub.postWatch)
         await model.watch.idle()
         // The API kept the last request's channels, so "Me" alone is watched again.
-        #expect(watches.count == 3)
+        try #require(watches.count == 3)
         #expect(watches[1].calendars == ["me@example.test", "family-id"])
         #expect(watches[2].calendars == ["me@example.test"])
         #expect(model.watch.isLive)
         #expect(stub.peak(GoogleAPIStub.pushKey) == 1)
+    }
+
+    @Test func aFailedWatchDoesNotHoldBackASetChosenWhileItWasOut() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = try await watching(context)
+        let family = try #require(model.calendars.first { $0.calendarID == "family-id" })
+        // The watch for both comes back with Family refused (incomplete, so held),
+        // and Family was turned off meanwhile: "Me" alone is still sent.
+        stub.answer(
+            GoogleAPIStub.postWatch,
+            GoogleAPIStub.watch([nil, "not_found"], expiresAt: weekLater),
+            GoogleAPIStub.watch([nil], expiresAt: weekLater)
+        )
+        stub.hold(GoogleAPIStub.postWatch)
+        model.setOn(family, true)
+        try await waitUntil { stub.outstanding(GoogleAPIStub.postWatch) == 1 }
+        model.setOn(family, false)
+        stub.release(GoogleAPIStub.postWatch)
+        await model.watch.idle()
+        try #require(watches.count == 3)
+        #expect(watches[2].calendars == ["me@example.test"])
+        #expect(model.watch.isLive)
+        // The refused set itself is not retried on opening the app within the hold.
+        model.setOn(family, true)
+        await model.watch.idle()
+        #expect(watches.count == 4)
+        model.appOpened()
+        await model.watch.idle()
+        #expect(watches.count == 4)
     }
 
     @Test func aChangeQueuedBehindAWatchThatHitOurLimitWaitsForTheDelay() async throws {

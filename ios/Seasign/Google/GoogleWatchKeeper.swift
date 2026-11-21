@@ -129,6 +129,8 @@ final class GoogleWatchKeeper {
     @ObservationIgnored private var registered = false
     @ObservationIgnored private var holdUntil: Date?
     @ObservationIgnored private var holdIsRateLimit = false
+    /// The set a failure hold is about (other than our 429, which holds everything).
+    @ObservationIgnored private var heldFingerprint: String?
     /// A watch made this launch may have left channels at the API.
     @ObservationIgnored private var mayHaveChannels = false
     /// Moves when the connection ends, so a watch answering afterwards changes nothing.
@@ -205,10 +207,13 @@ final class GoogleWatchKeeper {
         if isFresh(fingerprint) { return nil }
         // Already on its way: whatever it leaves is looked at when it ends.
         if sendingFingerprint == fingerprint { return nil }
-        // Our 429 holds everything; another failure holds only the retries
-        // nobody asked for (opening the app, the check after a request).
-        if let holdUntil, now() < holdUntil, holdIsRateLimit || reason == .opened || reason == .launch || reason == .afterRequest {
-            return nil
+        // Our 429 holds everything. Another failure holds only retries of
+        // the same set that nobody asked for (opening the app, the check
+        // after a request); a set chosen since then goes ahead.
+        if let holdUntil, now() < holdUntil {
+            if holdIsRateLimit { return nil }
+            let unasked = reason == .opened || reason == .launch || reason == .afterRequest
+            if unasked, heldFingerprint == fingerprint { return nil }
         }
         return .watch(calendars: calendars, device: device, fingerprint: fingerprint)
     }
@@ -236,6 +241,7 @@ final class GoogleWatchKeeper {
         registered = false
         holdUntil = nil
         holdIsRateLimit = false
+        heldFingerprint = nil
         problem = nil
         calendarProblems = [:]
         mayHaveChannels = false
@@ -305,9 +311,10 @@ final class GoogleWatchKeeper {
         }
     }
 
-    private func hold(_ seconds: TimeInterval, rateLimit: Bool) {
+    private func hold(_ seconds: TimeInterval, rateLimit: Bool, fingerprint: String? = nil) {
         holdUntil = now().addingTimeInterval(seconds)
         holdIsRateLimit = rateLimit
+        heldFingerprint = fingerprint
     }
 
     // MARK: One request at a time
@@ -372,7 +379,7 @@ final class GoogleWatchKeeper {
                 hold(TimeInterval(seconds), rateLimit: true)
                 problem = .rateLimited
             } else {
-                hold(Self.failureHold, rateLimit: false)
+                hold(Self.failureHold, rateLimit: false, fingerprint: fingerprint)
             }
             return
         }
@@ -391,14 +398,15 @@ final class GoogleWatchKeeper {
             if complete {
                 holdUntil = nil
                 holdIsRateLimit = false
+                heldFingerprint = nil
             } else {
-                hold(Self.failureHold, rateLimit: false)
+                hold(Self.failureHold, rateLimit: false, fingerprint: fingerprint)
             }
         } else {
             // Nothing was made; the API kept the earlier channels, whose
             // calendars are no longer the ones wanted.
             store(nil)
-            hold(Self.failureHold, rateLimit: false)
+            hold(Self.failureHold, rateLimit: false, fingerprint: fingerprint)
         }
         updateLive()
     }
