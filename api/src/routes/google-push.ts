@@ -1,5 +1,5 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { and, eq, lte, notInArray } from "drizzle-orm";
+import { and, eq, inArray, lte, notInArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -341,6 +341,21 @@ googlePush.openapi(postGoogleWatch, async (c) => {
   } catch {
     console.error("google-watch: database failed");
     // A channel without a row would only be ignored, but stop them anyway.
+    // The batch may have committed even though it threw (an answer lost on
+    // the way back), so forget the new rows too, by their ids only: a
+    // concurrent watch's rows for this device are not ours to touch. Best
+    // effort and silent; if this fails too, the rows point at stopped
+    // channels, which Google no longer calls, until the expiry sweep. Not
+    // recoverable here: a committed batch also deleted the device's earlier
+    // rows, whose ids were never returned, so those channels are not stopped
+    // and end by themselves.
+    if (made.length > 0) {
+      try {
+        await db.delete(calendarChannels).where(inArray(calendarChannels.id, made.map((channel) => channel.id)));
+      } catch {
+        // Already reported above.
+      }
+    }
     await stopChannels(made, token);
     return c.json(INTERNAL_ERROR, 500);
   }
@@ -370,11 +385,15 @@ googlePush.openapi(postGoogleUnwatch, async (c) => {
   const db = drizzle(c.env.DB);
   let rows: Pick<CalendarChannel, "id" | "resourceId">[];
   try {
-    rows = await db
-      .select({ id: calendarChannels.id, resourceId: calendarChannels.resourceId })
-      .from(calendarChannels)
-      .where(eq(calendarChannels.deviceToken, deviceToken));
-    if (rows.length > 0) await db.delete(calendarChannels).where(eq(calendarChannels.deviceToken, deviceToken));
+    // Read and delete in one batch (one transaction, see watch), so a watch
+    // for this device cannot commit in between: the rows read are exactly the
+    // rows deleted, and exactly those channels are stopped below. A watch's
+    // rows are either read and stopped here, or written after and kept.
+    const mine = eq(calendarChannels.deviceToken, deviceToken);
+    [rows] = await db.batch([
+      db.select({ id: calendarChannels.id, resourceId: calendarChannels.resourceId }).from(calendarChannels).where(mine),
+      db.delete(calendarChannels).where(mine),
+    ]);
   } catch {
     console.error("google-unwatch: database failed");
     return c.json(INTERNAL_ERROR, 500);

@@ -112,7 +112,12 @@ export function pemBytes(pem: string): Uint8Array | null {
   }
 }
 
-type CachedToken = { cacheKey: string; token: string; madeAt: number };
+/**
+ * The provider token in use, held as a promise from the moment it is started,
+ * so requests that need one while it is being signed share it instead of each
+ * signing their own.
+ */
+type CachedToken = { cacheKey: string; token: Promise<string>; madeAt: number };
 let cachedToken: CachedToken | null = null;
 let cachedKey: { source: string; key: CryptoKey } | null = null;
 
@@ -141,14 +146,31 @@ async function signingKey(pem: string): Promise<CryptoKey> {
 
 /**
  * The ES256 provider token, made at most once per PROVIDER_TOKEN_TTL_MS for
- * the same key, key ID and team. WebCrypto's ECDSA signature is already the
- * 64-byte r||s form a JWS needs.
+ * the same key, key ID and team.
  */
-export async function providerToken(config: ApnsConfig, now = Date.now()): Promise<string> {
+export function providerToken(config: ApnsConfig, now = Date.now()): Promise<string> {
+  return currentToken(config, now).token;
+}
+
+/**
+ * The cache entry for the provider token, made (and stored before any await)
+ * when there is none in date. A token that fails to sign is not kept.
+ */
+function currentToken(config: ApnsConfig, now = Date.now()): CachedToken {
   const cacheKey = `${config.keyId}\u0000${config.teamId}\u0000${config.key}`;
   if (cachedToken && cachedToken.cacheKey === cacheKey && now - cachedToken.madeAt < PROVIDER_TOKEN_TTL_MS && now >= cachedToken.madeAt) {
-    return cachedToken.token;
+    return cachedToken;
   }
+  const entry: CachedToken = { cacheKey, token: signToken(config, now), madeAt: now };
+  cachedToken = entry;
+  entry.token.catch(() => {
+    if (cachedToken === entry) cachedToken = null;
+  });
+  return entry;
+}
+
+/** Signs a new provider token. WebCrypto's ECDSA signature is already the 64-byte r||s form a JWS needs. */
+async function signToken(config: ApnsConfig, now: number): Promise<string> {
   const key = await signingKey(config.key);
   const header = base64urlText(JSON.stringify({ alg: "ES256", kid: config.keyId }));
   const claims = base64urlText(JSON.stringify({ iss: config.teamId, iat: Math.floor(now / 1000) }));
@@ -159,9 +181,7 @@ export async function providerToken(config: ApnsConfig, now = Date.now()): Promi
   } catch {
     throw new BadKey();
   }
-  const token = `${input}.${base64url(new Uint8Array(signature))}`;
-  cachedToken = { cacheKey, token, madeAt: now };
-  return token;
+  return `${input}.${base64url(new Uint8Array(signature))}`;
 }
 
 // ───────────────────────── sending ─────────────────────────
@@ -202,9 +222,10 @@ export async function sendBackgroundPush(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), apnsDeadline.ms);
   try {
+    const used = currentToken(config);
     let token: string;
     try {
-      token = await providerToken(config);
+      token = await used.token;
     } catch {
       return "bad_key";
     }
@@ -214,8 +235,11 @@ export async function sendBackgroundPush(
       // this push once more with a fresh one. Only once: a fresh token refused
       // as expired again is reported, not retried. Any other 403 (a wrong key
       // or team) keeps the token and is not resent, since remaking it on every
-      // push would earn 429 TooManyProviderTokenUpdates on top.
-      cachedToken = null;
+      // push would earn 429 TooManyProviderTokenUpdates on top. For the same
+      // reason the token is dropped only if it is still the cached one: when
+      // several pushes are refused with it at once, the first drops it and
+      // starts the fresh one, and the others reuse that.
+      if (cachedToken === used) cachedToken = null;
       try {
         token = await providerToken(config);
       } catch {

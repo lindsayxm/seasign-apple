@@ -55,6 +55,36 @@ function testEnv(extra: Record<string, unknown> = {}): CloudflareBindings {
   return { ...env, APNS_KEY: pem, APNS_KEY_ID: KEY_ID, APNS_TEAM_ID: TEAM_ID, ...extra } as unknown as CloudflareBindings;
 }
 
+/**
+ * The real D1 binding, but `between` runs once, after the first statement or
+ * batch has finished and before its result reaches the route: a request that
+ * overlaps there, made to order. Statements are thin wrappers around the real
+ * bound ones, unwrapped again for batch.
+ */
+function gatedDb(between: () => Promise<void>) {
+  let gated = false;
+  const afterFirst = async <T>(result: Promise<T>): Promise<T> => {
+    const value = await result;
+    if (!gated) {
+      gated = true;
+      await between();
+    }
+    return value;
+  };
+  type Bound = { real: D1PreparedStatement };
+  const wrap = (real: D1PreparedStatement) => ({
+    real,
+    all: () => afterFirst(real.all()),
+    raw: () => afterFirst(real.raw()),
+    run: () => afterFirst(real.run()),
+    first: () => afterFirst(real.first()),
+  });
+  return {
+    prepare: (sql: string) => ({ bind: (...params: unknown[]) => wrap(env.DB.prepare(sql).bind(...params)) }),
+    batch: (statements: Bound[]) => afterFirst(env.DB.batch(statements.map((statement) => statement.real))),
+  };
+}
+
 // ───────────────────────── outbound mock ─────────────────────────
 
 type Sent = { url: URL; method: string; headers: Headers; body: string; signal: AbortSignal };
@@ -454,6 +484,29 @@ describe("POST /v1/google/watch", () => {
     expect(logs.lines()).toEqual(["google-watch: database failed"]);
   });
 
+  it("forgets the new channels' rows as well when the batch went through but its answer was lost", async () => {
+    await seed({ resourceId: "res-old" });
+    const google = mockFetch();
+    const logs = captureConsole();
+    const lostAnswer = {
+      prepare: (sql: string) => env.DB.prepare(sql),
+      batch: async (statements: D1PreparedStatement[]) => {
+        await env.DB.batch(statements);
+        throw new Error("connection lost after the commit");
+      },
+    };
+    const response = await watch({ calendars: ["primary", "work"], deviceToken: DEVICE_A, environment: "sandbox" }, undefined, { DB: lostAnswer });
+    expect(response.status).toBe(500);
+    const made = google.watches().map((call) => (JSON.parse(call.body) as { id: string }).id);
+    expect(made).toHaveLength(2);
+    // Every new channel was stopped at Google, so none may keep a row.
+    const stopped = google.stops().map((call) => (JSON.parse(call.body) as { id: string }).id);
+    expect(stopped.sort()).toEqual([...made].sort());
+    const kept = (await rows()).map((row) => row.id);
+    for (const id of made) expect(kept).not.toContain(id);
+    expect(logs.lines()).toEqual(["google-watch: database failed"]);
+  });
+
   it("removes rows past their expiry while it is there", async () => {
     const stale = await seed({ deviceToken: DEVICE_B, expiresAt: NOW.getTime() - 1 });
     const fresh = await seed({ deviceToken: DEVICE_B, expiresAt: NOW.getTime() + DAY_MS });
@@ -529,6 +582,34 @@ describe("POST /v1/google/unwatch", () => {
     );
     expect(google.stops().every((call) => call.headers.get("authorization") === `Bearer ${TOKEN}`)).toBe(true);
     expect(logs.lines()).toEqual([]);
+  });
+
+  it("stops exactly the channels whose rows it removed when a watch for the device overlaps it", async () => {
+    const old = await seed({ resourceId: "res-old" });
+    const google = mockFetch();
+    // A whole watch for the same device runs right after unwatch's first
+    // database call has finished.
+    let overlaps = 0;
+    let watched: Response | undefined;
+    const gated = gatedDb(async () => {
+      overlaps += 1;
+      watched = await watch({ calendars: ["primary"], deviceToken: DEVICE_A, environment: "sandbox" });
+    });
+    const response = await post("/v1/google/unwatch", { deviceToken: DEVICE_A }, undefined, { DB: gated });
+    expect(response.status).toBe(200);
+    expect(overlaps).toBe(1);
+    expect(watched?.status).toBe(200);
+
+    const opened = google.watches().map((call) => (JSON.parse(call.body) as { id: string }).id);
+    expect(opened).toHaveLength(1);
+    const kept = (await rows()).map((row) => row.id);
+    const stopped = google.stops().map((call) => (JSON.parse(call.body) as { id: string }).id);
+    // No channel is left at Google without a row unless it was stopped.
+    for (const id of [old.row.id, ...opened]) expect(kept.includes(id) || stopped.includes(id), `channel ${id}`).toBe(true);
+    // Unwatch removed the old row and stopped that channel, once.
+    expect(await response.json()).toEqual({ removed: 1 });
+    expect(stopped).toEqual([old.row.id]);
+    expect(kept).toEqual(opened);
   });
 
   it("forgets the channels even when Google refuses to stop them", async () => {
@@ -659,6 +740,38 @@ describe("POST /v1/google/notify (Google's call)", () => {
     // The fresh token is the one kept for the next push.
     await googleCall(changeHeaders(row, channelToken));
     expect(outbound.pushes()[2]!.headers.get("authorization")).toBe(pushes[1]!.headers.get("authorization"));
+  });
+
+  it("makes one fresh provider token when several pushes are refused with the same expired one", async () => {
+    const a = await seed({ resourceId: "res-a" }, "channel-token-a");
+    const b = await seed({ deviceToken: DEVICE_B, resourceId: "res-b" }, "channel-token-b");
+    const stale = await cacheTokenFrom(NOW.getTime() - 10 * 60_000);
+    // APNs answers neither stale push until both have arrived, so both
+    // webhook calls learn at once that the cached token is expired.
+    let release!: () => void;
+    const bothSent = new Promise<void>((resolve) => (release = resolve));
+    let staleSent = 0;
+    const outbound = mockFetch(async (sent) => {
+      if (sent.url.pathname.startsWith("/3/device/") && sent.headers.get("authorization") === `bearer ${stale}`) {
+        staleSent += 1;
+        if (staleSent === 2) release();
+        await bothSent;
+        return json({ reason: "ExpiredProviderToken" }, 403);
+      }
+      return defaultReply(sent);
+    });
+    const sign = vi.spyOn(crypto.subtle, "sign");
+    const logs = captureConsole();
+    const answers = await Promise.all([googleCall(changeHeaders(a.row, a.channelToken)), googleCall(changeHeaders(b.row, b.channelToken))]);
+    for (const answer of answers) await expectBare(answer);
+    const pushes = outbound.pushes();
+    expect(pushes).toHaveLength(4);
+    // One signature, one fresh token, used by both resends (Apple answers 429
+    // TooManyProviderTokenUpdates to tokens remade too often).
+    expect(sign).toHaveBeenCalledTimes(1);
+    const fresh = new Set(pushes.map((call) => call.headers.get("authorization")).filter((value) => value !== `bearer ${stale}`));
+    expect(fresh.size).toBe(1);
+    expect(logs.lines()).toEqual([]);
   });
 
   it("resends only once when the fresh provider token is called expired too", async () => {
