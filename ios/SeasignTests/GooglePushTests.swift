@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import Testing
+import UIKit
 
 @testable import Seasign
 
@@ -91,6 +92,23 @@ final class FakeReceiver: RemotePushReceiver {
         #expect(receiver.failures == 1)
         #expect(await relay.received(type: "calendar-changed") == .newData)
         #expect(receiver.pushes == ["calendar-changed"])
+    }
+}
+
+@Suite @MainActor struct SeasignAppDelegateTests {
+    /// Only a push type the app does not know, so the app the tests run in
+    /// fetches nothing whatever its own Google state.
+    @Test func aPushCallsTheCompletionHandlerOnce() async throws {
+        let delegate = SeasignAppDelegate()
+        var results: [UIBackgroundFetchResult] = []
+        delegate.application(.shared, didReceiveRemoteNotification: ["type": "not-a-seasign-push"]) { results.append($0) }
+        // The app the tests run in may keep the main actor busy for a while
+        // at launch, so the handler is given up to ten seconds.
+        for _ in 0..<1000 where results.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(results == [.noData])
     }
 }
 
@@ -481,6 +499,64 @@ final class FakeReceiver: RemotePushReceiver {
         #expect(model.watch.isLive)
     }
 
+    @Test func turningTheOnlyCalendarOffAndOnDuringAWatchEndsWithItWatched() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = await connected(context)
+        let me = try #require(model.calendars.first)
+        stub.hold(GoogleAPIStub.postWatch)
+        model.registered(FakeDevice.token)
+        try await waitUntil { stub.outstanding(GoogleAPIStub.postWatch) == 1 }
+        model.setOn(me, false)
+        #expect(!model.watch.isLive)
+        stub.release(GoogleAPIStub.postWatch)
+        // The watch answered after the calendar went off: its channels are stopped.
+        await model.watch.idle()
+        #expect(unwatches.count == 1)
+        #expect(try context.fetch(FetchDescriptor<GoogleWatchRecord>()).isEmpty)
+        #expect(!model.watch.isLive)
+        // On again: watched again, not taken as already live.
+        model.setOn(me, true)
+        await model.watch.idle()
+        #expect(watches.count == 2)
+        #expect(model.watch.isLive)
+        #expect(stub.peak(GoogleAPIStub.pushKey) == 1)
+    }
+
+    @Test func turningACalendarOnAndOffDuringItsWatchGoesBackToTheEarlierSet() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = try await watching(context)
+        let family = try #require(model.calendars.first { $0.calendarID == "family-id" })
+        stub.answer(GoogleAPIStub.postWatch, GoogleAPIStub.watch([nil, nil], expiresAt: weekLater))
+        stub.hold(GoogleAPIStub.postWatch)
+        model.setOn(family, true)
+        try await waitUntil { stub.outstanding(GoogleAPIStub.postWatch) == 1 }
+        model.setOn(family, false)
+        stub.answer(GoogleAPIStub.postWatch, GoogleAPIStub.watch([nil], expiresAt: weekLater))
+        stub.release(GoogleAPIStub.postWatch)
+        await model.watch.idle()
+        // The API kept the last request's channels, so "Me" alone is watched again.
+        #expect(watches.count == 3)
+        #expect(watches[1].calendars == ["me@example.test", "family-id"])
+        #expect(watches[2].calendars == ["me@example.test"])
+        #expect(model.watch.isLive)
+        #expect(stub.peak(GoogleAPIStub.pushKey) == 1)
+    }
+
+    @Test func aChangeQueuedBehindAWatchThatHitOurLimitWaitsForTheDelay() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = await connected(context)
+        stub.answer(GoogleAPIStub.postWatch, GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: "60"))
+        stub.hold(GoogleAPIStub.postWatch)
+        model.registered(FakeDevice.token)
+        try await waitUntil { stub.outstanding(GoogleAPIStub.postWatch) == 1 }
+        let family = try #require(model.calendars.first { $0.calendarID == "family-id" })
+        model.setOn(family, true)
+        stub.release(GoogleAPIStub.postWatch)
+        await model.watch.idle()
+        #expect(watches.count == 1)
+        #expect(model.watch.problem == .rateLimited)
+    }
+
     @Test func disconnectDuringAWatchUnwatchesAfterItThenRevokes() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let store = InMemoryGoogleTokenStore()
@@ -687,6 +763,26 @@ final class FakeReceiver: RemotePushReceiver {
         #expect(!model.isConnecting)
     }
 
+    @Test func settingsRestartsItsListLoadWhenAConnectEnds() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = model(context, store: InMemoryGoogleTokenStore())
+        #expect(!model.listLoadKey)
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens())
+        stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.calendars([("me@example.test", "Me", true)]))
+        stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.events([], statuses: [nil]))
+        endpoint.hold(grant: "authorization_code")
+        let connecting = Task { await model.connect(signIn: redirect()) }
+        try await waitUntil { endpoint.sent(grant: "authorization_code").count == 1 }
+        #expect(!model.listLoadKey)
+        endpoint.release()
+        await connecting.value
+        #expect(model.listLoadKey)
+        // The list Connect has just read is not read again at once.
+        let lists = stub.count(GoogleAPIStub.getCalendars)
+        await model.loadCalendarsWhileShown()
+        #expect(stub.count(GoogleAPIStub.getCalendars) == lists)
+    }
+
     @Test func aFailedFirstListLoadIsTriedAgainWhileSettingsIsOpen() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens())
@@ -699,6 +795,8 @@ final class FakeReceiver: RemotePushReceiver {
         #expect(model.connection == .connected)
         #expect(model.calendars.isEmpty)
         #expect(model.retryNotBefore != nil)  // a back-off
+        #expect(model.listHeld)  // Settings says the list will load, not that it is loading
+        #expect(model.listLoadKey)  // and restarts its load now that Connect has ended
 
         // Settings opens during the back-off: the missing list is read anyway.
         await model.loadCalendarsWhileShown()

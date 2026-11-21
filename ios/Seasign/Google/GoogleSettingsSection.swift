@@ -40,10 +40,12 @@ struct GoogleSettingsSection: View {
                 note(problem.message, warning: true)
             }
         }
-        .task {
+        .task(id: model.listLoadKey) {
             // The list is read again each time Settings opens, for names and
             // calendars added or removed in Google Calendar, and again when
-            // a hold that kept it back ends while Settings is open.
+            // a hold that kept it back ends while Settings is open. A Connect
+            // made here restarts this when it ends, so a list that failed to
+            // load during it is tried again.
             await model.loadCalendarsWhileShown()
         }
         .confirmationDialog(

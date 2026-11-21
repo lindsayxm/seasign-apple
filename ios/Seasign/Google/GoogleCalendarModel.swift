@@ -111,6 +111,8 @@ final class GoogleCalendarModel {
     /// Settings asked for the calendar list during a hold, so it was not
     /// read; it is read when the hold ends while Settings stays open.
     private(set) var listHeld = false
+    /// When the calendar list was last read (memory only).
+    @ObservationIgnored private var listLoadedAt: Date?
     /// The push channels for the chosen calendars (task 158).
     @ObservationIgnored let watch: GoogleWatchKeeper
 
@@ -345,9 +347,11 @@ final class GoogleCalendarModel {
             guard started == generation, !Task.isCancelled else { return nil }
             handle(error)
             guard calendars.isEmpty, let retryNotBefore else { return nil }
+            listHeld = true
             return max(1, retryNotBefore.timeIntervalSince(now()))
         }
         guard started == generation else { return nil }
+        listLoadedAt = now()
         statusProblem = nil
         let existing = calendars.map { (id: $0.id, calendarID: $0.calendarID, isOn: $0.isOn) }
         store.replaceChoices(with: GoogleCalendarMerge.merge(existing: existing, fetched: list))
@@ -362,11 +366,23 @@ final class GoogleCalendarModel {
     /// tried again). Ends when Settings closes (the task is cancelled).
     func loadCalendarsWhileShown() async {
         defer { listHeld = false }
+        // Connect has just read it (Settings restarts this when a Connect ends).
+        if !calendars.isEmpty, let listLoadedAt, now().timeIntervalSince(listLoadedAt) < Self.listJustRead { return }
         while !Task.isCancelled {
             guard let wait = await loadCalendars() else { return }
             await sleep(wait)
         }
     }
+
+    /// What Settings restarts `loadCalendarsWhileShown` on: true once
+    /// connected with no Connect running, so a Connect made in Settings whose
+    /// own list load failed is followed by the retries.
+    var listLoadKey: Bool {
+        connection == .connected && !isConnecting
+    }
+
+    /// A list read this recently is not read again when Settings (re)starts its load.
+    static let listJustRead: TimeInterval = 5
 
     /// How long the hold has left if it keeps the list from being read.
     private func listHold() -> TimeInterval? {

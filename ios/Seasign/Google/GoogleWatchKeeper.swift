@@ -159,6 +159,8 @@ final class GoogleWatchKeeper {
     /// Why `sync` runs.
     enum Reason: Equatable {
         case launch, opened, token, calendars
+        /// A request has just ended: what is wanted now is decided again.
+        case afterRequest
     }
 
     /// The system gave a device token (every launch; it may differ from last time).
@@ -172,40 +174,43 @@ final class GoogleWatchKeeper {
         registered = false
     }
 
-    /// Brings the channels in line with what is wanted now (see the type's notes).
+    /// Brings the channels in line with what is wanted now (see the type's
+    /// notes). While a request is out, this only replaces what is queued
+    /// behind it; when it ends, the decision is made again against the
+    /// calendars on then (`Reason.afterRequest`).
     func sync(_ reason: Reason) {
         guard let calendars = host?.watchCalendars else { return }
         if !registered {
             registered = true
             register()
         }
-        guard let device = deviceToken else { return }
+        updateLive()
+        let next = nextOperation(calendars: calendars, reason: reason)
+        if running == nil {
+            if let next { want(next) }
+        } else {
+            wanted = next
+        }
+    }
+
+    /// What to send for `calendars`, or nil when nothing needs sending.
+    private func nextOperation(calendars: [String], reason: Reason) -> Operation? {
+        guard let device = deviceToken else { return nil }
         if calendars.isEmpty {
-            updateLive()
             // Nothing to be woken for: an empty watch is refused, so the
             // channels are stopped instead.
-            guard mayHaveChannels else { return }
-            mayHaveChannels = false
-            store(nil)
-            want(.unwatch(device: device, token: nil))
-            return
+            return mayHaveChannels ? .unwatch(device: device, token: nil) : nil
         }
         let fingerprint = Self.fingerprint(calendars: calendars, device: device, environment: environment)
-        updateLive()
-        if isFresh(fingerprint) {
-            if sendingFingerprint == nil { wanted = nil }
-            return
+        if isFresh(fingerprint) { return nil }
+        // Already on its way: whatever it leaves is looked at when it ends.
+        if sendingFingerprint == fingerprint { return nil }
+        // Our 429 holds everything; another failure holds only the retries
+        // nobody asked for (opening the app, the check after a request).
+        if let holdUntil, now() < holdUntil, holdIsRateLimit || reason == .opened || reason == .launch || reason == .afterRequest {
+            return nil
         }
-        if let holdUntil, now() < holdUntil, holdIsRateLimit || reason == .opened || reason == .launch {
-            return
-        }
-        if sendingFingerprint == fingerprint {
-            // Already on its way; drop anything queued behind it.
-            wanted = nil
-            return
-        }
-        if case .watch(_, _, let queued) = wanted, queued == fingerprint { return }
-        want(.watch(calendars: calendars, device: device, fingerprint: fingerprint))
+        return .watch(calendars: calendars, device: device, fingerprint: fingerprint)
     }
 
     /// The connection ended (Disconnect, or the sign-in expired): forgets the
@@ -319,6 +324,14 @@ final class GoogleWatchKeeper {
         while let operation = wanted {
             wanted = nil
             await perform(operation)
+            // An unwatch with its own token (the connection ended) stays
+            // queued; anything else is decided again from the state now, so
+            // an answer that landed after the calendars changed is put right.
+            if case .unwatch(_, .some) = wanted { continue }
+            if let calendars = host?.watchCalendars {
+                updateLive()
+                wanted = nextOperation(calendars: calendars, reason: .afterRequest)
+            }
         }
         running = nil
     }
@@ -328,12 +341,18 @@ final class GoogleWatchKeeper {
         case .watch(let calendars, let device, let fingerprint):
             await watch(calendars: calendars, device: device, fingerprint: fingerprint)
         case .unwatch(let device, let token):
+            let started = generation
             var token = token
             if token == nil { token = try? await host?.watchToken() }
             guard let token else { return }
             // Best effort: the API forgets the channels even when Google
             // will not stop them, and channels end by themselves.
             _ = try? await api.googleUnwatch(token: token, deviceToken: device)
+            // Sent, so taken as done whatever came back (a failure is not retried).
+            guard started == generation else { return }
+            mayHaveChannels = false
+            store(nil)
+            updateLive()
         }
     }
 
