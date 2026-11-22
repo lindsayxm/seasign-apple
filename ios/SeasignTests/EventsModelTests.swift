@@ -361,6 +361,118 @@ private final class World {
         #expect(self.model(context).isDue)
     }
 
+    /// Today's minute loop (`EventsRefreshTrigger.minuteLoop`) never asks
+    /// with `force`, whatever state the events are in: its checks are
+    /// scheduled, may be answered from the API's cache and go out only when
+    /// the events are due.
+    @Test func theMinuteLoopNeverForces() async throws {
+        #expect(!EventsRefreshTrigger.minuteLoop.force)
+        #expect(!EventsRefreshTrigger.zoneChange.force)
+        #expect(EventsRefreshTrigger.pull.force)
+
+        let context = try inMemoryContext()
+        stub.set(TestLinks.google, .events([show]))
+        let model = model(context)
+        try await model.add(name: "Family", link: TestLinks.google)
+        let before = stub.requests.count
+        func turn() async { await model.refresh(force: EventsRefreshTrigger.minuteLoop.force) }
+
+        // Fresh events: nothing is sent.
+        await turn()
+        #expect(stub.requests.count == before)
+        // Stale events, events for another zone, a link without events: each
+        // is asked for once, none with `fresh`.
+        world.clock.now += EventsModel.refreshInterval
+        await turn()
+        world.zone = TimeZone(identifier: "America/Los_Angeles")!
+        await turn()
+        context.insert(CalendarLink(name: "Work", url: TestLinks.icloud, createdAt: world.clock.now))
+        try context.save()
+        let relaunched = self.model(context)
+        await relaunched.refresh(force: EventsRefreshTrigger.minuteLoop.force)
+        #expect(stub.requests.count == before + 3)
+        #expect(stub.requests.dropFirst(before).allSatisfy { $0.fresh == nil })
+    }
+
+    /// A return to the foreground (`EventsRefreshTrigger.returnToForeground`
+    /// with `isDue` read as Today does) sends nothing while the events are
+    /// fresh, and one fresh request once they are due.
+    @Test func aReturnToTheForegroundSendsFreshOnlyWhenDue() async throws {
+        #expect(!EventsRefreshTrigger.returnToForeground(isDue: false).force)
+        #expect(EventsRefreshTrigger.returnToForeground(isDue: true).force)
+
+        stub.set(TestLinks.google, .events([show]))
+        let model = model(try inMemoryContext())
+        try await model.add(name: "Family", link: TestLinks.google)
+        let before = stub.requests.count
+        func comeBack() async {
+            let force = EventsRefreshTrigger.returnToForeground(isDue: model.isDue).force
+            await model.refresh(force: force)
+        }
+
+        world.clock.now += EventsModel.refreshInterval - 1
+        await comeBack()
+        #expect(stub.requests.count == before)
+
+        world.clock.now += 1
+        await comeBack()
+        #expect(stub.requests.count == before + 1)
+        #expect(stub.requests.last?.fresh == true)
+
+        // Just answered: not due again.
+        await comeBack()
+        #expect(stub.requests.count == before + 1)
+    }
+
+    /// How many calendar requests a launch and a return to the foreground
+    /// send with one pasted link, played the way Today makes its calls: the
+    /// minute loop's turn and the return's (`isDue` read first), both in
+    /// flight at once. Not due: none. Due: two, the loop's scheduled check
+    /// and the return's fresh one. Whether iOS also calls the scene-phase
+    /// change at launch is the view's business; if it does not, a due
+    /// launch sends one (the loop's).
+    @Test func requestsSentByALaunchAndAReturnWithOneLink() async throws {
+        let context = try inMemoryContext()
+        stub.set(TestLinks.google, .events([show]))
+        try await model(context).add(name: "Family", link: TestLinks.google)
+        let held = HeldCalendarTransport(stub)
+
+        func launchOrReturn(_ model: EventsModel) async -> [Bool?] {
+            let before = stub.requests.count
+            let force = EventsRefreshTrigger.returnToForeground(isDue: model.isDue).force
+            held.setHolding(true)
+            let loop = Task { await model.refresh(force: EventsRefreshTrigger.minuteLoop.force) }
+            let comeBack = Task { await model.refresh(force: force) }
+            let sent = force ? 2 : 0
+            if sent > 0 { await held.waitUntilHeld(sent) }
+            stub.set(TestLinks.google, .events([show, dentist]))
+            held.setHolding(false)
+            held.releaseAll()
+            await loop.value
+            await comeBack.value
+            return stub.requests.dropFirst(before).map(\.fresh)
+        }
+
+        // A launch 4 minutes after the last answer: nothing.
+        world.clock.now += 4 * 60
+        let launched = model(context, transport: held)
+        #expect(await launchOrReturn(launched).isEmpty)
+        // A return 5 minutes after it: two, one of them fresh.
+        world.clock.now += 60
+        var sent = await launchOrReturn(launched)
+        #expect(sent.count == 2)
+        #expect(sent.filter { $0 == true }.count == 1)
+        // A return a minute later: nothing.
+        world.clock.now += 60
+        #expect(await launchOrReturn(launched).isEmpty)
+        // A launch 5 minutes after the last answer: two, one of them fresh.
+        world.clock.now += 4 * 60
+        let relaunched = model(context, transport: held)
+        sent = await launchOrReturn(relaunched)
+        #expect(sent.count == 2)
+        #expect(sent.filter { $0 == true }.count == 1)
+    }
+
     /// On a return to the foreground the minute loop's own check and the
     /// return's fresh one can both be in flight. The scheduled answer, which
     /// may come from the API's cache, never replaces the fresh one, whichever
@@ -388,7 +500,10 @@ private final class World {
         #expect(stub.requests.suffix(2).map(\.fresh) == [nil, true])
     }
 
-    @Test func aScheduledAnswerThatLandsWhileAFreshOneIsInFlightIsDropped() async throws {
+    /// A scheduled answer that lands while the fresh request is still in
+    /// flight is shown (that request may yet fail), and the fresh answer
+    /// replaces it when it lands.
+    @Test func aScheduledAnswerThatLandsWhileAFreshOneIsInFlightIsShownUntilTheFreshOneLands() async throws {
         stub.set(TestLinks.google, .events([show]))
         let held = HeldCalendarTransport(stub)
         let model = model(try inMemoryContext(), transport: held)
@@ -400,13 +515,13 @@ private final class World {
         stub.set(TestLinks.google, .events([show, dentist]))
         let pull = Task { await model.refresh(force: true) }
         await held.waitUntilHeld(1)
-        // ...while a scheduled check goes out and lands at once with an older
-        // copy from the cache: it is not shown.
+        // ...while a scheduled check goes out and lands at once with another
+        // copy: it is shown for now.
         held.setHolding(false)
         stub.set(TestLinks.google, .events([show, lunch]))
         await model.refresh()
         #expect(stub.requests.count == 3)
-        #expect(times(model) == ["8:25PM Hanna's show"])
+        #expect(times(model) == ["8:25PM Hanna's show", "TUE 12:00PM Lunch"])
 
         held.releaseAll()
         await pull.value
@@ -418,9 +533,100 @@ private final class World {
         #expect(times(model) == ["8:25PM Hanna's show", "TUE 12:00PM Lunch"])
     }
 
+    /// The return's fresh request is refused (the API's 429): the minute
+    /// loop's scheduled answer, which overlapped it, is still shown.
+    @Test func aScheduledAnswerIsKeptWhenTheFreshRequestFails() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let limiter = RateLimitTransport(held)
+        let model = model(try inMemoryContext(), transport: limiter)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += EventsModel.refreshInterval
+
+        // The scheduled check goes out and is held with the new events...
+        held.setHolding(true)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        let scheduled = Task { await model.refresh() }
+        await held.waitUntilHeld(1)
+        // ...the fresh one goes out after it and is refused.
+        limiter.limit(retryAfter: "60")
+        await model.refresh(force: true)
+        #expect(limiter.count("postCalendarEvents") == 3)
+        #expect(model.retryNotBefore != nil)
+        #expect(times(model) == ["8:25PM Hanna's show"])
+
+        limiter.lift()
+        held.releaseAll()
+        await scheduled.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+    }
+
+    /// A fresh answer for more links than a scheduled request asked for (a
+    /// link added since, then removed) holds newer events for the scheduled
+    /// request's links: the late scheduled answer does not replace them.
+    @Test func aFreshAnswerForMoreLinksOvertakesAnOlderScheduledOne() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += EventsModel.refreshInterval
+
+        // A scheduled check for Family alone is held with the old events.
+        held.setHolding(true)
+        let scheduled = Task { await model.refresh() }
+        await held.waitUntilHeld(1)
+        held.setHolding(false)
+
+        // Work is added, a pull reads both again, and Work is removed.
+        world.clock.now += 1
+        stub.set(TestLinks.icloud, .events([lunch]))
+        try await model.add(name: "Work", link: TestLinks.icloud)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        await model.refresh(force: true)
+        #expect(stub.requests.last?.fresh == true)
+        await model.remove(model.links[1])
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+
+        held.releaseAll()
+        await scheduled.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+    }
+
+    /// A fresh answer that was not shown (a link was removed while it was in
+    /// flight) does not hold back the scheduled answer for the links left.
+    @Test func aFreshAnswerThatWasNotShownDoesNotHideAScheduledOne() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        stub.set(TestLinks.icloud, .events([lunch]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += 1
+        try await model.add(name: "Work", link: TestLinks.icloud)
+        world.clock.now += EventsModel.refreshInterval
+
+        // The pull for both is held...
+        held.setHolding(true)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        let pull = Task { await model.refresh(force: true) }
+        await held.waitUntilHeld(1)
+        // ...Work is removed and the scheduled check for Family is held too.
+        let removal = Task { await model.remove(model.links[1]) }
+        await held.waitUntilHeld(2)
+        #expect(times(model) == ["8:25PM Hanna's show"])
+
+        // The pull lands first, for links no longer listed, and is not shown.
+        held.releaseFirst()
+        await pull.value
+        #expect(times(model) == ["8:25PM Hanna's show"])
+        held.releaseAll()
+        await removal.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+        #expect(stub.requests.suffix(2).map(\.fresh) == [true, nil])
+    }
+
     /// A fresh request for another zone does not hold back the answer for
-    /// the new one: the zone changes during a pull and the events of the new
-    /// zone show at once.
+    /// the new one: the zone changes during a pull, the pull's answer lands
+    /// first and is out of date, and the new zone's events show.
     @Test func aFreshRequestForAnotherZoneDoesNotHideTheNewZonesAnswer() async throws {
         stub.set(TestLinks.google, .events([show]))
         let held = HeldCalendarTransport(stub)
@@ -430,17 +636,49 @@ private final class World {
         held.setHolding(true)
         let pull = Task { await model.refresh(force: true) }
         await held.waitUntilHeld(1)
-        held.setHolding(false)
         world.zone = TimeZone(identifier: "America/Los_Angeles")!
-        await model.refresh()
+        let scheduled = Task { await model.refresh() }
+        await held.waitUntilHeld(2)
         #expect(stub.requests.last == .init(links: [TestLinks.google], timezone: "America/Los_Angeles"))
-        #expect(times(model) == ["5:25PM Hanna's show"])
 
-        // The pull's answer, for New York, is out of date and not shown.
-        held.releaseAll()
+        // The pull's answer, for New York, lands first and is not shown.
+        held.releaseFirst()
         await pull.value
+        #expect(times(model).isEmpty)
+        held.releaseAll()
+        await scheduled.value
         #expect(model.snapshot?.timezone == "America/Los_Angeles")
         #expect(times(model) == ["5:25PM Hanna's show"])
+    }
+
+    /// New York, then Los Angeles (with a pull), then New York again, whose
+    /// request fails: Today is empty, and the scheduled New York answer sent
+    /// before all this is shown when it lands.
+    @Test func aScheduledAnswerFillsAnEmptyTodayAfterTheZoneComesBack() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += EventsModel.refreshInterval
+
+        held.setHolding(true)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        let scheduled = Task { await model.refresh() }
+        await held.waitUntilHeld(1)
+        held.setHolding(false)
+
+        world.zone = TimeZone(identifier: "America/Los_Angeles")!
+        await model.refresh(force: true)
+        #expect(model.snapshot?.timezone == "America/Los_Angeles")
+
+        world.zone = TimeZone(identifier: "America/New_York")!
+        stub.setOffline(true)
+        await model.refresh()
+        #expect(times(model).isEmpty)
+
+        held.releaseAll()
+        await scheduled.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
     }
 
     @Test func aLinkWithoutCachedEventsIsFetchedAtLaunch() async throws {

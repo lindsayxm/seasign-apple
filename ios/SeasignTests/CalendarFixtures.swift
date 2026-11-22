@@ -187,6 +187,12 @@ final class HeldCalendarTransport: ClientTransport, @unchecked Sendable {
         for continuation in waiting { continuation.resume() }
     }
 
+    /// Lets the answer held longest through, leaving the others held.
+    func releaseFirst() {
+        let first = lock.withLock { held.isEmpty ? nil : held.removeFirst() }
+        first?.resume()
+    }
+
     /// Waits up to five seconds until `count` answers are held.
     func waitUntilHeld(_ count: Int) async {
         for _ in 0..<1000 {

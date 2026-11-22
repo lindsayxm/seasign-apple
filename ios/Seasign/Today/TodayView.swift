@@ -76,7 +76,7 @@ struct TodayView: View {
             // the API may answer events from its 5-minute cache.
             while !Task.isCancelled {
                 await model.refresh()
-                await events.refresh()
+                await events.refresh(force: EventsRefreshTrigger.minuteLoop.force)
                 try? await Task.sleep(for: .seconds(60))
             }
         }
@@ -106,10 +106,10 @@ struct TodayView: View {
                 // `force` (read again by the API, not from its cache). Read
                 // now, before the sky's request, so an answer to the minute
                 // loop's own check landing meanwhile does not hide it.
-                let eventsDue = events.isDue
+                let eventsForce = EventsRefreshTrigger.returnToForeground(isDue: events.isDue).force
                 Task {
                     await model.refresh()
-                    await events.refresh(force: eventsDue)
+                    await events.refresh(force: eventsForce)
                 }
                 Task { await feed.refresh() }
                 // The Keychain is asked again first: one that could not be
@@ -124,7 +124,7 @@ struct TodayView: View {
         // zip saved or removed, the first sky after a cache rebuild) they are
         // fetched again.
         .onChange(of: eventZoneID) {
-            Task { await events.refresh() }
+            Task { await events.refresh(force: EventsRefreshTrigger.zoneChange.force) }
             Task { await google.refresh(force: true) }
         }
         .fullScreenCover(item: $destination) { destination in
@@ -155,7 +155,7 @@ struct TodayView: View {
     private func pull(_ target: TodayPull.Target) async {
         switch target {
         case .calendar:
-            async let calendar: Void = events.refresh(force: true)
+            async let calendar: Void = events.refresh(force: EventsRefreshTrigger.pull.force)
             async let googleEvents: Void = google.refresh(force: true)
             async let sky: Void = model.refresh(force: true)
             _ = await (calendar, googleEvents, sky)

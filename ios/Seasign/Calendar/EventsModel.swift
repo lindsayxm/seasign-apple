@@ -76,22 +76,20 @@ final class EventsModel {
     @ObservationIgnored private let now: @Sendable () -> Date
     /// Set for the DEBUG sample: nothing is fetched and nothing is dropped.
     @ObservationIgnored private var isFrozen = false
-    /// What a fresh request (`refresh(force: true)`) asked for.
-    private struct FreshRequest {
-        let number: Int
-        let links: [UUID]
-        let zone: String
-    }
-    /// Requests sent by `refresh` so far, the fresh ones in flight and the
-    /// last fresh one started. A scheduled answer that overlapped a fresh
-    /// request for the same links and zone is dropped: it may come from the
-    /// API's cache and is never newer than the fresh one (on a return to the
-    /// foreground the minute loop and the return can both ask at once). One
-    /// for other links or another zone does not count: its own answer will
-    /// be dropped as out of date.
+    /// Requests sent by `refresh` so far.
     @ObservationIgnored private var requestsSent = 0
-    @ObservationIgnored private var freshInFlight: [FreshRequest] = []
-    @ObservationIgnored private var lastFresh: FreshRequest?
+    /// `requestsSent` when the snapshot last took a fresh answer; nil once
+    /// the snapshot is cleared. A scheduled answer to a request sent by then
+    /// is dropped: it may come from the API's cache and is never newer than
+    /// that fresh answer (on a return to the foreground the minute loop and
+    /// the return can both ask at once). Only a fresh answer that was shown
+    /// counts, so a fresh request that fails (a 429, say) or whose answer
+    /// was out of date never hides a scheduled answer. No links or zone
+    /// need comparing: an answer for other links or another zone is dropped
+    /// as out of date anyway, and a fresh answer for more links (one added,
+    /// then removed) still holds newer events for the scheduled one's links,
+    /// since a removed link never comes back with the same id.
+    @ObservationIgnored private var freshShownAt: Int?
 
     /// `timeZone` is asked each time events are fetched or shown: the zip's
     /// zone when a zip is set, otherwise the phone's (see `EventZone`).
@@ -183,14 +181,6 @@ final class EventsModel {
         let fresh = force
         requestsSent += 1
         let number = requestsSent
-        let asks = { (request: FreshRequest) in request.links == ids && request.zone == zone }
-        let overlapsFresh = freshInFlight.contains(where: asks)
-        if fresh {
-            let request = FreshRequest(number: number, links: ids, zone: zone)
-            freshInFlight.append(request)
-            lastFresh = request
-        }
-        defer { if fresh { freshInFlight.removeAll { $0.number == number } } }
         let answer: CalendarAnswer
         do {
             answer = try await api.calendarEvents(links: links.map(\.url), timezone: zone, fresh: fresh)
@@ -201,13 +191,14 @@ final class EventsModel {
             return
         }
         retryNotBefore = nil
-        // A fresh request for the same links and zone that overlapped this
-        // scheduled one answers instead.
-        if !fresh, overlapsFresh || lastFresh.map({ $0.number > number && asks($0) }) == true { return }
+        // A fresh answer shown since this scheduled request went out is
+        // newer than this one.
+        if !fresh, let freshShownAt, freshShownAt >= number { return }
         // The links or the zone may have changed while the request was in
         // flight; whatever changed them asks again.
         guard ids == links.map(\.id), zone == timeZone().identifier else { return }
         setSnapshot(.make(from: answer, links: ids, timezone: zone, previous: snapshot, now: now()))
+        if fresh { freshShownAt = requestsSent }
     }
 
     /// Checks a link typed in Settings by asking the API to read it, and
@@ -278,9 +269,35 @@ final class EventsModel {
     }
 
     private func setSnapshot(_ value: EventsSnapshot?) {
+        // Nothing is shown, so no fresh answer is newer than a scheduled one.
+        if value == nil { freshShownAt = nil }
         guard value != snapshot else { return }
         snapshot = value
         store.cache(value)
+    }
+}
+
+/// What on Today asks for the pasted-link events, and whether it asks with
+/// `force` (`EventsModel.refresh(force:)`: sent even when the events are
+/// fresh, and read again by the API instead of from its 5-minute cache).
+/// Today passes each of its calls through here, so the choice is tested.
+enum EventsRefreshTrigger: Equatable {
+    /// The minute loop shared with the sky: a scheduled check, never forced.
+    case minuteLoop
+    /// The app came back to the foreground; `isDue` is `EventsModel.isDue`
+    /// read as it did, before anything else is asked.
+    case returnToForeground(isDue: Bool)
+    /// The pull above the horizon.
+    case pull
+    /// The events' time zone changed (a zip saved or removed).
+    case zoneChange
+
+    var force: Bool {
+        switch self {
+        case .minuteLoop, .zoneChange: false
+        case .returnToForeground(let isDue): isDue
+        case .pull: true
+        }
     }
 }
 
