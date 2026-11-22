@@ -14,7 +14,7 @@ LIST STORAGE: tables in D1 synced through the API (works for a later Android cli
 
 SIGN-IN: The app works without signing in. Until the user signs in with Apple, their data (lists, sites, calendar links, saved items, settings) lives on the device. Signing in uploads it to D1 and turns on sync.
 
-CALENDARS: Events come from calendar links the user pastes in Settings - Google's "Secret address in iCal format", an Apple published calendar link, or an Outlook published calendar link. The API fetches and reads the links. The app does not ask for permission to read the phone's calendars.
+CALENDARS: Events come from calendar links the user pastes in Settings - Google's "Secret address in iCal format", an Apple published calendar link, or an Outlook published calendar link. The API fetches and reads the links. The app does not ask for permission to read the phone's calendars. Since 2026-11-19 the user can also connect Google Calendar by signing in (events appear without refreshing), and since 2026-11-22 new events can be added to Google calendars the user owns; pasted links are read-only.
 
 SITES: In Settings the user enters the URL of a page to follow (for example https://www.wired.com/category/science/) and a category they name themselves (for example "Sci"). The category is never taken from the URL.
 
@@ -26,7 +26,9 @@ TODAY FEED: shows only the newest headlines that fit below the waterline; it doe
 
 DO/GET: one screen, DO on top and GET on the bottom, each with its own add field (ref-img/00-do-get-list.png).
 
-NOT IN V1: voice input, Siri/Shortcuts, home-screen widget, notifications, AI summaries.
+ADDING EVENTS (added 2026-11-22, plan `plans/2026-11-22-day-calendar-and-voice.md`): Tapping the events area on Today opens a full-screen view of all of today's events. A mic button and a + button add an event by speaking or by typing one line ("meeting sunday at 3pm with Rahaf"). A popup shows the event (and reads it aloud after the mic); it is written to the user's Google Calendar only after the user says "Confirm" or taps Confirm. The voice that reads aloud is chosen in Settings. The app asks for the microphone and speech recognition the first time the mic is tapped; speech is recognised on the phone.
+
+NOT IN V1: a "Hey Seasign" wake phrase, Siri/Shortcuts, home-screen widget, notifications, AI summaries. (Voice input was on this list until 2026-11-22.)
 
 REFERENCE IMAGES: mockups and colour references are in ref-img/.
 

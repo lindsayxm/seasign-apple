@@ -11,7 +11,7 @@ iPhone app (ios/)  ──HTTPS, JSON──▶  API on Cloudflare Workers (api/) 
         └──── generated Swift client ◀── openapi/openapi.json ◀─────────┘
 ```
 
-- **Business logic lives in the API** (weather and sun/moon, reading calendar links, fetching followed sites, AI search) so a later Android client can reuse it. The iOS app is UI plus local storage; it uses no location or calendar permission.
+- **Business logic lives in the API** (weather and sun/moon, reading calendar links, fetching followed sites, AI search) so a later Android client can reuse it. The iOS app is UI plus local storage; it uses no location or calendar permission. Planned exception (2026-11-22, `plans/2026-11-22-day-calendar-and-voice.md`, tasks 166 to 172): adding a calendar event by voice or by typing. The phrase is understood on the phone (Apple's date detector, no network), speech is recognised on the phone, and the app asks for the microphone and speech recognition when the mic is first tapped; the event is created through the API (`POST /v1/google/events/create`). Each task adds its own notes here as it lands.
 - **Signed out by default.** The v1 routes need no account: the app sends what the Worker needs with each request (zip, calendar links, site list, the user's LLM key) and keeps the user's data in SwiftData. Sign in with Apple and D1 sync come last (tasks 13 and 14).
 - **User-supplied URLs** go through one safe-fetch helper in the Worker (https only, no private hosts, size and time caps). LLM keys and calendar links are never logged or stored; KV cache keys for calendars are hashes.
 - **The OpenAPI spec is the contract.** It is generated from the Hono routes; the Swift client is generated from the spec. Neither is edited by hand.

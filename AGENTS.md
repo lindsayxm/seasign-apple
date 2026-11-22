@@ -61,7 +61,7 @@ Native iOS app talking to a JSON API on Cloudflare. Business logic (weather, cal
 | Tests | Vitest with `@cloudflare/vitest-plugin` |
 | Package manager | npm |
 | Weather and sun/moon, temp, conditions | Open-Meteo, including its geocoder (5-digit US zip → place and timezone) |
-| Calendars | `.ics` links pasted by the user (Google secret iCal address, Apple and Outlook published links), fetched by the Worker and parsed with `ical.js` |
+| Calendars | `.ics` links pasted by the user (Google secret iCal address, Apple and Outlook published links), fetched by the Worker and parsed with `ical.js`; read-only. Google Calendar through the user's own sign-in: the app sends a short-lived token in `X-Google-Token` (never stored or logged) and the Worker calls the Google Calendar API to list calendars, read events, watch for changes and, since 2026-11-22, create an event the user has confirmed (`plans/2026-11-19-google-calendar-push.md`, `plans/2026-11-22-day-calendar-and-voice.md`) |
 | Followed sites | The page's advertised RSS/Atom feed parsed with `fast-xml-parser`; otherwise article links read from the HTML with the built-in `HTMLRewriter` |
 | AI search | One adapter per provider (Anthropic, OpenAI, Google Gemini, Perplexity) called with plain `fetch`, no SDKs. The user's key arrives in a request header and is never stored or logged |
 | Outbound fetches | User-supplied URLs go through one helper: https only, no private or local hosts, size and time caps. KV keys for calendar links are hashes, since a link is a credential |
@@ -84,7 +84,7 @@ Native iOS app talking to a JSON API on Cloudflare. Business logic (weather, cal
 | Identity | Bundle ID and team ID come from `app-identity.xcconfig` at the repository root, loaded by `ios/project.yml`. `api/wrangler.jsonc` repeats the bundle ID; a check in `npm test` fails if they differ |
 | Secrets on device | Keychain for the session token and the user's LLM API key |
 | Fonts | Bundled open-licence fonts: Jost (caps text) and a condensed bold face (PT Sans Narrow). The Today screen (design v11) also uses three faces that ship with iOS: Avenir Next Condensed (day name), Iowan Old Style (article titles) and the system mono face |
-| Platform features | None in v1. The app asks for no location or calendar permission. Later ideas, not v1: Speech (voice input), App Intents (Siri / Shortcuts), WidgetKit, BackgroundTasks + UserNotifications |
+| Platform features | Speech (`SFSpeechRecognizer`, on the phone only) and AVFoundation speech synthesis for adding a calendar event by voice; the app asks for the microphone and speech recognition when the mic is first tapped (`memory/decisions/2026-11-22-day-calendar-voice-and-google-write.md`). Background remote notifications for Google Calendar changes (no notification permission). The app asks for no location or calendar permission. Later ideas, not built: a wake phrase, App Intents (Siri / Shortcuts), WidgetKit, BackgroundTasks |
 | Tests | Swift Testing, run with `xcodebuild test` |
 | Packages | Swift Package Manager |
 
