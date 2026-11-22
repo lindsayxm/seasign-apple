@@ -92,7 +92,9 @@ struct GoogleSettingsSection: View {
     @ViewBuilder
     private var addingEvents: some View {
         if model.canAddEvents {
-            if !model.calendars.isEmpty {
+            // Roles arrive with the calendar list; until one is known
+            // (an older list, or a load still out) nothing is said.
+            if model.calendars.contains(where: { $0.accessRole != nil }) {
                 if model.newEventsCalendars.isEmpty {
                     note("Seasign adds events only to calendars you own, and none of these is yours.")
                 } else {
