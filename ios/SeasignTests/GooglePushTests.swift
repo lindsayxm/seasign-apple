@@ -1208,6 +1208,57 @@ final class FakeReceiver: RemotePushReceiver {
         #expect(try context.fetch(FetchDescriptor<GoogleWatchRecord>()).isEmpty)
     }
 
+    // MARK: Connecting again while the old connection is being stopped
+
+    @Test func connectingAgainWithNoCalendarOnDuringAWatchKeepsTheQueuedUnwatch() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = try await connected(context, unwatchWait: .milliseconds(200))
+        stub.hold(GoogleAPIStub.postWatch)
+        model.registered(FakeDevice.token)
+        try await waitUntil { stub.outstanding(GoogleAPIStub.postWatch) == 1 }
+        // Disconnect queues the unwatch behind the watch, then revokes after the cap.
+        try await bounded { await model.disconnect() }
+        #expect(unwatches.isEmpty)
+        let signIn = redirect()
+        try await bounded { await model.connect(signIn: signIn) }
+        #expect(model.connection == .connected)
+        let me = try #require(model.calendars.first { $0.calendarID == "me@example.test" })
+        model.setOn(me, false)
+        stub.release(GoogleAPIStub.postWatch)
+        try await idle(model)
+        // The watch out at Disconnect made channels; the unwatch still stops them.
+        try #require(unwatches.count == 1)
+        #expect(unwatches[0].token == FakeGoogle.access)
+        #expect(unwatches[0].deviceToken == FakeDevice.hex)
+        #expect(watches.count == 1)
+        #expect(stub.peak(GoogleAPIStub.pushKey) == 1)
+    }
+
+    @Test func aConnectFinishedWhileDisconnectRenewsItsTokenKeepsItsChannels() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = try await watching(context)
+        // The token in memory has expired, so Disconnect asks for a fresh one
+        // for the unwatch, and that answer is slow.
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.tokens(access: FakeGoogle.access2, refresh: nil))
+        endpoint.hold(grant: "refresh_token")
+        let disconnecting = Task { await model.disconnect() }
+        try await waitUntil { endpoint.sent(grant: "refresh_token").count == 1 }
+        let signIn = redirect()
+        try await bounded { await model.connect(signIn: signIn) }
+        try await idle(model)
+        #expect(watches.count == 2)
+        #expect(model.watch.isLive)
+        endpoint.release()
+        try await bounded { await disconnecting.value }
+        try await idle(model)
+        // The new connection's channels and keeper state are left alone.
+        #expect(unwatches.isEmpty)
+        #expect(watches.count == 2)
+        #expect(model.watch.isLive)
+        #expect(model.pollInterval == .seconds(60))
+    }
+
     // MARK: Lead fixes from the #154 review
 
     @Test func disconnectDuringTheCodeExchangeShowsNotConnectedAtOnce() async throws {

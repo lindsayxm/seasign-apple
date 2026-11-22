@@ -448,12 +448,16 @@ final class GoogleCalendarModel {
         listHeld = false
         setConnection(.notConnected)
         if mayNeedUnwatch {
-            let stopping = Task { [watch, client] in
+            let disconnected = generation
+            let stopping = Task { [weak self, watch, client] in
                 var unwatchToken = valid
                 if unwatchToken == nil, let token, let client {
                     // One fresh token for the unwatch alone; it is not kept.
                     unwatchToken = try? await client.refresh(token).access
                 }
+                // A Connect finished meanwhile: its keeper state is not
+                // wiped, and its own watch replaces this device's channels.
+                guard let self, self.generation == disconnected else { return }
                 // Without a device token yet, the keeper keeps this token for an
                 // unwatch sent when the device token arrives (after the revoke
                 // below: the API forgets the channels whatever Google says).

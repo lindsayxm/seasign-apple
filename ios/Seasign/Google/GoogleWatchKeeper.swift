@@ -223,6 +223,10 @@ final class GoogleWatchKeeper {
         let next = nextOperation(calendars: calendars, reason: reason)
         if running == nil {
             if let next { want(next) }
+        } else if case .unwatch(_, .some) = wanted, next == nil {
+            // The unwatch of a connection that ended (it carries its own
+            // token) stays queued when the new state needs nothing sent; a
+            // watch may replace it, since a watch replaces the device's channels.
         } else {
             wanted = next
         }
