@@ -1040,18 +1040,25 @@ enum PushDeadline {
     }
 
     /// `task`'s value, or `fallback` once `deadline` passes (in real time).
+    /// A value that comes first always wins: it is handed over before the
+    /// timer is cancelled, and a cancelled timer hands over nothing (its
+    /// sleep ending early by cancellation is not the deadline passing).
     static func race<T: Sendable>(_ task: Task<T, Never>, deadline: Duration, fallback: T) async -> T {
         let once = Once<T>()
         return await withCheckedContinuation { continuation in
             once.set(continuation)
             let timer = Task {
-                try? await Task.sleep(for: deadline)
+                do {
+                    try await Task.sleep(for: deadline)
+                } catch {
+                    return
+                }
                 once.resume(fallback)
             }
             Task {
                 let value = await task.value
-                timer.cancel()
                 once.resume(value)
+                timer.cancel()
             }
         }
     }

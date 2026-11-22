@@ -612,11 +612,12 @@ private final class IDSource: @unchecked Sendable {
         #expect(AddEventModel.addedText(brunchJan1, now: eve, clock: .twelveHour) == "Added · Jan 1, 2027 10:00 AM · Brunch")
     }
 
-    /// (5): a start at midnight says which night it is.
+    /// (5): a start at midnight says which night it is. Task 172 (b): "friday
+    /// 12am" is now the start of Friday, so it is no longer in this list.
     @Test func aMidnightStartSaysWhichNightItIs() {
         let now = instant("2026-11-22T19:30:00Z")
         let parser = EventPhraseParser(detector: FakeDateDetector())
-        for line in ["flight friday at midnight", "flight friday 12am", "flight at 12 friday night"] {
+        for line in ["flight friday at midnight", "flight at 12 friday night"] {
             guard case .draft(let draft) = parser.parse(line, now: now, timeZone: zone) else {
                 Issue.record("\(line): expected a draft")
                 continue
@@ -628,6 +629,59 @@ private final class IDSource: @unchecked Sendable {
             #expect(summary.spoken == "Flight, Friday at midnight, one hour.", "\(line)")
         }
         #expect(DraftSummary(meeting, now: now, clock: .twelveHour).midnightNote == nil)
+    }
+
+    /// Task 172 (b): "12am" with a day named is the start of that day, with
+    /// no note; a start after 00:00 put on the next day says so on screen
+    /// and aloud; 00:00 without the mark (as typed "00:00") has no note.
+    @Test func startsAroundMidnightFollowTheLeadsRuling() {
+        let now = instant("2026-11-22T19:30:00Z")
+        let parser = EventPhraseParser(detector: FakeDateDetector())
+        func summary(_ line: String) -> DraftSummary? {
+            guard case .draft(let draft) = parser.parse(line, now: now, timeZone: zone) else { return nil }
+            return DraftSummary(draft, now: now, clock: .twelveHour)
+        }
+        let start = summary("flight friday 12am")
+        #expect(start?.day == "Friday, November 27")
+        #expect(start?.time == "12:00 AM – 1:00 AM")
+        #expect(start?.midnightNote == nil)
+        #expect(start?.spoken == "Flight, Friday at 12 AM, one hour.")
+
+        let late = summary("flight friday at 12:30am")
+        #expect(late?.day == "Friday, November 27")
+        #expect(late?.midnightNote == nil)
+
+        let tonight = summary("party at 12:30am tonight")
+        #expect(tonight?.day == "Monday, November 23")
+        #expect(tonight?.time == "12:30 AM – 1:30 AM")
+        #expect(tonight?.midnightNote == "Starts at 12:30 AM on Monday, November 23, just after Sunday, November 22 ends.")
+        #expect(tonight?.spoken == "Party, Monday at 12:30 AM, just after Sunday ends, one hour.")
+
+        let typed = summary("flight 00:00 friday")
+        #expect(typed?.day == "Friday, November 27")
+        #expect(typed?.midnightNote == nil)
+    }
+
+    /// Task 172 (c): the spoken sentence names the date, not only the
+    /// weekday, for a day more than six days away (and for a past day).
+    @Test func theSpokenSentenceNamesTheDateMoreThanSixDaysAway() {
+        // Sunday 22 November 2026, 1:30 PM in Chicago.
+        let now = instant("2026-11-22T19:30:00Z")
+        let parser = EventPhraseParser(detector: FakeDateDetector(dates: [("Dec 17", 2026, 12, 17), ("Nov 28", 2026, 11, 28), ("Nov 29", 2026, 11, 29)]))
+        func spoken(_ line: String) -> String? {
+            guard case .draft(let draft) = parser.parse(line, now: now, timeZone: zone) else { return nil }
+            return DraftSummary(draft, now: now, clock: .twelveHour).spoken
+        }
+        #expect(spoken("dentist Dec 17 at 4pm") == "Dentist, Thursday, December 17 at 4 PM, one hour.")
+        #expect(spoken("dentist Dec 17") == "Dentist, Thursday, December 17, all day.")
+        // Six days away: the weekday; seven: the date.
+        #expect(spoken("dentist Nov 28 at 4pm") == "Dentist, Saturday at 4 PM, one hour.")
+        #expect(spoken("dentist Nov 29 at 4pm") == "Dentist, Sunday, November 29 at 4 PM, one hour.")
+        #expect(spoken("dentist next sunday at 4pm") == "Dentist, Sunday, November 29 at 4 PM, one hour.")
+        #expect(spoken("dentist tomorrow at 4pm") == "Dentist, Monday at 4 PM, one hour.")
+        // Earlier today and a day past.
+        let past = EventDraft(title: "Dentist", timing: .allDay(date: "2026-11-20"), timeZone: zone)
+        #expect(DraftSummary(past, now: now, clock: .twelveHour).spoken == "Dentist, Friday, November 20, all day.")
     }
 
     /// (4): Google saying the sign-in cannot add events drops write access
@@ -749,17 +803,73 @@ private final class IDSource: @unchecked Sendable {
         #expect(note.header == "May not have been added")
         #expect(note.text.contains("may not have been added"))
 
-        // The late answer does not move the popup.
+        // Task 172 (e): the late success, with the uncertain popup still
+        // showing this draft, turns it into Added (before task 172 it moved
+        // nothing).
+        var shown: [UpcomingEvent] = []
+        adder.onAdded = { shown.append($0) }
+        stub.release()
+        #expect(await eventually { adder.stage == .closed })
+        #expect(adder.addedNote?.text == "Added · Sun 3:00 PM · Meeting with Rahaf")
+        #expect(shown.map(\.title) == ["Meeting with Rahaf"])
+        #expect(pending.entry == nil)
+        #expect(creates().map { $0.body["id"] } == [IDSource.id(1)])
+    }
+
+    /// Task 172 (e): a late failure moves nothing, and Try again sends the
+    /// same id.
+    @Test func aLateFailureLeavesTheUncertainPopupAndTryAgainSendsTheSameID() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let google = await connected(context)
+        let pending = AddEventPending()
+        let adder = adder(google, pending: pending, deadline: .milliseconds(300))
+        stub.answer(
+            GoogleAPIStub.postCreate,
+            GoogleAPIStub.error(.badGateway, "fetch_failed"),
+            GoogleAPIStub.created(id: IDSource.id(1), created: false)
+        )
+        stub.hold(GoogleAPIStub.postCreate)
+        review(adder, line)
+        adder.confirm()
+        await stub.waitUntilParked(GoogleAPIStub.postCreate, count: 1)
+        await settle(adder)
+        guard case .failed(meeting, let note) = adder.stage, note.uncertain else {
+            Issue.record("expected the uncertain state, got \(adder.stage)")
+            return
+        }
         stub.release()
         #expect(await eventually { !pending.isRequestOut })
         #expect(adder.stage == .failed(meeting, note))
         #expect(adder.addedNote == nil)
 
-        // Try again sends the same id.
         adder.confirm()
         await settle(adder)
         #expect(adder.stage == .closed)
         #expect(creates().map { $0.body["id"] } == [IDSource.id(1), IDSource.id(1)])
+    }
+
+    /// Task 172 (e): a late success after the popup was closed shows nothing.
+    @Test func aLateSuccessAfterThePopupClosedShowsNothing() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let google = await connected(context)
+        let pending = AddEventPending()
+        let adder = adder(google, pending: pending, deadline: .milliseconds(300))
+        stub.answer(GoogleAPIStub.postCreate, GoogleAPIStub.created(id: IDSource.id(1)))
+        stub.hold(GoogleAPIStub.postCreate)
+        review(adder, line)
+        adder.confirm()
+        await stub.waitUntilParked(GoogleAPIStub.postCreate, count: 1)
+        await settle(adder)
+        guard case .failed = adder.stage else {
+            Issue.record("expected the uncertain state, got \(adder.stage)")
+            return
+        }
+        adder.cancel()
+        stub.release()
+        #expect(await eventually { !pending.isRequestOut })
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(adder.stage == .closed)
+        #expect(adder.addedNote == nil)
     }
 
     @Test func tryAgainWhileTheFirstSendIsStillOutWaitsForItInsteadOfSendingAgain() async throws {
@@ -784,5 +894,35 @@ private final class IDSource: @unchecked Sendable {
         await settle(adder)
         #expect(adder.stage == .closed)
         #expect(creates().count == 1)
+    }
+}
+
+
+/// Task 172 (a): a task that has answered always wins the race, however
+/// the timer's cancellation and the answer interleave. Before the fix the
+/// cancelled timer could hand over the fallback first; with 2,000 tries
+/// that showed up on every run tried.
+@Suite struct PushDeadlineTests {
+    @Test func anAnswerThatComesFirstAlwaysWins() async {
+        var fallbacks = 0
+        for round in 0..<2_000 {
+            let task = Task { round }
+            if round.isMultiple(of: 2) { _ = await task.value }
+            let value = await PushDeadline.race(task, deadline: .seconds(30), fallback: -1)
+            if value != round { fallbacks += 1 }
+        }
+        #expect(fallbacks == 0)
+    }
+
+    @Test func theFallbackComesAtTheDeadline() async {
+        let task = Task<Int, Never> {
+            try? await Task.sleep(for: .seconds(5))
+            return 1
+        }
+        let started = ContinuousClock.now
+        let value = await PushDeadline.race(task, deadline: .milliseconds(100), fallback: -1)
+        #expect(value == -1)
+        #expect(ContinuousClock.now - started < .seconds(3))
+        task.cancel()
     }
 }

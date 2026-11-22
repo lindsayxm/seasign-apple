@@ -69,6 +69,10 @@ struct EventDraft: Equatable, Sendable {
     var timing: Timing
     /// The events' zone (`EventZone.resolve`): what times were read in.
     var timeZone: TimeZone
+    /// The start (00:00 to 00:59) was put on the day after the one the line
+    /// named ("friday at midnight", "12:30am tonight"); the popup and the
+    /// spoken sentence say so.
+    var startsAfterDayNamed = false
 
     var isAllDay: Bool {
         if case .allDay = timing { return true }
@@ -147,10 +151,13 @@ enum EventParse: Equatable, Sendable {
 ///    the day; "tonight", "evening", "afternoon", "night", "dinner" or
 ///    "supper" in the line mean pm, "morning" or "breakfast" am; otherwise
 ///    1-6 is pm and 7-11 am. 12 alone is noon, but midnight with
-///    "tonight", "night" or "evening" in the line. "Midnight", "12am" (and
-///    "12:30am") are at the midnight at the end of the day named (or of
-///    today), so "friday at midnight" and "friday 12am" both start as
-///    Friday ends; a 24-hour "00:00" is the start of the day named.
+///    "tonight", "night" or "evening" in the line. "Midnight" and "12
+///    tonight" are the midnight at the end of the day named (or of today),
+///    so "friday at midnight" starts as Friday ends; "12am" or "12:30am"
+///    written with a day ("friday 12:30am") is the start of that day, as
+///    "00:30 friday" is, and without one (or with a night word) the night
+///    at the end of today. A start put on the day after the one named is
+///    marked (`EventDraft.startsAfterDayNamed`) so the popup says so.
 /// 4. One day: "today", "tonight", "tomorrow", "the day after tomorrow",
 ///    "in 3 days", "in 2 weeks", a weekday ("sunday" is today on a Sunday,
 ///    else the next one; "next sunday" is the first one after today;
@@ -192,12 +199,12 @@ struct EventPhraseParser: Sendable {
             try scan.checkLeftovers(hasTime: time != nil)
             let title = EventTitle.fromWords(scan.leftoverWords())
             guard !title.isEmpty else { return .problem(.noTitle) }
-            let timing = try Self.timing(
+            let (timing, startsAfterDayNamed) = try Self.timing(
                 day: day, time: time, length: length, detected: scan.detectedLength(for: time),
                 now: now, calendar: calendar
             )
             guard Self.isInRange(timing, now: now) else { return .problem(.outOfRange) }
-            return .draft(EventDraft(title: title, timing: timing, timeZone: timeZone))
+            return .draft(EventDraft(title: title, timing: timing, timeZone: timeZone, startsAfterDayNamed: startsAfterDayNamed))
         } catch let problem as EventDraftProblem {
             return .problem(problem)
         } catch {
@@ -210,7 +217,7 @@ struct EventPhraseParser: Sendable {
     private static func timing(
         day: PhraseScan.Day?, time: PhraseScan.Time?, length: TimeInterval?, detected: TimeInterval?,
         now: Date, calendar: Calendar
-    ) throws -> EventDraft.Timing {
+    ) throws -> (EventDraft.Timing, startsAfterDayNamed: Bool) {
         let today = calendar.dateComponents([.year, .month, .day, .weekday], from: now)
         guard let year = today.year, let month = today.month, let dayOfMonth = today.day, let weekday = today.weekday,
               let todayStart = calendar.date(from: DateComponents(year: year, month: month, day: dayOfMonth))
@@ -254,7 +261,7 @@ struct EventPhraseParser: Sendable {
         }
         guard let time else {
             guard length == nil else { throw EventDraftProblem.unclearTime }
-            return .allDay(date: String(format: "%04d-%02d-%02d", base.year ?? 0, base.month ?? 0, base.day ?? 0))
+            return (.allDay(date: String(format: "%04d-%02d-%02d", base.year ?? 0, base.month ?? 0, base.day ?? 0)), false)
         }
         var timeCalendar = calendar
         if let zone = time.zone { timeCalendar.timeZone = zone }
@@ -265,10 +272,17 @@ struct EventPhraseParser: Sendable {
             else { throw EventDraftProblem.unclearTime }
             return date
         }
-        let start = try wall(time.start.hour, time.start.minute, nextDay: time.start.isMidnight)
+        // "midnight", "12 tonight" and a bare "12am" are the night at the end
+        // of the day named (or of today); "12am" or "12:30am" written with a
+        // day ("friday 12:30am") is the start of that day, as "00:30" is.
+        func nextDay(_ clock: PhraseScan.ResolvedClock) -> Bool {
+            clock.isMidnight && !(clock.writtenAM && day != nil && !time.night)
+        }
+        let startsNextDay = nextDay(time.start)
+        let start = try wall(time.start.hour, time.start.minute, nextDay: startsNextDay)
         var end: Date
         if let finish = time.end {
-            end = try wall(finish.hour, finish.minute, nextDay: finish.isMidnight)
+            end = try wall(finish.hour, finish.minute, nextDay: nextDay(finish))
             if end <= start { end = timeCalendar.date(byAdding: .day, value: 1, to: end) ?? end }
             guard length == nil else { throw EventDraftProblem.unclearTime }
         } else if let length {
@@ -280,7 +294,7 @@ struct EventPhraseParser: Sendable {
         }
         let seconds = end.timeIntervalSince(start)
         guard seconds > 0, seconds <= 86_400 else { throw EventDraftProblem.badLength }
-        return .timed(start: start, end: end)
+        return (.timed(start: start, end: end), startsNextDay)
     }
 
     private static func shifted(_ date: Date, days: Int, calendar: Calendar) throws -> DateComponents {
@@ -366,6 +380,9 @@ private struct PhraseScan {
         var hour: Int
         var minute: Int
         var isMidnight: Bool
+        /// Written "12am" or "12:30am": the start of a day that is named
+        /// ("friday 12am"), else the night at the end of today.
+        var writtenAM = false
     }
 
     struct Time {
@@ -373,6 +390,8 @@ private struct PhraseScan {
         var end: ResolvedClock?
         var zone: TimeZone?
         var tokens: Range<Int>
+        /// "tonight", "night" or "evening" in the line.
+        var night = false
     }
 
     enum WeekdayMode { case plain, next, nextWeek }
@@ -665,7 +684,7 @@ private struct PhraseScan {
             index += 1
         }
         let (begin, finish) = try resolve(opening, closing, hint: hint, night: night)
-        return (Time(start: begin, end: finish, zone: zone, tokens: start..<index), index)
+        return (Time(start: begin, end: finish, zone: zone, tokens: start..<index, night: night), index)
     }
 
     private func resolve(_ opening: Clock, _ closing: Clock?, hint: Meridiem?, night: Bool) throws -> (ResolvedClock, ResolvedClock?) {
@@ -676,7 +695,7 @@ private struct PhraseScan {
                 guard (1...12).contains(clock.hour) else { throw EventDraftProblem.unclearTime }
                 // "12am", "12:30am": as "midnight", at the end of the day named.
                 if clock.hour == 12, meridiem == .am {
-                    return ResolvedClock(hour: 0, minute: clock.minute, isMidnight: true)
+                    return ResolvedClock(hour: 0, minute: clock.minute, isMidnight: true, writtenAM: clock.meridiem == .am)
                 }
                 let base = clock.hour % 12
                 return ResolvedClock(hour: meridiem == .pm ? base + 12 : base, minute: clock.minute, isMidnight: false)
@@ -943,13 +962,16 @@ private struct PhraseScan {
                next.range(of: "^\\d{1,2}([:.]\\d{1,2})?$", options: .regularExpression) != nil {
                 throw EventDraftProblem.unclearTime
             }
-            // "in 30 minutes", "in an hour", "15 minutes from now": a time from now.
-            if word == "in", isAmountOfTime(after: index + 1) { throw EventDraftProblem.relativeTime }
+            // "in 30 minutes", "in an hour", "15 minutes from now": a time
+            // from now; with a clock time read, "in an hour" is title text
+            // ("check in an hour early tomorrow at 9am").
+            if word == "in", !hasTime, isAmountOfTime(after: index + 1) { throw EventDraftProblem.relativeTime }
             if word == "from", self.word(index + 1) == "now" { throw EventDraftProblem.relativeTime }
             // "tomorrow 3-4", "friday 9 to 5", "tomorrow 9": a plain number
             // right after the day reads as a time, but its half of the day is
-            // not said.
-            if dayTokens.contains(index - 1), Self.isPlainHour(word) { throw EventDraftProblem.unclearTime }
+            // not said. Not when the line has a time ("lunch tuesday 4
+            // guests at 1pm"): then the number is title text.
+            if !hasTime, dayTokens.contains(index - 1), Self.isPlainHour(word) { throw EventDraftProblem.unclearTime }
             if Self.dayWords.contains(word) { throw EventDraftProblem.unclearDay }
             if word == "next", let next = self.word(index + 1), ["week", "month", "year"].contains(next) {
                 throw EventDraftProblem.unclearDay

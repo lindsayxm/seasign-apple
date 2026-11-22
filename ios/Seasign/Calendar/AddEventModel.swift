@@ -15,7 +15,8 @@ import Observation
 /// still out, are kept in `AddEventPending`, which outlives the day screen,
 /// so closing and reopening it between a timeout and Try again changes
 /// nothing. A send with no answer after `sendDeadline` shows "may not have
-/// been added"; Try again then waits for that same send while it is out.
+/// been added"; Try again then waits for that same send while it is out,
+/// and if that send succeeds while the popup still says so, it says Added.
 @MainActor
 @Observable
 final class AddEventModel {
@@ -234,11 +235,17 @@ final class AddEventModel {
         }
         let deadline = sendDeadline
         sending = Task { [weak self] in
-            // nil: no answer by the deadline. That send's answer, when it
-            // comes, moves nothing; the popup says it may have been added.
+            // nil: no answer by the deadline; the popup says it may have
+            // been added.
             let outcome = await PushDeadline.race(request, deadline: deadline, fallback: nil)
             guard let self else { return }
             self.finish(outcome, draft: draft, link: link)
+            guard outcome == nil else { return }
+            // That send's answer, when it comes: a success while the
+            // uncertain popup still shows this draft turns it into Added;
+            // anything else moves nothing.
+            let late = await request.value
+            self.lateAnswer(late, draft: draft, link: link)
         }
     }
 
@@ -279,6 +286,12 @@ final class AddEventModel {
             if !note.canRetry { pending.entry = nil }
             stage = .failed(draft, note)
         }
+    }
+
+    /// A send that answered after `sendDeadline`.
+    private func lateAnswer(_ outcome: GoogleCalendarModel.CreateOutcome?, draft: EventDraft, link: UUID) {
+        guard case .added = outcome, case .failed(let shown, let note) = stage, shown == draft, note.uncertain else { return }
+        finish(outcome, draft: draft, link: link)
     }
 
     /// The day screen hides the note after `addedNoteSeconds`.
@@ -430,10 +443,14 @@ struct DraftSummary: Equatable {
     /// "This time has already passed today." or "This day has already
     /// passed." when the draft is in the past; nil otherwise.
     var pastNote: String?
-    /// "Starts at midnight at the end of Friday, November 27." for a start
-    /// at 00:00, which "friday at midnight" and "friday 12am" both give.
+    /// For a start put on the day after the one named
+    /// (`EventDraft.startsAfterDayNamed`): "Starts at midnight at the end of
+    /// Friday, November 27." ("friday at midnight"), or "Starts at 12:30 AM
+    /// on Saturday, November 28, just after Friday, November 27 ends."
     var midnightNote: String?
-    /// "Meeting with Rahaf, Sunday at 3 PM, one hour." for reading aloud.
+    /// "Meeting with Rahaf, Sunday at 3 PM, one hour." for reading aloud;
+    /// a day more than six days away by its date: "Dentist, Thursday,
+    /// December 17 at 4 PM, one hour."
     var spoken: String
 
     init(_ draft: EventDraft, now: Date, clock: ClockStyle) {
@@ -449,9 +466,11 @@ struct DraftSummary: Equatable {
             formatter.dateFormat = calendar.component(.year, from: date) == thisYear ? "EEEE, MMMM d" : "EEEE, MMMM d, yyyy"
             return formatter.string(from: date)
         }
-        /// "Sunday", or the full day in another year.
+        /// "Sunday" within the next six days; otherwise the full day
+        /// ("Thursday, December 17"), with the year in another year.
         func spokenDay(_ date: Date) -> String {
-            guard calendar.component(.year, from: date) == thisYear else { return fullDay(date) }
+            let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day ?? 0
+            guard calendar.component(.year, from: date) == thisYear, (0...6).contains(days) else { return fullDay(date) }
             formatter.dateFormat = "EEEE"
             return formatter.string(from: date)
         }
@@ -471,10 +490,15 @@ struct DraftSummary: Equatable {
                     ? "This time has already passed today." : "This day has already passed."
             }
             var when = "\(spokenDay(start)) at \(Self.spokenClock(begin.hour ?? 0, begin.minute ?? 0, clock: clock))"
-            // A start at 00:00 is named by the night it ends.
-            if begin.hour == 0, begin.minute == 0, let eve = calendar.date(byAdding: .day, value: -1, to: start) {
-                midnightNote = "Starts at midnight at the end of \(fullDay(eve))."
-                when = "\(spokenDay(eve)) at midnight"
+            // A start put on the day after the one named says which night it is.
+            if draft.startsAfterDayNamed, let eve = calendar.date(byAdding: .day, value: -1, to: start) {
+                if begin.hour == 0, begin.minute == 0 {
+                    midnightNote = "Starts at midnight at the end of \(fullDay(eve))."
+                    when = "\(spokenDay(eve)) at midnight"
+                } else {
+                    midnightNote = "Starts at \(from) on \(fullDay(start)), just after \(fullDay(eve)) ends."
+                    when += ", just after \(spokenDay(eve)) ends"
+                }
             }
             spoken = "\(draft.title), \(when), \(Self.length(minutes: minutes, words: true))."
         case .allDay(let date):

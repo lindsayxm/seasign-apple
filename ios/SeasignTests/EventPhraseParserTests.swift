@@ -65,8 +65,15 @@ enum Expected: CustomStringConvertible {
         EventPhraseParser(detector: detector).parse(line, now: now, timeZone: zone)
     }
 
+    /// The table compares title, timing and zone; whether a start was put
+    /// on the day after the one named is checked on its own
+    /// (`startsAfterTheDayNamedIsMarked`).
     static func check(_ line: String, _ expected: Expected, now: Date = now, zone: TimeZone = chicago) {
-        let result = parse(line, now: now, zone: zone)
+        var result = parse(line, now: now, zone: zone)
+        if case .draft(var draft) = result {
+            draft.startsAfterDayNamed = false
+            result = .draft(draft)
+        }
         switch expected {
         case .timed(let title, let start, let end):
             #expect(result == .draft(EventDraft(
@@ -200,8 +207,17 @@ enum Expected: CustomStringConvertible {
         ("party at 12 tonight", .timed("Party", "2026-11-23 00:00", "2026-11-23 01:00")),
         ("show at 12 friday night", .timed("Show", "2026-11-28 00:00", "2026-11-28 01:00")),
         ("flight at 12am", .timed("Flight", "2026-11-23 00:00", "2026-11-23 01:00")),
-        ("flight friday 12am", .timed("Flight", "2026-11-28 00:00", "2026-11-28 01:00")),
-        ("flight friday at 12:30am", .timed("Flight", "2026-11-28 00:30", "2026-11-28 01:30")),
+        // Lead's ruling in task 172 (b): "12am" or "12:30am" with a day named
+        // is the start of that day, as "00:30 friday" is (it was the end
+        // before); with no day it is still the night at the end of today.
+        ("flight friday 12am", .timed("Flight", "2026-11-27 00:00", "2026-11-27 01:00")),
+        ("flight friday at 12:30am", .timed("Flight", "2026-11-27 00:30", "2026-11-27 01:30")),
+        ("flight 00:30 friday", .timed("Flight", "2026-11-27 00:30", "2026-11-27 01:30")),
+        ("flight on Dec 4 at 12:15am", .timed("Flight", "2026-12-04 00:15", "2026-12-04 01:15")),
+        ("flight tomorrow at 12am", .timed("Flight", "2026-11-23 00:00", "2026-11-23 01:00")),
+        ("flight at 12:30am", .timed("Flight", "2026-11-23 00:30", "2026-11-23 01:30")),
+        ("party friday 10pm to 12am", .timed("Party", "2026-11-27 22:00", "2026-11-28 00:00")),
+        ("party at 12am tonight", .timed("Party", "2026-11-23 00:00", "2026-11-23 01:00")),
         ("party 10pm to 12am", .timed("Party", "2026-11-22 22:00", "2026-11-23 00:00")),
         ("lunch at 12", .timed("Lunch", "2026-11-22 12:00", "2026-11-22 13:00")),
         ("breakfast at 12", .timed("Breakfast", "2026-11-22 12:00", "2026-11-22 13:00")),
@@ -222,12 +238,35 @@ enum Expected: CustomStringConvertible {
         ("shift friday 9 to 5", .problem(.unclearTime)),
         ("standup tomorrow 9", .problem(.unclearTime)),
         ("flight tomorrow 5p", .problem(.unclearTime)),
+        // Task 172 (d): with a clock time in the line, a number after the day
+        // and "in an hour" are title text.
+        ("lunch tuesday 4 guests at 1pm", .timed("Lunch 4 guests", "2026-11-24 13:00", "2026-11-24 14:00")),
+        ("book club friday 7 at 7pm", .timed("Book club 7", "2026-11-27 19:00", "2026-11-27 20:00")),
+        ("check in an hour early tomorrow at 9am", .timed("Check in an hour early", "2026-11-23 09:00", "2026-11-23 10:00")),
     ]
 
     @Test(arguments: table.indices)
     func readsTheTable(_ index: Int) {
         let (line, expected) = Self.table[index]
         Self.check(line, expected)
+    }
+
+    /// Task 172 (b): a start put on the day after the one named is marked,
+    /// so the popup and the spoken sentence can say so; a start at the
+    /// beginning of the day named is not.
+    @Test(arguments: [
+        ("flight friday at midnight", true), ("flight at midnight", true), ("party at 12 tonight", true),
+        ("show at 12 friday night", true), ("flight at 12am", true), ("flight at 12:30am", true),
+        ("party at 12am tonight", true),
+        ("flight friday 12am", false), ("flight friday at 12:30am", false), ("flight 00:30 friday", false),
+        ("flight at 9am", false), ("party friday 10pm to 12am", false), ("dinner tomorrow", false),
+    ])
+    func startsAfterTheDayNamedIsMarked(_ line: String, _ marked: Bool) {
+        guard case .draft(let draft) = Self.parse(line) else {
+            Issue.record("\(line): expected a draft")
+            return
+        }
+        #expect(draft.startsAfterDayNamed == marked, "\(line)")
     }
 
     // MARK: The events' zone
