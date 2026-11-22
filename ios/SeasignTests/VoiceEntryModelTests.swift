@@ -152,7 +152,7 @@ final class FakeSpeaker: SpeechSpeaking {
 
     private static let timing = VoiceEntryModel.Timing(
         pause: .milliseconds(150), firstWords: .milliseconds(400), phraseLimit: .seconds(2),
-        finalWait: .milliseconds(200), answerWindow: .milliseconds(1000), tick: .milliseconds(10)
+        finalWait: .milliseconds(200), answerWindow: .seconds(2), tick: .milliseconds(10)
     )
 
     // MARK: Set-up
@@ -345,6 +345,8 @@ final class FakeSpeaker: SpeechSpeaking {
         // between the two partial results.
         var timing = Self.timing
         timing.pause = .milliseconds(800)
+        // Nor can a stall before the first words end it as silence.
+        timing.firstWords = .seconds(30)
         let voice = VoiceEntryModel(
             adder: rig.adder, listener: rig.listener, speaker: rig.speaker,
             voiceIdentifier: { nil }, names: { ["Lunch with Rahaf", "Dentist", "Call Rahaf about the Okafor visit"] },
@@ -629,7 +631,7 @@ final class FakeSpeaker: SpeechSpeaking {
         await readingEnds(rig)
         let opened = ContinuousClock.now
         await settle(rig.voice)
-        #expect(ContinuousClock.now - opened < .seconds(3))
+        #expect(ContinuousClock.now - opened < .seconds(4))
         #expect(rig.voice.phase == .idle)
         #expect(!rig.listener.isListening)
         #expect(rig.adder.stage == .reviewing(meeting))

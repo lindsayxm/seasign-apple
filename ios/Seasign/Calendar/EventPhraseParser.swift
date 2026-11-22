@@ -764,7 +764,7 @@ private struct PhraseScan {
     }
 
     /// "ten past three", "10 past 3", "twenty five after four", "ten minutes
-    /// past three"; with `minutesTo`, "ten to four" and "twenty of four" in
+    /// past three" (in digits only "past", and never the day of a date); with `minutesTo`, "ten to four" and "twenty of four" in
     /// words (see `spelledClock`). The clock (without am or pm yet) and the
     /// index after the hour.
     private func minutesPastOrTo(at index: Int, minutesTo: Bool) -> (Clock, Int)? {
@@ -775,7 +775,9 @@ private struct PhraseScan {
         if let (value, after) = spelledNumber(at: index) {
             minutes = value
             at = after
-        } else if first.range(of: "^\\d{1,2}$", options: .regularExpression) != nil, let value = Int(first) {
+        } else if first.range(of: "^\\d{1,2}$", options: .regularExpression) != nil, let value = Int(first),
+                  !detected.contains(where: { NSIntersectionRange($0.range, tokens[index].range).length > 0 }) {
+            // Not the day of a date ("Dec 4 after 5pm").
             minutes = value
             at = index + 1
             spelled = false
@@ -785,7 +787,8 @@ private struct PhraseScan {
         guard (1...59).contains(minutes) else { return nil }
         if let unit = word(at), Self.minuteUnits.contains(unit) { at += 1 }
         guard let relation = word(at), let hour = hour12(at: at + 1) else { return nil }
-        if ["past", "after"].contains(relation) {
+        // In digits only "past": "room 4 after 5pm" is not 5:04.
+        if relation == "past" || (spelled && relation == "after") {
             return (Clock(hour: hour, minute: minutes, hasColon: true), at + 2)
         }
         let toAmounts = minutes == 5 || minutes == 10 || minutes == 20 || minutes == 25 || minutes > 12

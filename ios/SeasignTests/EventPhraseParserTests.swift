@@ -294,6 +294,11 @@ enum Expected: CustomStringConvertible {
         ("meeting at ten past thirteen", .problem(.unclearTime)),
         ("meeting ten past fifteen", .problem(.unclearTime)),
         ("meeting at 3 past 4 past 5", .problem(.unclearTime)),
+        // The day of a date is not minutes, and in digits only "past" is.
+        ("party Dec 4 after 5 pm", .timed("Party after", "2026-12-04 17:00", "2026-12-04 18:00")),
+        ("party Dec 4 after 5", .allDay("Party after 5", "2026-12-04")),
+        ("party Dec 4 past 5", .problem(.unclearTime)),
+        ("room 4 after 5pm", .timed("Room 4 after", "2026-11-22 17:00", "2026-11-22 18:00")),
         // Two numbers in words are a time only after "at" or with am or pm.
         ("room four twelve meeting tomorrow", .allDay("Room four twelve meeting", "2026-11-23")),
         ("meeting around three thirty", .allDay("Meeting around three thirty", "2026-11-22")),
