@@ -76,13 +76,22 @@ final class EventsModel {
     @ObservationIgnored private let now: @Sendable () -> Date
     /// Set for the DEBUG sample: nothing is fetched and nothing is dropped.
     @ObservationIgnored private var isFrozen = false
-    /// Fresh requests (`refresh(force: true)`) started so far, and how many
-    /// are in flight. A scheduled answer that overlapped a fresh request is
-    /// dropped: it may come from the API's cache and is never newer than the
-    /// fresh one (on a return to the foreground the minute loop and the
-    /// return can both ask at once).
-    @ObservationIgnored private var freshStarted = 0
-    @ObservationIgnored private var freshInFlight = 0
+    /// What a fresh request (`refresh(force: true)`) asked for.
+    private struct FreshRequest {
+        let number: Int
+        let links: [UUID]
+        let zone: String
+    }
+    /// Requests sent by `refresh` so far, the fresh ones in flight and the
+    /// last fresh one started. A scheduled answer that overlapped a fresh
+    /// request for the same links and zone is dropped: it may come from the
+    /// API's cache and is never newer than the fresh one (on a return to the
+    /// foreground the minute loop and the return can both ask at once). One
+    /// for other links or another zone does not count: its own answer will
+    /// be dropped as out of date.
+    @ObservationIgnored private var requestsSent = 0
+    @ObservationIgnored private var freshInFlight: [FreshRequest] = []
+    @ObservationIgnored private var lastFresh: FreshRequest?
 
     /// `timeZone` is asked each time events are fetched or shown: the zip's
     /// zone when a zip is set, otherwise the phone's (see `EventZone`).
@@ -172,13 +181,16 @@ final class EventsModel {
         }
         if let retryNotBefore, now() < retryNotBefore { return }
         let fresh = force
-        let freshBefore = freshStarted
-        let overlapsFresh = freshInFlight > 0
+        requestsSent += 1
+        let number = requestsSent
+        let asks = { (request: FreshRequest) in request.links == ids && request.zone == zone }
+        let overlapsFresh = freshInFlight.contains(where: asks)
         if fresh {
-            freshStarted += 1
-            freshInFlight += 1
+            let request = FreshRequest(number: number, links: ids, zone: zone)
+            freshInFlight.append(request)
+            lastFresh = request
         }
-        defer { if fresh { freshInFlight -= 1 } }
+        defer { if fresh { freshInFlight.removeAll { $0.number == number } } }
         let answer: CalendarAnswer
         do {
             answer = try await api.calendarEvents(links: links.map(\.url), timezone: zone, fresh: fresh)
@@ -189,8 +201,9 @@ final class EventsModel {
             return
         }
         retryNotBefore = nil
-        // A fresh request that overlapped this scheduled one answers instead.
-        if !fresh, overlapsFresh || freshStarted != freshBefore { return }
+        // A fresh request for the same links and zone that overlapped this
+        // scheduled one answers instead.
+        if !fresh, overlapsFresh || lastFresh.map({ $0.number > number && asks($0) }) == true { return }
         // The links or the zone may have changed while the request was in
         // flight; whatever changed them asks again.
         guard ids == links.map(\.id), zone == timeZone().identifier else { return }

@@ -24,7 +24,7 @@ import type { MiddlewareHandler } from "hono";
 export const RATE_LIMITS = {
   /** Cheap and cached; the app asks at most every 10 minutes. */
   sky: { binding: "RATE_LIMIT_SKY", namespaceId: "19001", limit: 60, period: 60 },
-  /** Up to 10 outbound fetches and seconds of CPU each; asked at most every 10 minutes. */
+  /** Up to 10 outbound fetches and seconds of CPU each; scheduled checks every 5 minutes, plus pulls and adding a link. */
   calendar: { binding: "RATE_LIMIT_CALENDAR", namespaceId: "19002", limit: 20, period: 60 },
   /** Up to 50 sites, each with redirects; asked at most every 15 minutes. */
   feed: { binding: "RATE_LIMIT_FEED", namespaceId: "19003", limit: 15, period: 60 },

@@ -418,6 +418,31 @@ private final class World {
         #expect(times(model) == ["8:25PM Hanna's show", "TUE 12:00PM Lunch"])
     }
 
+    /// A fresh request for another zone does not hold back the answer for
+    /// the new one: the zone changes during a pull and the events of the new
+    /// zone show at once.
+    @Test func aFreshRequestForAnotherZoneDoesNotHideTheNewZonesAnswer() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+
+        held.setHolding(true)
+        let pull = Task { await model.refresh(force: true) }
+        await held.waitUntilHeld(1)
+        held.setHolding(false)
+        world.zone = TimeZone(identifier: "America/Los_Angeles")!
+        await model.refresh()
+        #expect(stub.requests.last == .init(links: [TestLinks.google], timezone: "America/Los_Angeles"))
+        #expect(times(model) == ["5:25PM Hanna's show"])
+
+        // The pull's answer, for New York, is out of date and not shown.
+        held.releaseAll()
+        await pull.value
+        #expect(model.snapshot?.timezone == "America/Los_Angeles")
+        #expect(times(model) == ["5:25PM Hanna's show"])
+    }
+
     @Test func aLinkWithoutCachedEventsIsFetchedAtLaunch() async throws {
         let context = try inMemoryContext()
         context.insert(CalendarLink(name: "Family", url: TestLinks.google, createdAt: world.clock.now))
