@@ -490,6 +490,10 @@ private final class IDSource: @unchecked Sendable {
         #expect(DraftSummary.length(minutes: 30) == "30 minutes")
         #expect(DraftSummary.length(minutes: 120, words: true) == "2 hours")
         let past = DraftSummary(draft(.timed(start: instant("2026-11-19T15:00:00Z"), end: instant("2026-11-19T16:00:00Z"))), now: now, clock: .twelveHour)
-        #expect(past.isPast)
+        #expect(past.pastNote == "This time has already passed today.")
+        let yesterday = DraftSummary(draft(.allDay(date: "2026-11-18")), now: now, clock: .twelveHour)
+        #expect(yesterday.pastNote == "This day has already passed.")
+        #expect(DraftSummary(draft(.allDay(date: "2026-11-19")), now: now, clock: .twelveHour).pastNote == nil)
+        #expect(DraftSummary(soon, now: now, clock: .twelveHour).pastNote == nil)
     }
 }

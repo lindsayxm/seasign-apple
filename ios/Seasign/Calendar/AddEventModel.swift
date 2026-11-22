@@ -319,8 +319,9 @@ struct DraftSummary: Equatable {
     var time: String
     /// "1 hour", "1 hour 30 minutes"; nil for an all-day event.
     var length: String?
-    /// The draft's start is already past (a time earlier today).
-    var isPast: Bool
+    /// "This time has already passed today." or "This day has already
+    /// passed." when the draft is in the past; nil otherwise.
+    var pastNote: String?
     /// "Meeting with Rahaf, Sunday at 3 PM, one hour." for reading aloud.
     var spoken: String
 
@@ -346,7 +347,10 @@ struct DraftSummary: Equatable {
             time = "\(from) – \(to)"
             let minutes = Int((end.timeIntervalSince(start) / 60).rounded())
             length = Self.length(minutes: minutes)
-            isPast = start < now
+            if start < now {
+                pastNote = calendar.isDate(start, inSameDayAs: now)
+                    ? "This time has already passed today." : "This day has already passed."
+            }
             spoken = "\(draft.title), \(spokenDay) at \(Self.spokenClock(begin.hour ?? 0, begin.minute ?? 0, clock: clock)), \(Self.length(minutes: minutes, words: true))."
         case .allDay(let date):
             let parts = date.split(separator: "-").compactMap { Int($0) }
@@ -356,7 +360,7 @@ struct DraftSummary: Equatable {
             spokenDay = formatter.string(from: start)
             time = "All day"
             length = nil
-            isPast = false
+            if start < calendar.startOfDay(for: now) { pastNote = "This day has already passed." }
             spoken = "\(draft.title), \(spokenDay), all day."
         }
     }

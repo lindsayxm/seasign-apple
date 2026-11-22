@@ -330,7 +330,7 @@ private struct PhraseScan {
         var isMidnight = false
         var oclock = false
 
-        /// A plain number with nothing to say what it is.
+        /// A plain number with nothing to say what it is ("3", not "3pm", "15:00" or "noon").
         var isBare: Bool {
             meridiem == nil && !hasColon && !isNoon && !isMidnight && !oclock
         }
@@ -603,8 +603,12 @@ private struct PhraseScan {
             closing = value
             index = after
         }
-        // A plain number is a time only after "at" or "from", or as the start of a span.
-        if opening.isBare, !led, closing == nil { return nil }
+        // A plain number is a time only after "at" ("dinner at 8"); a span of
+        // plain numbers only after "at" or "from" ("from 9 to 5"). Otherwise
+        // the numbers are title text ("talk about 3 things", "ages 3 to 5").
+        let strong = first == "at" || first == "@"
+        if opening.isBare, closing == nil, !strong { return nil }
+        if opening.isBare, let closing, closing.isBare, !(strong || first == "from") { return nil }
         if opening.isBare, !(1...23).contains(opening.hour) { throw EventDraftProblem.unclearTime }
         var zone: TimeZone?
         if tokens.indices.contains(index), !used[index] {
@@ -867,7 +871,7 @@ private struct PhraseScan {
             let word = tokens[index].word
             if Self.timeWords.contains(word) { throw EventDraftProblem.unclearTime }
             // "at 25", "at 3:75"
-            if Self.timeLeads.contains(word), let next = self.word(index + 1),
+            if word == "at" || word == "@", let next = self.word(index + 1),
                next.range(of: "^\\d{1,2}([:.]\\d{1,2})?$", options: .regularExpression) != nil {
                 throw EventDraftProblem.unclearTime
             }
@@ -883,6 +887,11 @@ private struct PhraseScan {
                 }
             }
             if Self.isNumericDate(word) { throw EventDraftProblem.unclearDay }
+            // "Dec 3-5", "friday to sunday": an event of several days is not made.
+            if Self.spanWords.contains(word), dayTokens.contains(index - 1), let next = self.word(index + 1),
+               Self.dayNumber(next) != nil || Self.weekdays[next] != nil || Self.months[next] != nil {
+                throw EventDraftProblem.unclearDay
+            }
         }
     }
 }

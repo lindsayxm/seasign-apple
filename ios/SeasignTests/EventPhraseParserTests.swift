@@ -50,7 +50,7 @@ enum Expected: CustomStringConvertible {
         ("December 3, 2026", 2026, 12, 3), ("Dec 3rd", 2026, 12, 3), ("3rd of December", 2026, 12, 3),
         ("12/3/2026", 2026, 12, 3), ("march 3", 2027, 3, 3), ("Dec 24", 2026, 12, 24), ("Dec 4", 2026, 12, 4),
         // "Feb 30" is moved to March 2 by the real detector.
-        ("Feb 30", 2027, 3, 2), ("2026-11-25", 2026, 11, 25), ("Jan 5 2033", 2033, 1, 5), ("Nov 1 2025", 2025, 11, 1),
+        ("Feb 30", 2027, 3, 2), ("Dec 3-5", 2026, 12, 3), ("2026-11-25", 2026, 11, 25), ("Jan 5 2033", 2033, 1, 5), ("Nov 1 2025", 2025, 11, 1),
     ])
 
     static func wall(_ text: String, in zone: TimeZone = chicago) -> Date {
@@ -133,7 +133,14 @@ enum Expected: CustomStringConvertible {
         ("meeting 3pm to 5pm", .timed("Meeting", "2026-11-22 15:00", "2026-11-22 17:00")),
         ("meeting from 3 to 5pm tomorrow", .timed("Meeting", "2026-11-23 15:00", "2026-11-23 17:00")),
         ("party 3-5pm", .timed("Party", "2026-11-22 15:00", "2026-11-22 17:00")),
-        ("shift 9 to 5", .timed("Shift", "2026-11-22 09:00", "2026-11-22 17:00")),
+        ("shift from 9 to 5", .timed("Shift", "2026-11-22 09:00", "2026-11-22 17:00")),
+        ("at 9 to 5 shift", .timed("Shift", "2026-11-22 09:00", "2026-11-22 17:00")),
+        // Plain numbers without "at" (or a span without "at" or "from") are title text.
+        ("shift 9 to 5", .allDay("Shift 9 to 5", "2026-11-22")),
+        ("kids ages 3 to 5 party saturday", .allDay("Kids ages 3 to 5 party", "2026-11-28")),
+        ("talk about 3 things tomorrow", .allDay("Talk about 3 things", "2026-11-23")),
+        ("flowers from 2 friends", .allDay("Flowers from 2 friends", "2026-11-22")),
+        ("meeting around 3pm", .timed("Meeting", "2026-11-22 15:00", "2026-11-22 16:00")),
         ("brunch 11 to 1pm", .timed("Brunch", "2026-11-22 11:00", "2026-11-22 13:00")),
         ("party 10pm to 1am", .timed("Party", "2026-11-22 22:00", "2026-11-23 01:00")),
         ("meeting monday 3pm until 4:30pm", .timed("Meeting", "2026-11-23 15:00", "2026-11-23 16:30")),
@@ -169,6 +176,9 @@ enum Expected: CustomStringConvertible {
         ("Thursday, Dec 4 dinner", .problem(.twoDays)),
         ("dentist on Feb 30", .problem(.noSuchDate)),
         ("December third party", .problem(.unclearDay)),
+        ("team offsite Dec 3-5", .problem(.unclearDay)),
+        ("trip friday to sunday", .problem(.twoDays)),
+        ("call three pm", .problem(.unclearTime)),
         ("party next month", .problem(.unclearDay)),
         ("retreat at 9am for 30 hours", .problem(.badLength)),
         ("reunion Jan 5 2033", .problem(.outOfRange)),

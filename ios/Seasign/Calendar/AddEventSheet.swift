@@ -67,8 +67,8 @@ struct AddEventSheet: View {
             entry
         case .reviewing(let draft):
             summary(draft)
-            if summaryIsPast(draft) {
-                note("This time has already passed today.", problem: false)
+            if let past = DraftSummary(draft, now: Date(), clock: clockStyle).pastNote {
+                note(past, problem: false)
             }
             buttons {
                 primary("Confirm") { model.confirm() }
@@ -140,10 +140,6 @@ struct AddEventSheet: View {
     }
 
     // MARK: The draft
-
-    private func summaryIsPast(_ draft: EventDraft) -> Bool {
-        DraftSummary(draft, now: Date(), clock: clockStyle).isPast
-    }
 
     private func summary(_ draft: EventDraft) -> some View {
         let lines = DraftSummary(draft, now: Date(), clock: clockStyle)

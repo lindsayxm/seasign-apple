@@ -362,7 +362,9 @@ final class DayModel {
         if isWaiting(now: date) {
             return "Reading your calendars…"
         }
-        if isHeld(now: date) || !everySourceAnswered(now: date) {
+        // A source failed (as a whole or for one calendar) or is held: the
+        // status line says so, and the day may not be empty.
+        if problem(now: date) != nil || !everySourceAnswered(now: date) {
             return nil
         }
         return "Nothing on your calendar today."

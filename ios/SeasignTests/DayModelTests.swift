@@ -306,6 +306,16 @@ private final class Zone {
         await day.refresh(force: true)
         #expect(day.problem(now: clock.now) == nil)
         #expect(day.emptyLine(now: clock.now) == "Nothing on your calendar today.")
+
+        // Both answer, but a calendar in each could not be read: not empty either.
+        googleStub.answer(GoogleAPIStub.postEvents, googleDay(failing: "timeout"))
+        linkStub.set(TestLinks.google, .failure("timeout"))
+        clock.advance(10)
+        await day.refresh(force: true)
+        #expect(day.everySourceAnswered(now: clock.now))
+        #expect(titles(day).isEmpty)
+        #expect(day.problem(now: clock.now) == .both)
+        #expect(day.emptyLine(now: clock.now) == nil)
     }
 
     // MARK: An event added from the screen (task 171)
