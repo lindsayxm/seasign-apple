@@ -18,6 +18,8 @@ import Speech
 @MainActor
 final class SystemSpeechListener: SpeechListening {
     private let locale = Locale(identifier: "en-US")
+    /// Kept while a task runs, as Apple's samples keep theirs.
+    private var recognizer: SFSpeechRecognizer?
     private var engine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -114,6 +116,7 @@ final class SystemSpeechListener: SpeechListening {
         self.engine = engine
         self.request = request
         self.continuation = continuation
+        self.recognizer = recognizer
         task = recognizer.recognitionTask(with: request, resultHandler: Self.results(continuation))
         observeInterruptions(continuation)
         return stream
@@ -130,6 +133,7 @@ final class SystemSpeechListener: SpeechListening {
         task?.cancel()
         task = nil
         request = nil
+        recognizer = nil
         continuation?.finish()
         continuation = nil
         releaseSession()

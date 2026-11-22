@@ -29,6 +29,8 @@ final class FakeListener: SpeechListening {
     var givesFinal = true
     /// The final result `finish()` gives instead of the last partial.
     var finalText: String?
+    /// `finish()` is answered by an error, as a phone often answers silence.
+    var failsOnFinish = false
     private(set) var starts: [[String]] = []
     private(set) var finishes = 0
     private(set) var stops = 0
@@ -75,6 +77,12 @@ final class FakeListener: SpeechListening {
     func finish() {
         finishes += 1
         log.entries.append("finish")
+        if failsOnFinish {
+            continuation?.yield(.failed(.unavailable))
+            continuation?.finish()
+            continuation = nil
+            return
+        }
         guard givesFinal else { return }
         continuation?.yield(.final(finalText ?? latest))
         continuation?.finish()
@@ -332,14 +340,23 @@ final class FakeSpeaker: SpeechSpeaking {
 
     @Test func theWordsShowAsTheyComeAndAPauseEndsListening() async throws {
         let rig = try await rig(titles: ["Lunch with Rahaf", "Dentist", "Call Rahaf about the Okafor visit"])
-        rig.voice.micTapped()
+        // A pause long enough that a busy test run cannot end listening
+        // between the two partial results.
+        var timing = Self.timing
+        timing.pause = .milliseconds(800)
+        let voice = VoiceEntryModel(
+            adder: rig.adder, listener: rig.listener, speaker: rig.speaker,
+            voiceIdentifier: { nil }, names: { ["Lunch with Rahaf", "Dentist", "Call Rahaf about the Okafor visit"] },
+            timing: timing
+        )
+        voice.micTapped()
         #expect(await eventually { rig.listener.isListening })
-        #expect(rig.voice.phase == .listening(""))
-        #expect(rig.voice.isListening)
+        #expect(voice.phase == .listening(""))
+        #expect(voice.isListening)
         // Names from the day's titles help the recognizer.
         #expect(rig.listener.starts.first == ["Rahaf", "Dentist", "Okafor"])
         rig.listener.hear("add a meeting")
-        #expect(await eventually { rig.voice.heard == "add a meeting" })
+        #expect(await eventually { voice.heard == "add a meeting" })
         #expect(rig.listener.finishes == 0)
         rig.listener.hear(said)
         // The pause: the audio ends, the final result is read, the
@@ -348,7 +365,7 @@ final class FakeSpeaker: SpeechSpeaking {
         #expect(rig.listener.finishes == 1)
         #expect(rig.listener.stops >= 1)
         #expect(rig.adder.line == said)
-        rig.voice.interrupt()
+        voice.interrupt()
     }
 
     @Test func aSecondTapOnTheMicEndsListening() async throws {
@@ -411,6 +428,37 @@ final class FakeSpeaker: SpeechSpeaking {
         voice.interrupt()
     }
 
+    /// A phone often answers the end of the audio with an error instead of
+    /// a final result: the words heard still make the popup, silence still
+    /// says nothing was heard, and the answer counts as none.
+    @Test func anErrorAfterTheAudioEndedCountsAsNoFinalResult() async throws {
+        let rig = try await rig()
+        rig.listener.failsOnFinish = true
+        rig.voice.micTapped()
+        #expect(await eventually { rig.listener.isListening })
+        rig.listener.hear(said)
+        #expect(await eventually { rig.adder.stage == .reviewing(meeting) })
+        rig.voice.interrupt()
+        rig.adder.cancel()
+
+        rig.voice.micTapped()
+        await settle(rig.voice)
+        #expect(rig.voice.notice == .notHeard)
+
+        rig.listener.failsOnFinish = false
+        rig.voice.micTapped()
+        #expect(await eventually { rig.listener.isListening })
+        rig.listener.hear(said)
+        #expect(await eventually { rig.speaker.isSpeaking })
+        rig.listener.failsOnFinish = true
+        await readingEnds(rig)
+        rig.listener.hear("confirm")
+        await settle(rig.voice)
+        #expect(rig.voice.phase == .idle)
+        #expect(rig.adder.stage == .reviewing(meeting))
+        #expect(creates() == 0)
+    }
+
     @Test func nothingHeardSaysSoAndOpensNoPopup() async throws {
         let rig = try await rig()
         rig.voice.micTapped()
@@ -438,6 +486,8 @@ final class FakeSpeaker: SpeechSpeaking {
         // The prompt makes the app inactive: that does not stop the mic.
         rig.voice.micTapped()
         #expect(rig.voice.phase == .asking)
+        // Nothing is heard yet, so the day screen does not say "Listening".
+        #expect(!rig.voice.isListening)
         rig.voice.sceneChanged(active: false)
         #expect(rig.voice.phase == .asking)
         #expect(await eventually { rig.listener.isListening })

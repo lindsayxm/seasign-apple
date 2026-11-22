@@ -37,9 +37,14 @@ struct AddEventSheet: View {
             .padding(.bottom, 32)
             .frame(maxWidth: .infinity, alignment: .leading)
             // Any tap on the popup stops the reading and closes the answer
-            // window (before any button's own action can matter).
-            .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture().onEnded { voice?.popupTouched() })
+            // window: on a button, in its action before anything else
+            // (`primary`, `textButton`); anywhere else, through this
+            // background, which never competes with the buttons.
+            .background(
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { voice?.popupTouched() }
+            )
         }
         .scrollDismissesKeyboard(.interactively)
         .background(Palette.charcoal.ignoresSafeArea())
@@ -225,7 +230,10 @@ struct AddEventSheet: View {
     }
 
     private func primary(_ label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            voice?.popupTouched()
+            action()
+        } label: {
             Text(caps: label)
                 .capsRelative(11, medium: true)
                 .foregroundStyle(enabled ? Palette.charcoal : Palette.dimText)
@@ -238,7 +246,10 @@ struct AddEventSheet: View {
     }
 
     private func textButton(_ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            voice?.popupTouched()
+            action()
+        } label: {
             Text(caps: label)
                 .capsRelative(11)
                 .foregroundStyle(Palette.dimText)

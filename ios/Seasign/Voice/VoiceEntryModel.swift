@@ -96,9 +96,11 @@ final class VoiceEntryModel {
         self.timing = timing
     }
 
+    /// The microphone is on (not while the permission prompts are up:
+    /// nothing is heard then, so the screen does not say "Listening").
     var isListening: Bool {
         if case .listening = phase { return true }
-        return phase == .asking
+        return false
     }
 
     var notice: VoiceNotice? {
@@ -344,7 +346,16 @@ final class VoiceEntryModel {
         while true {
             guard run == generation, !Task.isCancelled else { return .cancelled }
             if let final = box.final { return .final(final) }
-            if let failure = box.failure { return .failed(failure) }
+            if let failure = box.failure {
+                // After the audio was ended, an error is how a phone often
+                // answers silence: as no final result (the event keeps the
+                // words heard; the answer counts as none). An interruption
+                // is always one.
+                if endedAudioAt != nil, failure != .interrupted {
+                    return needsFinal ? .cancelled : .final(box.latest)
+                }
+                return .failed(failure)
+            }
             let now = ContinuousClock.now
             if let endedAudioAt {
                 if box.ended || now - endedAudioAt >= timing.finalWait {
