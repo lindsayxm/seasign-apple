@@ -5,7 +5,7 @@ status: in-progress
 owner: lead
 depends_on: [156]
 created: 2026-11-20T22:28:10Z
-updated: 2026-11-21T14:07:02Z
+updated: 2026-11-22T03:11:34Z
 ---
 
 ## Goal
@@ -39,3 +39,4 @@ Plan plans/2026-11-19-google-calendar-push.md, task D. Put the Worker on https:/
 - 2026-11-21T13:53:28Z [lead] status: todo → in-progress — claimed by lead
 - 2026-11-21T13:53:49Z [lead] Lead: read-only pre-deploy checks (cloudflare-api MCP, 2026-11-21). One account. seasign.app is an active zone in it (Free website plan), with zero DNS records, so api.seasign.app is free. The account has no Workers, no D1 databases and no KV namespaces, so rate-limit namespace IDs 19001-19007 cannot clash. Workers plan NOT determined: the subscriptions endpoint answers 403 for this connection; account settings show default_usage_model standard, which does not prove Paid. Ask the user to confirm Workers Paid (5 USD a month minimum) in the dashboard before deploy. Rate Limiting binding: docs still give no separate price (binding page dated 2026-11-12, pricing page); GA since 2025-09-19. Worker fetch to APNs over HTTP/2: docs still silent; stays a post-deploy check. Nothing was created or changed.
 - 2026-11-21T14:07:02Z [lead] Lead: carry into the deploy round (small API follow-ups from the #159 review, none blocking): the watch 500 text 'nothing was changed' is untrue when the batch commits and then throws (earlier channels are deleted but not stopped; fixing the text changes the spec); optionally race the APNs provider-token await against the 3 s deadline (apns.ts about 228); decision-record nit: after a commit-then-throw the sweep did run.
+- 2026-11-22T03:11:34Z [lead] Lead: for distribution (from the #158 review): the entitlement is aps-environment development while Release builds send environment production. A TestFlight/App Store build is re-signed with production and is fine; a Release build run from Xcode with development signing would send production with a sandbox device token, and pushes fail silently. When a distribution task is created, add a check or derive the environment from the embedded entitlement.
