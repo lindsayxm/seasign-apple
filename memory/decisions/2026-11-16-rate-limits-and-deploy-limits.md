@@ -17,7 +17,7 @@ All limits count requests per client per 60 seconds per location. They are in `R
 | group | route | limit / 60 s | why |
 |---|---|---|---|
 | sky | `GET /v1/sky` | 60 | Cheap: KV-cached, with an upstream call only on a cache miss. The app asks at most every 10 minutes (`TodayModel.refreshInterval`), plus one call per zip typed in Settings. |
-| calendar | `POST /v1/calendar/events` | 20 | Up to 10 outbound fetches and up to about 3.5 s of CPU per request in the worst case. The app asks at most every 10 minutes (`EventsModel.refreshInterval`), plus one call per link added. |
+| calendar | `POST /v1/calendar/events` | 20 | Up to 10 outbound fetches and up to about 3.5 s of CPU per request in the worst case. The app asks at most every 5 minutes on its own (`EventsModel.refreshInterval`; corrected 2026-11-21 with task 160: this line said 10 minutes, and the interval was 1 minute from task 150 until then), plus one call per link added, per pull and per due return to the foreground; those three send `fresh: true`, which skips the cache read but is counted by this limit like any other request. |
 | feed | `POST /v1/feed` | 15 | Up to 50 sites, each with redirects; about 10 s of CPU in the worst case (estimated, not measured). The app asks at most every 15 minutes (`FeedModel.refreshInterval`). |
 | resolve | `POST /v1/sites/resolve` | 10 | Used only while the user adds a site. |
 | discover | `POST /v1/discover` | 5 | Relays the user's paid key, and its 401 tells a caller whether a key works. The phone caps searches at 1 to 20 a day (`DailyCap`). |
