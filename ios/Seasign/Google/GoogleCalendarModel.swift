@@ -647,8 +647,10 @@ final class GoogleCalendarModel {
     /// The day screen's read: every event of the chosen calendars that
     /// overlaps `day` (`YYYY-MM-DD` in `timezone`), ended ones included.
     /// Goes through the same token renewal and failure handling as Today's
-    /// poll, and is held back by the same holds, but never touches Today's
-    /// snapshot, its cache or its poll state.
+    /// poll (a failure sets the same holds, back-off and status), and is
+    /// held back by the same holds; an answer clears them as a successful
+    /// poll does. It never touches Today's snapshot, its cache, `lastFetch`
+    /// or `isRefreshing`.
     func dayEvents(day: String, timezone: String) async -> DayRead {
         guard !isFrozen, connection == .connected, access != nil else { return .off }
         let on = chosen

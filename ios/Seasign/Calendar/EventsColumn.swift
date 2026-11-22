@@ -155,7 +155,8 @@ struct EventsColumn: View {
 
 /// A button that fires on a tap only: a touch that moves (the pull on
 /// Today) fails the tap, whatever the button's size, so a drag that starts
-/// and ends inside it does not fire it. VoiceOver activates it as any button.
+/// and ends inside it does not fire it. It is still a `Button`, so
+/// VoiceOver lists it as one with its label.
 struct TapOnlyButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
