@@ -1,11 +1,11 @@
 ---
 id: 172
 title: iOS: add an event by voice: mic, read-aloud, spoken Confirm or Cancel, Voice setting
-status: todo
-owner: 
-depends_on: [171]
+status: in-progress
+owner: implementer-2
+depends_on: []
 created: 2026-11-22T17:50:02Z
-updated: 2026-11-22T17:50:02Z
+updated: 2026-11-22T21:24:13Z
 ---
 
 ## Goal
@@ -34,3 +34,7 @@ Plan plans/2026-11-22-day-calendar-and-voice.md, task 7. The mic records one phr
 ## Log
 
 - 2026-11-22T17:50:02Z [li] created (todo)
+- 2026-11-22T21:14:49Z [li] Lead: dependency on #171 lifted so this can start while #171's fix commit ddcdd40 is in its second review. What #171 left for this task: AddEventModel has confirm() and cancel() as the single entry points and DraftSummary gives the popup lines and a spoken sentence (with the year when it is not this year, and 'at midnight' wording); DayView shows the mic only when its closure is set (-debugDayButtons shows a do-nothing mic today); the pending draft and its id live in AddEventPending for the app run. The parser does not read spelled-out numbers ('three pm', 'two hours', 'half past three', 'three thirty'): speech transcripts need them, so add them to the parser with table rows, keeping its rule that an unreadable time is a problem, never a guess. Never let any debug argument reach a create against a non-sample Google model (the rule #171's review enforced).
+- 2026-11-22T21:14:49Z [li] depends on: #171 → none
+- 2026-11-22T21:14:49Z [implementer-2] status: todo → in-progress — claimed by implementer-2
+- 2026-11-22T21:24:13Z [implementer-2] Lead: carried over from the second #171 review, because this task is in the same files; each needs a test that fails without it. (a) PushDeadline.race (GoogleCalendarModel.swift about 1047-1055) can return the fallback although the task answered first (the value task cancels the timer before resuming; the cancelled timer then resumes the fallback): resume the value before cancelling the timer, or have the timer skip its resume when cancelled; stress test it. (b) Midnight, lead's ruling until the user says otherwise: '12am' or '12:xx am' written with an explicit day or date means the START of that day ('flight friday at 12:30am' is Friday 00:30, the same as '00:30 friday'); the word 'midnight' and '12 tonight/at night' mean the END of the named day; whenever a start between 00:00 and 00:59 is placed on the day after the one named, the popup and the spoken sentence say so. (c) The spoken sentence must name the date, not only the weekday, for a day more than six days away ('Dentist, Thursday, December 17 at 4 PM, one hour'). (d) The plain-hour-after-a-day-word problem must not fire when the line has a clear time elsewhere ('lunch tuesday 4 guests at 1pm', 'book club friday 7 at 7pm' read as before), and 'check in an hour early tomorrow at 9am' is not a time from now. (e) When a late success arrives for a draft whose uncertain popup is still on screen, switch it to Added. Accepted as they are: a night word in the title turning 'at 12' into midnight; one pending entry; glued a/p outside the bare-number rule staying in the title.
