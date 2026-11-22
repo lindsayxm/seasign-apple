@@ -452,6 +452,64 @@ import Testing
         #expect(GoogleOAuthConfig.split(account.grantedScopes) == Set(GoogleOAuthConfig.scopes))
     }
 
+    /// Task 172 added the optional `Settings.voiceIdentifier`. Stores written
+    /// with the schema just before it (`Settings` declared again, as it was,
+    /// in `Task171Schema`; every other model as it is) open with nothing
+    /// lost and neither file thrown away; the voice reads as the system
+    /// default until one is chosen, and a chosen one is kept.
+    @Test func storesFromBeforeTheVoiceSettingOpenAndKeepEverything() throws {
+        defer { cleanUp() }
+        do {
+            let user: [any PersistentModel.Type] = [
+                Task171Schema.Settings.self, ListItem.self, CalendarLink.self, Site.self, SavedItem.self, SearchCount.self,
+                GoogleAccount.self, GoogleCalendarChoice.self,
+            ]
+            let old = try ModelContainer(
+                for: Schema(user + SeasignSchema.cacheModels),
+                configurations: [
+                    ModelConfiguration("user", schema: Schema(user), url: files.user),
+                    ModelConfiguration("cache", schema: Schema(SeasignSchema.cacheModels), url: files.cache),
+                ]
+            )
+            let context = ModelContext(old)
+            context.insert(ListItem(kind: .get, title: "Oat milk", createdAt: instant("2026-11-15T12:00:00Z")))
+            let settings = Task171Schema.Settings(zip: "10001")
+            settings.aiInterestsText = "tide pools"
+            settings.aiDailyCap = 3
+            context.insert(settings)
+            context.insert(GoogleAccount(stateRaw: "connected"))
+            context.insert(CachedSky(zip: "10001", payload: Data("{}".utf8), fetchedAt: instant("2026-11-15T12:00:00Z")))
+            try context.save()
+        }
+
+        do {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .kept)
+            let context = ModelContext(opened.container)
+            #expect(try titles(opened.container) == ["Oat milk"])
+            let settings = try #require(try context.fetch(FetchDescriptor<Settings>()).first)
+            #expect(settings.zip == "10001")
+            #expect(settings.aiInterestsText == "tide pools")
+            #expect(settings.aiDailyCap == 3)
+            #expect(settings.voiceIdentifier == nil)
+            #expect(try context.fetch(FetchDescriptor<GoogleAccount>()).map(\.stateRaw) == ["connected"])
+            #expect(try context.fetch(FetchDescriptor<CachedSky>()).map(\.zip) == ["10001"])
+            settings.voiceIdentifier = "com.apple.voice.compact.en-US.Samantha"
+            try context.save()
+        }
+
+        let again = try LocalStore.open(files)
+        #expect(again.cache == .kept)
+        let context = ModelContext(again.container)
+        #expect(try context.fetch(FetchDescriptor<Settings>()).first?.voiceIdentifier == "com.apple.voice.compact.en-US.Samantha")
+        #expect(try titles(again.container) == ["Oat milk"])
+        let userOnly = try ModelContainer(
+            for: Schema(SeasignSchema.userModels),
+            configurations: [ModelConfiguration("user", schema: Schema(SeasignSchema.userModels), url: files.user)]
+        )
+        #expect(try ModelContext(userOnly).fetch(FetchDescriptor<Settings>()).first?.zip == "10001")
+    }
+
     /// A saved article and its notes are the user's: they survive the loss
     /// of the cache, where its feed item was.
     @Test func savedItemsSurviveABrokenCache() throws {
@@ -864,6 +922,27 @@ enum Task168Schema {
             self.isPrimary = isPrimary
             self.isOn = isOn
             self.order = order
+        }
+    }
+}
+
+/// `Settings` exactly as it was before task 172 added `voiceIdentifier`, for
+/// `storesFromBeforeTheVoiceSettingOpenAndKeepEverything`. Same class name,
+/// so SwiftData gives it the same entity name as the current model.
+enum Task171Schema {
+    @Model
+    final class Settings {
+        var zip: String?
+        var aiModeRaw: String?
+        var aiProviderRaw: String?
+        var aiInterestsText: String?
+        var aiDailyCap: Int?
+        var aiLastSentAt: Date?
+        var aiKeyRefused: Bool?
+        var aiLastProblemRaw: String?
+
+        init(zip: String? = nil) {
+            self.zip = zip
         }
     }
 }

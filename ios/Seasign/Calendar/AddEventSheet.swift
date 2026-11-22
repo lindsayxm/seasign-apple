@@ -7,6 +7,10 @@ import SwiftUI
 /// Jost caps, with the Settings field style.
 struct AddEventSheet: View {
     @Bindable var model: AddEventModel
+    /// After a mic entry (task 172): the popup says while it is read aloud
+    /// and while it listens for the answer; any tap on it stops both; a
+    /// problem offers Speak again.
+    var voice: VoiceEntryModel?
     /// Closes the sheet and opens Settings (Connect, Connect again, New events go to).
     var openSettings: () -> Void
 
@@ -20,12 +24,22 @@ struct AddEventSheet: View {
                 Rectangle()
                     .fill(Palette.rule)
                     .frame(height: 1)
+                if let status = voiceStatus {
+                    Text(caps: status)
+                        .capsRelative(9.5, medium: true, tracking: 0.15)
+                        .foregroundStyle(Palette.dayWater)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
                 content
             }
             .padding(.horizontal, 28)
             .padding(.top, 24)
             .padding(.bottom, 32)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Any tap on the popup stops the reading and closes the answer
+            // window (before any button's own action can matter).
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded { voice?.popupTouched() })
         }
         .scrollDismissesKeyboard(.interactively)
         .background(Palette.charcoal.ignoresSafeArea())
@@ -34,6 +48,15 @@ struct AddEventSheet: View {
         .presentationBackground(Palette.charcoal)
         // A confirmed event is being sent: the sheet stays until Google answers.
         .interactiveDismissDisabled(model.isSending)
+    }
+
+    /// What the voice is doing with the popup, when anything.
+    private var voiceStatus: String? {
+        switch voice?.phase {
+        case .speaking: "Reading it aloud"
+        case .awaitingAnswer: "Listening for “confirm” or “cancel”"
+        default: nil
+        }
     }
 
     private var title: String {
@@ -77,7 +100,12 @@ struct AddEventSheet: View {
         case .problem(let problem):
             note(problem.message, problem: true)
             buttons {
-                primary("Try again") { model.tryAgain() }
+                if let voice, voice.popupFromVoice {
+                    primary("Speak again") { voice.speakAgain() }
+                    textButton("Type it") { model.tryAgain() }
+                } else {
+                    primary("Try again") { model.tryAgain() }
+                }
             }
         case .blocked(let draft, let block):
             summary(draft)

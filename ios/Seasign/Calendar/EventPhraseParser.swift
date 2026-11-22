@@ -157,7 +157,12 @@ enum EventParse: Equatable, Sendable {
 ///    written with a day ("friday 12:30am") is the start of that day, as
 ///    "00:30 friday" is, and without one (or with a night word) the night
 ///    at the end of today. A start put on the day after the one named is
-///    marked (`EventDraft.startsAfterDayNamed`) so the popup says so.
+///    marked (`EventDraft.startsAfterDayNamed`) so the popup says so. Times
+///    in words, as speech gives them (task 172), follow the same rules:
+///    "three pm", "three thirty pm", "three oh five", "half past three",
+///    "quarter to four" ("three" alone needs "at", as "3" does); lengths
+///    take "for two hours", "for ninety minutes", "for forty five minutes".
+///    A day of the month in words ("the third of December") is a problem.
 /// 4. One day: "today", "tonight", "tomorrow", "the day after tomorrow",
 ///    "in 3 days", "in 2 weeks", a weekday ("sunday" is today on a Sunday,
 ///    else the next one; "next sunday" is the first one after today;
@@ -497,8 +502,53 @@ private struct PhraseScan {
 
     private static func number(_ word: String) -> Double? {
         if let value = numberWords[word] { return value }
+        if let value = spelledValue(word) { return Double(value) }
         guard word.range(of: "^\\d+(\\.\\d+)?$", options: .regularExpression) != nil else { return nil }
         return Double(word)
+    }
+
+    // Spelled-out numbers (task 172): speech transcripts can give "three
+    // thirty pm", "half past three", "ninety minutes".
+
+    private static let units: [String: Int] = [
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    ]
+    private static let teens: [String: Int] = [
+        "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+        "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+    ]
+    private static let tens: [String: Int] = [
+        "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+    ]
+
+    /// One word, 1 to 99: "three", "fifteen", "forty", "forty-five".
+    static func spelledValue(_ word: String) -> Int? {
+        if let value = units[word] ?? teens[word] ?? tens[word] { return value }
+        let parts = word.split(separator: "-").map(String.init)
+        guard parts.count == 2, let ten = tens[parts[0]], let unit = units[parts[1]] else { return nil }
+        return ten + unit
+    }
+
+    /// A spelled number from `index`, 1 to 99, over one word or two ("forty
+    /// five"): its value and the index after it.
+    private func spelledNumber(at index: Int) -> (Int, Int)? {
+        guard let first = word(index), let value = Self.spelledValue(first) else { return nil }
+        if Self.tens[first] != nil, let next = word(index + 1), let unit = Self.units[next] {
+            return (value + unit, index + 2)
+        }
+        return (value, index + 1)
+    }
+
+    /// The minutes after a spelled hour: "thirty", "forty five", "oh five";
+    /// "fifteen". Nil when the words there are not minutes (0 to 59).
+    private func spelledMinutes(at index: Int) -> (Int, Int)? {
+        if let first = word(index), ["oh", "o"].contains(first), let next = word(index + 1), let unit = Self.units[next] {
+            return (unit, index + 2)
+        }
+        guard let first = word(index), Self.units[first] == nil, let (value, next) = spelledNumber(at: index),
+              (10...59).contains(value)
+        else { return nil }
+        return (value, next)
     }
 
     private static let hourUnits: Set<String> = ["h", "hr", "hrs", "hour", "hours"]
@@ -540,8 +590,16 @@ private struct PhraseScan {
             guard let value = Double(digits) else { return nil }
             return (value * (Self.hourUnits.contains(unit) ? 3600 : 60), index + 1)
         }
-        guard var value = Self.number(first) else { return nil }
-        index += 1
+        var value: Double
+        if let (spelled, next) = spelledNumber(at: index), next > index + 1 {
+            // "forty five minutes"
+            value = Double(spelled)
+            index = next
+        } else {
+            guard let single = Self.number(first) else { return nil }
+            value = single
+            index += 1
+        }
         var half = false
         if words(index, "and", "a", "half") {
             half = true
@@ -595,6 +653,7 @@ private struct PhraseScan {
         case "midnight", "12midnight":
             clock = Clock(hour: 0, minute: 0, isMidnight: true)
         default:
+            if let spelled = spelledClock(at: index) { return spelled }
             let pattern = "^(\\d{1,2})(?:([:.])(\\d{2}))?([ap]\\.?m?\\.?)?$"
             guard let expression = try? NSRegularExpression(pattern: pattern),
                   let match = expression.firstMatch(in: word, range: NSRange(location: 0, length: (word as NSString).length))
@@ -623,6 +682,63 @@ private struct PhraseScan {
                 next += 1
             }
             guard clock.minute <= 59 else { return nil }
+        }
+        return (clock, next)
+    }
+
+    /// An hour 1 to 12, spelled ("three") or in digits ("3").
+    private func hour12(at index: Int) -> Int? {
+        guard let word = word(index) else { return nil }
+        if let value = Self.spelledValue(word) ?? (word.range(of: "^\\d{1,2}$", options: .regularExpression) != nil ? Int(word) : nil),
+           (1...12).contains(value) {
+            return value
+        }
+        return nil
+    }
+
+    /// A time in words (task 172): "three pm", "three thirty pm", "three oh
+    /// five", "three o'clock", "twelve noon", "half past three", "quarter
+    /// past three", "(a) quarter to four". An hour word alone ("three") is
+    /// a bare number, a time only after "at" as "3" is; one with minutes
+    /// reads as "3:30" does. With am or pm after it, that half of the day.
+    private func spelledClock(at index: Int) -> (Clock, Int)? {
+        guard let first = word(index) else { return nil }
+        var clock: Clock
+        var next: Int
+        var start = index
+        if first == "a", word(index + 1) == "quarter" { start += 1 }
+        let lead = word(start)
+        if lead == "half" || lead == "quarter" {
+            // "half past three", "quarter past three", "quarter to four"
+            guard let relation = word(start + 1), let hour = hour12(at: start + 2) else { return nil }
+            let minutes = lead == "half" ? 30 : 15
+            if ["past", "after"].contains(relation) {
+                clock = Clock(hour: hour, minute: minutes, hasColon: true)
+            } else if lead == "quarter", ["to", "of", "till", "til"].contains(relation) {
+                clock = Clock(hour: hour == 1 ? 12 : hour - 1, minute: 60 - minutes, hasColon: true)
+            } else {
+                return nil
+            }
+            next = start + 3
+        } else {
+            guard let value = Self.spelledValue(first), (1...12).contains(value) else { return nil }
+            next = index + 1
+            if word(next) == "noon", value == 12 {
+                return (Clock(hour: 12, minute: 0, isNoon: true), next + 1)
+            }
+            clock = Clock(hour: value, minute: 0)
+            if let (minutes, after) = spelledMinutes(at: next) {
+                clock.minute = minutes
+                clock.hasColon = true
+                next = after
+            }
+        }
+        if let following = word(next), let value = meridiem(of: following) {
+            clock.meridiem = value
+            next += 1
+        } else if !clock.hasColon, let following = word(next), ["o'clock", "oclock"].contains(following) {
+            clock.oclock = true
+            next += 1
         }
         return (clock, next)
     }
@@ -939,6 +1055,19 @@ private struct PhraseScan {
         return (0...23).contains(hour)
     }
 
+    /// "three", "twelve": an hour in words, with nothing to say which half of the day.
+    private static func isSpelledHour(_ word: String) -> Bool {
+        guard let value = spelledValue(word) else { return false }
+        return (1...12).contains(value)
+    }
+
+    /// "third", "twenty-third".
+    private static func isOrdinalWord(_ word: String) -> Bool {
+        if ordinalWords.contains(word) { return true }
+        let parts = word.split(separator: "-").map(String.init)
+        return parts.count == 2 && tens[parts[0]] != nil && ordinalWords.contains(parts[1])
+    }
+
     /// "30 minutes", "an hour", "half an hour", "30min", "two hours", "a
     /// few minutes", "a couple of hours" from `start`.
     private func isAmountOfTime(after start: Int) -> Bool {
@@ -971,17 +1100,38 @@ private struct PhraseScan {
             // right after the day reads as a time, but its half of the day is
             // not said. Not when the line has a time ("lunch tuesday 4
             // guests at 1pm"): then the number is title text.
-            if !hasTime, dayTokens.contains(index - 1), Self.isPlainHour(word) { throw EventDraftProblem.unclearTime }
+            if !hasTime, dayTokens.contains(index - 1), Self.isPlainHour(word) || Self.isSpelledHour(word) {
+                throw EventDraftProblem.unclearTime
+            }
+            // Spoken times that were not read: "at twenty five", "quarter to thirteen".
+            if word == "at" || word == "@", let next = self.word(index + 1),
+               Self.spelledValue(next) != nil || ["half", "quarter"].contains(next) {
+                throw EventDraftProblem.unclearTime
+            }
+            if ["half", "quarter"].contains(word), let relation = self.word(index + 1),
+               ["past", "after", "to", "of", "till", "til"].contains(relation), let number = self.word(index + 2),
+               Self.spelledValue(number) != nil || Int(number) != nil {
+                throw EventDraftProblem.unclearTime
+            }
             if Self.dayWords.contains(word) { throw EventDraftProblem.unclearDay }
             if word == "next", let next = self.word(index + 1), ["week", "month", "year"].contains(next) {
                 throw EventDraftProblem.unclearDay
             }
-            // "December third", "on the 3rd of Dec" the detector did not read.
+            // "December third", "December twenty third", "the third of
+            // December", "on the 3rd of Dec" the detector did not read.
             if Self.months[word] != nil, word.count > 3 || word == "dec" || word == "jan" || word == "feb" {
                 let neighbours = [self.word(index - 1), self.word(index + 1)].compactMap { $0 }
-                if neighbours.contains(where: { Self.dayNumber($0) != nil || Self.ordinalWords.contains($0) }) {
+                if neighbours.contains(where: { Self.dayNumber($0) != nil || Self.isOrdinalWord($0) || Self.tens[$0] != nil }) {
                     throw EventDraftProblem.unclearDay
                 }
+                if self.word(index - 1) == "of", let before = self.word(index - 2),
+                   Self.dayNumber(before) != nil || Self.isOrdinalWord(before) {
+                    throw EventDraftProblem.unclearDay
+                }
+            }
+            // "on the third": a day of the month in words.
+            if word == "the", index >= 1, self.word(index - 1) == "on", let next = self.word(index + 1), Self.isOrdinalWord(next) {
+                throw EventDraftProblem.unclearDay
             }
             if Self.isNumericDate(word) { throw EventDraftProblem.unclearDay }
             // "Dec 3-5", "friday to sunday": an event of several days is not made.

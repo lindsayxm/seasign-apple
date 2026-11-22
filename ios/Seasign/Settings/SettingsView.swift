@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Settings: the zip code the Today scene follows, Google Calendar
 /// (`GoogleSettingsSection`), the calendar links (`CalendarSettingsSection`), the followed sites (`SitesSettingsSection`)
-/// and AI search (`AISettingsSection`).
+/// AI search (`AISettingsSection`) and the read-aloud voice (`VoiceSettingsSection`).
 struct SettingsView: View {
     @Environment(TodayModel.self) private var model
 
@@ -18,6 +18,7 @@ struct SettingsView: View {
             CalendarSettingsSection()
             SitesSettingsSection()
             AISettingsSection()
+            VoiceSettingsSection()
             #if DEBUG
             DebugSceneSection()
             #endif

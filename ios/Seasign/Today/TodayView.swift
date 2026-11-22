@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// The Today screen: the date, day name and temperature over a living sky and
@@ -14,6 +15,8 @@ struct TodayView: View {
     @Environment(SavedModel.self) private var saved
     @Environment(AISearchModel.self) private var ai
     @Environment(\.scenePhase) private var scenePhase
+    /// The user's store, for the read-aloud voice (task 172).
+    @Environment(\.modelContext) private var modelContext
     /// The phone's 12- or 24-hour setting, for the event times.
     @Environment(\.clockStyle) private var clockStyle
 
@@ -47,10 +50,6 @@ struct TodayView: View {
     @AppStorage("debugOpenSettings") private var debugOpenSettings = false
     /// `-debugOpenDay YES`: the day screen opens over Today at launch.
     @AppStorage("debugOpenDay") private var debugOpenDay = false
-    /// `-debugDayButtons YES`: the day screen shows its mic button, which
-    /// does nothing yet. Until task 172 wires it, it is hidden otherwise, so
-    /// the app never shows a dead button.
-    @AppStorage("debugDayButtons") private var debugDayButtons = false
     #endif
 
     enum Destination: String, Identifiable {
@@ -395,8 +394,7 @@ struct TodayView: View {
     }
 
     /// The day screen, reading in the same zone as Today's events; its +
-    /// adds an event in that zone (task 171). The mic is wired by task 172;
-    /// until then it is shown only with `-debugDayButtons YES` (and does nothing).
+    /// adds an event in that zone (task 171), and so does its mic (task 172).
     private var dayView: some View {
         let today = model
         let zone: @MainActor () -> TimeZone = {
@@ -404,11 +402,30 @@ struct TodayView: View {
         }
         let day = DayModel(events: events, google: google, timeZone: zone)
         let adder = AddEventModel(google: google, timeZone: zone, pending: addPending)
+        return DayView(model: day, adder: adder, voice: Self.voice(adder: adder, day: day, context: modelContext))
+    }
+
+    /// The mic's model: recognition on the phone and the system speaker,
+    /// reading in the voice chosen in Settings; today's event titles help
+    /// the recognizer with names. In DEBUG, with the Google sample only, the
+    /// `-debugVoice…` arguments swap in scripted ones (`VoiceDebug`).
+    private static func voice(adder: AddEventModel, day: DayModel, context: ModelContext) -> VoiceEntryModel {
+        var listener: any SpeechListening = SystemSpeechListener()
+        var speaker: any SpeechSpeaking = SystemSpeechSpeaker()
+        var timing = VoiceEntryModel.Timing()
         #if DEBUG
-        return DayView(model: day, speak: debugDayButtons ? {} : nil, adder: adder)
-        #else
-        return DayView(model: day, adder: adder)
+        if let fakes = VoiceDebug.fakes(adder: adder) {
+            (listener, speaker, timing) = fakes
+        }
         #endif
+        return VoiceEntryModel(
+            adder: adder,
+            listener: listener,
+            speaker: speaker,
+            voiceIdentifier: { SkyStore(context: context).voiceIdentifier },
+            names: { [weak day] in day?.rows(now: Date(), clock: .twelveHour).map(\.label.title) ?? [] },
+            timing: timing
+        )
     }
 
     /// How often Today polls Google now, or nil when it does not

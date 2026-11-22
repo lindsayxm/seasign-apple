@@ -28,6 +28,10 @@ final class Settings {
     var aiKeyRefused: Bool?
     /// An `AISearchProblem` raw value: how the last search went wrong.
     var aiLastProblemRaw: String?
+    /// The `AVSpeechSynthesisVoice.identifier` the confirm popup reads aloud
+    /// in (task 172); nil is the system default. A voice no longer installed
+    /// also reads as the default (`VoiceChoice.resolve`).
+    var voiceIdentifier: String?
 
     init(zip: String? = nil) {
         self.zip = zip
