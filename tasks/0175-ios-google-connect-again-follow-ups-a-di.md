@@ -1,11 +1,11 @@
 ---
 id: 175
 title: iOS: Google 'Connect again' follow-ups: a different account, one save for connection and scopes, test gaps
-status: in-progress
-owner: implementer-2
+status: todo
+owner: 
 depends_on: []
 created: 2026-11-22T18:54:27Z
-updated: 2026-11-22T18:54:27Z
+updated: 2026-11-22T18:54:51Z
 ---
 
 ## Goal
@@ -30,3 +30,4 @@ From the #169 review. (1) 'Connect again to add events' from a working connectio
 
 - 2026-11-22T18:54:27Z [li] created (todo)
 - 2026-11-22T18:54:27Z [implementer-2] status: todo → in-progress — claimed by implementer-2
+- 2026-11-22T18:54:51Z [implementer-2] status: in-progress → todo

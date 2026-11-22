@@ -1,11 +1,11 @@
 ---
 id: 170
 title: iOS: day calendar screen opened by tapping the events area on Today
-status: todo
-owner: 
+status: in-progress
+owner: implementer-2
 depends_on: [169]
 created: 2026-11-22T17:50:02Z
-updated: 2026-11-22T18:45:19Z
+updated: 2026-11-22T18:54:51Z
 ---
 
 ## Goal
@@ -33,3 +33,4 @@ Plan plans/2026-11-22-day-calendar-and-voice.md, task 5. Full-screen list of all
 - 2026-11-22T17:50:02Z [li] created (todo)
 - 2026-11-22T18:06:18Z [li] Lead: from #167: day must be today or one of the next six days in the request zone, else the fixed 400; a request for today sent just before local midnight can arrive after it and get the 400: on that 400, or when the local date changes while the screen is open, recompute the date and ask again. Google's day query can miss a zero-length event exactly at local midnight (timeMin is exclusive); accepted.
 - 2026-11-22T18:45:19Z [li] Lead: from the #167 review: until the API follow-up lands an event can arrive with end before start (floating time in a skipped clock hour). Never build a ClosedRange or Range from an event's start and end without ordering them first; treat end < start as a zero-length event. Test it.
+- 2026-11-22T18:54:51Z [implementer-2] status: todo → in-progress — claimed by implementer-2
