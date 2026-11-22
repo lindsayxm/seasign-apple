@@ -85,6 +85,11 @@ protocol GoogleWatchHost: AnyObject {
 ///   Settings; anything else (no server, a server without a webhook) is
 ///   retried when the app next opens, after `failureHold`.
 ///
+/// - Against a server that cannot deliver pushes (`SeasignAPI.pushAvailable`
+///   false: a Debug build on `wrangler dev`) it does nothing at all: no
+///   device token is asked for, nothing is sent, nothing is owed, and it is
+///   never live, so Today keeps the 5-second poll.
+///
 /// Nothing here logs; the device token and the Google token never leave
 /// memory except in the request.
 @MainActor
@@ -123,6 +128,8 @@ final class GoogleWatchKeeper {
     @ObservationIgnored weak var host: (any GoogleWatchHost)?
 
     @ObservationIgnored private let api: SeasignAPI
+    /// `api.pushAvailable`: false leaves every push path off (see the type's notes).
+    @ObservationIgnored let pushAvailable: Bool
     @ObservationIgnored private let context: ModelContext
     @ObservationIgnored private let environment: APNsEnvironment
     @ObservationIgnored private let now: @Sendable () -> Date
@@ -163,10 +170,11 @@ final class GoogleWatchKeeper {
 
     init(api: SeasignAPI, context: ModelContext, environment: APNsEnvironment = .current, now: @escaping @Sendable () -> Date) {
         self.api = api
+        pushAvailable = api.pushAvailable
         self.context = context
         self.environment = environment
         self.now = now
-        mayHaveChannels = record != nil
+        mayHaveChannels = pushAvailable && record != nil
     }
 
     // MARK: Triggers
@@ -180,6 +188,7 @@ final class GoogleWatchKeeper {
 
     /// The system gave a device token (every launch; it may differ from last time).
     func registered(_ token: APNsDeviceToken) {
+        guard pushAvailable else { return }
         deviceToken = token
         if let owed = owedUnwatch {
             owedUnwatch = nil
@@ -205,7 +214,7 @@ final class GoogleWatchKeeper {
     /// behind it; when it ends, the decision is made again against the
     /// calendars on then (`Reason.afterRequest`).
     func sync(_ reason: Reason) {
-        guard let calendars = host?.watchCalendars else { return }
+        guard pushAvailable, let calendars = host?.watchCalendars else { return }
         if !registered {
             registered = true
             register()
@@ -263,12 +272,12 @@ final class GoogleWatchKeeper {
     /// API), the unwatch is owed: it is sent with `token` when the device
     /// token arrives this launch, unless Google is connected again by then.
     /// Without a Google token nothing can be sent (the sign-in was found
-    /// ended at launch, before any token was had); the channels then end by
-    /// themselves within 7 days, the API has nothing to wake, and pushes find
-    /// nothing connected.
+    /// ended at launch, before any token was had). The device's rows then
+    /// stay at the API until the channels expire (within 7 days); pushes that
+    /// still arrive find nothing connected and fetch nothing.
     func stop(using token: GoogleSecret?, channelsLeft: Bool) async {
         forget()
-        guard let token else { return }
+        guard pushAvailable, let token else { return }
         guard let device = deviceToken else {
             if channelsLeft { owedUnwatch = token }
             return
@@ -299,13 +308,13 @@ final class GoogleWatchKeeper {
     /// device token is known (send now), or channels may be at the API (send
     /// when the token arrives).
     var mayNeedUnwatch: Bool {
-        deviceToken != nil || channelsMayBeLeft
+        pushAvailable && (deviceToken != nil || channelsMayBeLeft)
     }
 
     /// Channels may be at the API for this device, counting an unwatch
     /// still owed from an earlier Disconnect.
     var channelsMayBeLeft: Bool {
-        mayHaveChannels || owedUnwatch != nil
+        pushAvailable && (mayHaveChannels || owedUnwatch != nil)
     }
 
     /// Returns when no request is out or queued.
@@ -341,9 +350,16 @@ final class GoogleWatchKeeper {
         return record.expiresAt.timeIntervalSince(now()) > Self.renewalWindow
     }
 
+    /// Each turn of Today's poll: whether the channels are live is looked at
+    /// again, so channels that ended while the app stayed open speed the poll
+    /// back up without waiting for the next open. Sends nothing.
+    func checkLive() {
+        updateLive()
+    }
+
     private func updateLive() {
         let live: Bool
-        if let device = deviceToken, let calendars = host?.watchCalendars, !calendars.isEmpty,
+        if pushAvailable, let device = deviceToken, let calendars = host?.watchCalendars, !calendars.isEmpty,
            let record, record.complete, record.expiresAt > now() {
             live = record.fingerprint == Self.fingerprint(calendars: calendars, device: device, environment: environment)
         } else {

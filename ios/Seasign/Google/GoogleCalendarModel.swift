@@ -94,6 +94,9 @@ final class GoogleCalendarModel {
     static let minimumGap: TimeInterval = 4
     /// Google limited one calendar: no poll for this long.
     static let googleRateLimitHold: TimeInterval = 60
+    /// Disconnect waits at most this long for stopping the push channels (a
+    /// watch already out, then the unwatch) before it revokes the sign-in.
+    nonisolated static let unwatchWait: Duration = .seconds(10)
 
     private(set) var connection: GoogleConnection
     /// Every calendar on the account's list, in Google's order.
@@ -126,6 +129,7 @@ final class GoogleCalendarModel {
     @ObservationIgnored private let sleep: @Sendable (TimeInterval) async -> Void
     @ObservationIgnored private let pushWindow: Duration
     @ObservationIgnored private let pushDeadline: Duration
+    @ObservationIgnored private let unwatchWait: Duration
     @ObservationIgnored private var isRefreshing = false
     /// Waiting for the running refresh to end (a push behind a poll).
     @ObservationIgnored private var refreshWaiters: [CheckedContinuation<Void, Never>] = []
@@ -157,7 +161,8 @@ final class GoogleCalendarModel {
         environment: APNsEnvironment = .current,
         sleep: @escaping @Sendable (TimeInterval) async -> Void = { try? await Task.sleep(for: .seconds($0)) },
         pushWindow: Duration = GooglePushHandling.coalescingWindow,
-        pushDeadline: Duration = GooglePushHandling.deadline
+        pushDeadline: Duration = GooglePushHandling.deadline,
+        unwatchWait: Duration = GoogleCalendarModel.unwatchWait
     ) {
         self.api = api
         store = GoogleCalendarStore(context: context)
@@ -167,6 +172,7 @@ final class GoogleCalendarModel {
         self.sleep = sleep
         self.pushWindow = pushWindow
         self.pushDeadline = pushDeadline
+        self.unwatchWait = unwatchWait
         watch = GoogleWatchKeeper(api: api, context: context, environment: environment, now: now)
         if let config {
             let client = GoogleTokenClient(config: config, http: http, now: now)
@@ -413,7 +419,8 @@ final class GoogleCalendarModel {
     /// once (even while a Connect is still exchanging its code). Then, best
     /// effort and in this order: stops the push channels (after any watch
     /// already out), and asks Google to revoke the sign-in; revoking first
-    /// would leave the API no token to stop the channels with. When the
+    /// would leave the API no token to stop the channels with. The revoke
+    /// waits for the channels at most `unwatchWait`. When the
     /// device token has not arrived yet, the watch keeper alone keeps one
     /// access token in memory for the unwatch it owes (`GoogleWatchKeeper.stop`).
     func disconnect() async {
@@ -441,15 +448,22 @@ final class GoogleCalendarModel {
         listHeld = false
         setConnection(.notConnected)
         if mayNeedUnwatch {
-            var unwatchToken = valid
-            if unwatchToken == nil, let token, let client {
-                // One fresh token for the unwatch alone; it is not kept.
-                unwatchToken = try? await client.refresh(token).access
+            let stopping = Task { [watch, client] in
+                var unwatchToken = valid
+                if unwatchToken == nil, let token, let client {
+                    // One fresh token for the unwatch alone; it is not kept.
+                    unwatchToken = try? await client.refresh(token).access
+                }
+                // Without a device token yet, the keeper keeps this token for an
+                // unwatch sent when the device token arrives (after the revoke
+                // below: the API forgets the channels whatever Google says).
+                await watch.stop(using: unwatchToken ?? last, channelsLeft: channelsLeft)
             }
-            // Without a device token yet, the keeper keeps this token for an
-            // unwatch sent when the device token arrives (after the revoke
-            // below: the API forgets the channels whatever Google says).
-            await watch.stop(using: unwatchToken ?? last, channelsLeft: channelsLeft)
+            // The revoke waits for this at most `unwatchWait`, so it is never
+            // left undone for long (the app could be closed meanwhile). The
+            // unwatch is not cancelled; if it is still out, it ends by itself,
+            // and the API forgets the channels whatever Google says of the token.
+            await PushDeadline.race(stopping, deadline: unwatchWait, fallback: ())
         }
         if let token, let client { await client.revoke(token) }
     }
@@ -724,6 +738,13 @@ extension GoogleCalendarModel {
         watch.sync(.opened)
     }
 
+    /// Each turn of Today's Google poll: whether the channels are still live
+    /// is looked at again, so channels that end while the app stays open
+    /// return `pollInterval` to 5 seconds at once. Sends nothing.
+    func pollTurn() {
+        watch.checkLive()
+    }
+
     /// How often Today polls now: slowly while push channels cover every
     /// calendar that is on.
     var pollInterval: Duration {
@@ -741,13 +762,19 @@ extension GoogleCalendarModel {
 
 /// Answers by a deadline whatever the task does; the task itself goes on.
 enum PushDeadline {
+    /// A push's outcome by `deadline`, `.failed` if the fetch has not ended.
     static func race(_ task: Task<GooglePushOutcome, Never>, deadline: Duration) async -> GooglePushOutcome {
-        let once = Once()
+        await race(task, deadline: deadline, fallback: .failed)
+    }
+
+    /// `task`'s value, or `fallback` once `deadline` passes (in real time).
+    static func race<T: Sendable>(_ task: Task<T, Never>, deadline: Duration, fallback: T) async -> T {
+        let once = Once<T>()
         return await withCheckedContinuation { continuation in
             once.set(continuation)
             let timer = Task {
                 try? await Task.sleep(for: deadline)
-                once.resume(.failed)
+                once.resume(fallback)
             }
             Task {
                 let value = await task.value
@@ -757,16 +784,16 @@ enum PushDeadline {
         }
     }
 
-    private final class Once: @unchecked Sendable {
+    private final class Once<T: Sendable>: @unchecked Sendable {
         private let lock = NSLock()
-        private var continuation: CheckedContinuation<GooglePushOutcome, Never>?
+        private var continuation: CheckedContinuation<T, Never>?
 
-        func set(_ value: CheckedContinuation<GooglePushOutcome, Never>) {
+        func set(_ value: CheckedContinuation<T, Never>) {
             lock.withLock { continuation = value }
         }
 
-        func resume(_ value: GooglePushOutcome) {
-            let continuation = lock.withLock { () -> CheckedContinuation<GooglePushOutcome, Never>? in
+        func resume(_ value: T) {
+            let continuation = lock.withLock { () -> CheckedContinuation<T, Never>? in
                 defer { self.continuation = nil }
                 return self.continuation
             }

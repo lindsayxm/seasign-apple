@@ -87,6 +87,16 @@ struct SeasignAPI: Sendable {
         case unavailable
     }
 
+    /// Whether this server can wake the app with Google Calendar pushes: only
+    /// a deployed API (https) can. Google calls the production Worker's
+    /// webhook, never `wrangler dev` on this Mac, so channels made through a
+    /// local server (`http://localhost:8787` in Debug) would never deliver a
+    /// push while slowing Today's poll. The one place this is decided; the
+    /// watch keeper does nothing for push when it is false.
+    var pushAvailable: Bool {
+        serverURL.scheme?.lowercased() == "https"
+    }
+
     /// Whether a request carrying the user's LLM key or Google token may go
     /// to `serverURL`: Release builds (`keyNeedsHTTPS`) send them only over
     /// https.

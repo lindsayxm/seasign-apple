@@ -96,6 +96,23 @@ func push(_ model: GoogleCalendarModel, _ type: String?, sourceLocation: SourceL
         #expect(modes == ["remote-notification"])
     }
 
+    @Test func onlyAnHTTPSServerCanDeliverPushes() throws {
+        let stub = GoogleAPIStub()
+        func api(_ server: String) throws -> SeasignAPI {
+            SeasignAPI(serverURL: try #require(URL(string: server)), transport: stub, keyNeedsHTTPS: false)
+        }
+        #expect(try !api("http://localhost:8787").pushAvailable)
+        #expect(try !api("http://example.test").pushAvailable)
+        #expect(try api("https://example.test").pushAvailable)
+        #expect(try api("HTTPS://example.test").pushAvailable)
+        // Debug builds talk to `wrangler dev` over http, so they never watch.
+        #expect(!SeasignAPI(transport: stub).pushAvailable)
+    }
+
+    @Test func disconnectWaitsAtMostTenSecondsForTheChannels() {
+        #expect(GoogleCalendarModel.unwatchWait == .seconds(10))
+    }
+
     @Test func outcomesMapToFetchResults() {
         #expect(GooglePushOutcome.newData.fetchResult == .newData)
         #expect(GooglePushOutcome.noData.fetchResult == .noData)
@@ -178,12 +195,14 @@ final class FakeReceiver: RemotePushReceiver {
         store: InMemoryGoogleTokenStore,
         environment: APNsEnvironment = .sandbox,
         pushDeadline: Duration = .seconds(5),
-        registrations: Counter? = nil
+        registrations: Counter? = nil,
+        server: String = "https://example.test",
+        unwatchWait: Duration = GoogleCalendarModel.unwatchWait
     ) -> GoogleCalendarModel {
         let clock = clock
         let zone = zone
         let model = GoogleCalendarModel(
-            api: SeasignAPI(serverURL: URL(string: "https://example.test")!, transport: stub),
+            api: SeasignAPI(serverURL: URL(string: server)!, transport: stub, keyNeedsHTTPS: false),
             context: context,
             config: FakeGoogle.config,
             tokens: store,
@@ -193,7 +212,8 @@ final class FakeReceiver: RemotePushReceiver {
             environment: environment,
             sleep: { seconds in clock.advance(seconds) },
             pushWindow: .milliseconds(50),
-            pushDeadline: pushDeadline
+            pushDeadline: pushDeadline,
+            unwatchWait: unwatchWait
         )
         if let registrations {
             model.watch.register = { registrations.value += 1 }
@@ -213,7 +233,9 @@ final class FakeReceiver: RemotePushReceiver {
         store: InMemoryGoogleTokenStore = InMemoryGoogleTokenStore(),
         environment: APNsEnvironment = .sandbox,
         pushDeadline: Duration = .seconds(5),
-        registrations: Counter? = nil
+        registrations: Counter? = nil,
+        server: String = "https://example.test",
+        unwatchWait: Duration = GoogleCalendarModel.unwatchWait
     ) async throws -> GoogleCalendarModel {
         endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens())
         stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.calendars([("me@example.test", "Me", true), ("family-id", "Family", false)]))
@@ -222,7 +244,10 @@ final class FakeReceiver: RemotePushReceiver {
         ))
         stub.answer(GoogleAPIStub.postWatch, GoogleAPIStub.watch([nil], expiresAt: weekLater))
         stub.answer(GoogleAPIStub.postUnwatch, GoogleAPIStub.unwatched(1))
-        let model = model(context, store: store, environment: environment, pushDeadline: pushDeadline, registrations: registrations)
+        let model = model(
+            context, store: store, environment: environment, pushDeadline: pushDeadline,
+            registrations: registrations, server: server, unwatchWait: unwatchWait
+        )
         let signIn = redirect()
         try await bounded { await model.connect(signIn: signIn) }
         return model
@@ -1060,6 +1085,127 @@ final class FakeReceiver: RemotePushReceiver {
         model.appOpened()
         try await idle(model)
         #expect(model.pollInterval == .seconds(5))
+    }
+
+    @Test func eachPollTurnLooksAgainSoAnEndedChannelSpeedsThePollUp() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = try await watching(context)
+        model.pollTurn()
+        #expect(model.pollInterval == .seconds(60))
+        // The app stays open past the channels' end, with no open to look again.
+        clock.advance(8 * 24 * 3600)
+        #expect(model.pollInterval == .seconds(60))
+        model.pollTurn()
+        #expect(model.pollInterval == .seconds(5))
+        #expect(!model.watch.isLive)
+        // Looking sends nothing.
+        try await idle(model)
+        #expect(watches.count == 1)
+        #expect(unwatches.isEmpty)
+    }
+
+    // MARK: Only a deployed (https) API
+
+    /// The same steps against `wrangler dev` (http) and a deployed API (https).
+    @Test(arguments: [false, true])
+    func pushIsSetUpOnlyWithAnHTTPSServer(https: Bool) async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let registrations = Counter()
+        let model = try await connected(
+            context, registrations: registrations,
+            server: https ? "https://example.test" : "http://localhost:8787"
+        )
+        #expect(model.connection == .connected)
+        model.launched()
+        model.appOpened()
+        #expect(registrations.value == (https ? 1 : 0))
+
+        model.registered(FakeDevice.token)
+        try await idle(model)
+        #expect(watches.count == (https ? 1 : 0))
+        #expect(model.watch.isLive == https)
+        #expect(model.pollInterval == (https ? .seconds(60) : .seconds(5)))
+
+        let family = try #require(model.calendars.first { $0.calendarID == "family-id" })
+        stub.answer(GoogleAPIStub.postWatch, GoogleAPIStub.watch([nil, "webhook_refused"], expiresAt: weekLater))
+        model.setOn(family, true)
+        try await idle(model)
+        model.pollTurn()
+        #expect(watches.count == (https ? 2 : 0))
+        #expect(model.pollInterval == .seconds(5))  // Family has no channel either way
+        #expect(model.watch.problem == nil)
+        #expect((model.watchMessage(for: family) != nil) == https)
+
+        try await bounded { await model.disconnect() }
+        try await idle(model)
+        #expect(unwatches.count == (https ? 1 : 0))
+        #expect(endpoint.revoked == [FakeGoogle.refresh])
+        #expect(stub.peak(GoogleAPIStub.pushKey) <= 1)
+    }
+
+    @Test func overHTTPChannelsOnRecordFromAnEarlierRunAreNeitherLiveNorUnwatched() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let fingerprint = GoogleWatchKeeper.fingerprint(calendars: ["me@example.test"], device: FakeDevice.token, environment: .sandbox)
+        context.insert(GoogleWatchRecord(fingerprint: fingerprint, expiresAt: instant(weekLater), complete: true))
+        try context.save()
+        let model = try await connected(context, server: "http://localhost:8787")
+        model.registered(FakeDevice.token)
+        model.appOpened()
+        model.pollTurn()
+        try await idle(model)
+        #expect(!model.watch.isLive)
+        #expect(model.pollInterval == .seconds(5))
+        #expect(!model.watch.mayNeedUnwatch)
+        #expect(!model.watch.channelsMayBeLeft)
+        // An hour on, the token in memory has expired: Disconnect asks Google
+        // for no fresh one, since no unwatch would be sent.
+        clock.advance(3600)
+        let refreshesBefore = endpoint.sent(grant: "refresh_token").count
+        try await bounded { await model.disconnect() }
+        #expect(endpoint.sent(grant: "refresh_token").count == refreshesBefore)
+        #expect(unwatches.isEmpty)
+        #expect(watches.isEmpty)
+        #expect(endpoint.revoked == [FakeGoogle.refresh])
+    }
+
+    @Test func overHTTPAnEndedSignInSendsNoUnwatch() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let model = try await connected(context, server: "http://localhost:8787")
+        model.registered(FakeDevice.token)
+        try await idle(model)
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        try await bounded { await model.refresh() }
+        #expect(model.connection == .expired)
+        try await Task.sleep(for: .milliseconds(50))
+        try await idle(model)
+        #expect(unwatches.isEmpty)
+        #expect(watches.isEmpty)
+    }
+
+    // MARK: Disconnect does not wait long
+
+    @Test func disconnectRevokesAfterTheCapWhileTheUnwatchIsStillOut() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = InMemoryGoogleTokenStore()
+        let model = try await connected(context, store: store, unwatchWait: .milliseconds(200))
+        model.registered(FakeDevice.token)
+        try await idle(model)
+        try #require(model.watch.isLive)
+        stub.hold(GoogleAPIStub.postUnwatch)
+        let started = ContinuousClock.now
+        try await bounded { await model.disconnect() }
+        #expect(ContinuousClock.now - started < .seconds(5))
+        // Revoked while the unwatch is still out; the unwatch is not cancelled.
+        #expect(endpoint.revoked == [FakeGoogle.refresh])
+        #expect(stub.outstanding(GoogleAPIStub.postUnwatch) == 1)
+        #expect(store.stored == nil)
+        stub.release(GoogleAPIStub.postUnwatch)
+        try await idle(model)
+        try #require(unwatches.count == 1)
+        #expect(unwatches[0].token == FakeGoogle.access)
+        #expect(stub.peak(GoogleAPIStub.pushKey) == 1)
+        #expect(try context.fetch(FetchDescriptor<GoogleWatchRecord>()).isEmpty)
     }
 
     // MARK: Lead fixes from the #154 review

@@ -82,10 +82,12 @@ struct TodayView: View {
         // once a minute while push channels cover them (`GooglePoll`). The
         // task starts again, asking at once, whenever the gate opens (back
         // to the foreground, a sheet closed, a calendar turned on) or the
-        // rate changes. No spinner.
+        // rate changes (each turn looks again at whether the channels are
+        // live, so ones that ended speed it back up). No spinner.
         .task(id: googlePoll) {
             guard let interval = googlePoll else { return }
             while !Task.isCancelled {
+                google.pollTurn()
                 await google.refresh()
                 try? await Task.sleep(for: interval)
             }
