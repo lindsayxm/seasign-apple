@@ -71,7 +71,11 @@ private final class IDSource: @unchecked Sendable {
         return model
     }
 
-    private func adder(_ google: GoogleCalendarModel) -> AddEventModel {
+    private func adder(
+        _ google: GoogleCalendarModel,
+        pending: AddEventPending = AddEventPending(),
+        deadline: Duration = .seconds(20)
+    ) -> AddEventModel {
         let clock = clock
         let zone = zone
         let ids = ids
@@ -81,8 +85,18 @@ private final class IDSource: @unchecked Sendable {
             timeZone: { zone },
             now: { clock.now },
             clock: { .twelveHour },
-            makeID: { ids.next() }
+            makeID: { ids.next() },
+            pending: pending,
+            sendDeadline: deadline
         )
+    }
+
+    /// After a `confirm()` that must send nothing: nothing was started and
+    /// the popup did not move, so a send could not be still on its way.
+    private func sentNothing(_ adder: AddEventModel, stage: AddEventModel.Stage, _ comment: Comment? = nil) async {
+        #expect(adder.sending == nil, comment)
+        #expect(adder.stage == stage, comment)
+        await settle(adder)
     }
 
     /// Opens the field with `text` and shows the popup.
@@ -225,6 +239,7 @@ private final class IDSource: @unchecked Sendable {
         #expect(adder.stage == .closed)
         // Nothing is shown to confirm any more: a late tap sends nothing.
         adder.confirm()
+        await sentNothing(adder, stage: .closed)
         #expect(creates().count == 1)
     }
 
@@ -308,17 +323,17 @@ private final class IDSource: @unchecked Sendable {
     // MARK: Errors
 
     @Test(arguments: [
-        (HTTPResponse.Status.forbidden, "insufficient_scope", "Connect again to add events", false, true),
-        (.forbidden, "forbidden", "won't take new events in “Me”", false, true),
-        (.notFound, "not_found", "couldn't find “Me”", false, true),
-        (.badGateway, "rejected", "Google refused this event", false, false),
-        (.badRequest, "invalid_request", "couldn't send this event", false, false),
-        (.badGateway, "timeout", "may not have been added", true, false),
-        (.badGateway, "fetch_failed", "may not have been added", true, false),
-        (.internalServerError, "internal_error", "may not have been added", true, false),
-        (.tooManyRequests, "rate_limited", "Too many requests", true, false),
+        (HTTPResponse.Status.forbidden, "insufficient_scope", "Connect again to add events", false, true, "Not added"),
+        (.forbidden, "forbidden", "won't take new events in “Me”", false, true, "Not added"),
+        (.notFound, "not_found", "couldn't find “Me”", false, true, "Not added"),
+        (.badGateway, "rejected", "Google refused this event", false, false, "Not added"),
+        (.badRequest, "invalid_request", "couldn't send this event", false, false, "Not added"),
+        (.badGateway, "timeout", "may not have been added", true, false, "May not have been added"),
+        (.badGateway, "fetch_failed", "may not have been added", true, false, "May not have been added"),
+        (.internalServerError, "internal_error", "may not have been added", true, false, "May not have been added"),
+        (.tooManyRequests, "rate_limited", "Too many requests", true, false, "Not added"),
     ])
-    func eachErrorIsWordedPlainly(_ status: HTTPResponse.Status, _ code: String, _ words: String, _ retry: Bool, _ settings: Bool) async throws {
+    func eachErrorIsWordedPlainly(_ status: HTTPResponse.Status, _ code: String, _ words: String, _ retry: Bool, _ settings: Bool, _ header: String) async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let google = await connected(context)
         let adder = adder(google)
@@ -333,9 +348,12 @@ private final class IDSource: @unchecked Sendable {
         #expect(note.text.contains(words), "\(code)")
         #expect(note.canRetry == retry, "\(code)")
         #expect(note.opensSettings == settings, "\(code)")
+        #expect(note.header == header, "\(code)")
         // A failure that cannot be tried again cannot be confirmed again.
         if !retry {
+            let shown = adder.stage
             adder.confirm()
+            await sentNothing(adder, stage: shown, "\(code)")
             #expect(creates().count == 1, "\(code)")
         }
         #expect(google.statusProblem == nil, "\(code)")
@@ -363,7 +381,9 @@ private final class IDSource: @unchecked Sendable {
 
         // Before the wait is over Try again does nothing.
         clock.advance(29)
+        let shown = adder.stage
         adder.confirm()
+        await sentNothing(adder, stage: shown)
         #expect(creates().count == 1)
 
         clock.advance(1)
@@ -432,6 +452,7 @@ private final class IDSource: @unchecked Sendable {
         review(adder, line)
         #expect(adder.stage == .blocked(meeting, .connect))
         adder.confirm()
+        await sentNothing(adder, stage: .blocked(meeting, .connect))
         #expect(creates().isEmpty)
     }
 
@@ -443,6 +464,7 @@ private final class IDSource: @unchecked Sendable {
         #expect(adder.stage == .blocked(meeting, .connectAgain))
         #expect(AddEventModel.Block.connectAgain.message.contains("Connect again to add events"))
         adder.confirm()
+        await sentNothing(adder, stage: .blocked(meeting, .connectAgain))
         #expect(creates().isEmpty)
     }
 
@@ -454,6 +476,7 @@ private final class IDSource: @unchecked Sendable {
         review(adder, line)
         #expect(adder.stage == .blocked(meeting, .chooseCalendar))
         adder.confirm()
+        await sentNothing(adder, stage: .blocked(meeting, .chooseCalendar))
         #expect(creates().isEmpty)
     }
 
@@ -464,6 +487,7 @@ private final class IDSource: @unchecked Sendable {
         review(adder, "tomorrow at 3pm")
         #expect(adder.stage == .problem(.noTitle))
         adder.confirm()
+        await sentNothing(adder, stage: .problem(.noTitle))
         #expect(creates().isEmpty)
         adder.tryAgain()
         #expect(adder.stage == .entering)
@@ -495,5 +519,270 @@ private final class IDSource: @unchecked Sendable {
         #expect(yesterday.pastNote == "This day has already passed.")
         #expect(DraftSummary(draft(.allDay(date: "2026-11-19")), now: now, clock: .twelveHour).pastNote == nil)
         #expect(DraftSummary(soon, now: now, clock: .twelveHour).pastNote == nil)
+    }
+
+    // MARK: Review fixes (task 171, second pass)
+
+    #if DEBUG
+    private func debugDefaults(confirm: Bool) throws -> UserDefaults {
+        let defaults = try #require(UserDefaults(suiteName: "AddEventDebug-\(UUID().uuidString)"))
+        defaults.set(line, forKey: "debugAddEventLine")
+        defaults.set(true, forKey: "debugAddEventSubmit")
+        defaults.set(confirm, forKey: "debugAddEventConfirm")
+        return defaults
+    }
+
+    /// B1: the debug launch arguments never reach a real connection.
+    @Test func theDebugEntryNeverSendsWithARealConnection() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let google = await connected(context)
+        #expect(!google.isSample && google.canAddEvents && google.newEventsCalendar != nil)
+        let adder = adder(google)
+        stub.answer(GoogleAPIStub.postCreate, GoogleAPIStub.created(id: IDSource.id(1)))
+
+        adder.openDebugEntry(defaults: try debugDefaults(confirm: true), confirmDelay: .milliseconds(20))
+        #expect(adder.stage == .closed)
+        // Well past the confirm delay, with anything it started settled.
+        try? await Task.sleep(for: .milliseconds(300))
+        await settle(adder)
+        #expect(adder.sending == nil)
+        #expect(creates().isEmpty)
+
+        // The delayed confirm itself does nothing without the sample, even
+        // with a draft on show.
+        review(adder, line)
+        adder.debugConfirm()
+        await sentNothing(adder, stage: .reviewing(meeting))
+        #expect(creates().isEmpty)
+    }
+
+    @Test func theDebugEntryConfirmsWithTheSample() async throws {
+        let google = try GoogleCalendarModel.sample(now: clock.now, timeZone: zone)
+        let adder = adder(google)
+        adder.openDebugEntry(defaults: try debugDefaults(confirm: true), confirmDelay: .milliseconds(20))
+        #expect(adder.stage == .reviewing(meeting))
+        #expect(await eventually { adder.addedNote != nil })
+        #expect(adder.stage == .closed)
+    }
+    #endif
+
+    /// B2: the year shows whenever it is not this year in the events' zone.
+    @Test func theYearIsShownWhenItIsNotThisYearInTheEventsZone() throws {
+        // Sunday 22 November 2026, 1:30 PM in Chicago.
+        let now = instant("2026-11-22T19:30:00Z")
+        let parser = EventPhraseParser(detector: FakeDateDetector(dates: [("nov 21", 2026, 11, 21), ("12/3/2028", 2028, 12, 3)]))
+
+        // A date without a year that has passed this year rolls to next year.
+        guard case .draft(let rolled) = parser.parse("nov 21 dentist", now: now, timeZone: zone) else {
+            Issue.record("expected a draft")
+            return
+        }
+        #expect(rolled.timing == .allDay(date: "2027-11-21"))
+        let summary = DraftSummary(rolled, now: now, clock: .twelveHour)
+        #expect(summary.day == "Sunday, November 21, 2027")
+        #expect(summary.spoken == "Dentist, Sunday, November 21, 2027, all day.")
+        #expect(AddEventModel.addedText(rolled, now: now, clock: .twelveHour) == "Added · Nov 21, 2027 all day · Dentist")
+
+        // An explicit later year.
+        guard case .draft(let later) = parser.parse("dentist 12/3/2028 at 4pm", now: now, timeZone: zone) else {
+            Issue.record("expected a draft")
+            return
+        }
+        let laterSummary = DraftSummary(later, now: now, clock: .twelveHour)
+        #expect(laterSummary.day == "Sunday, December 3, 2028")
+        #expect(laterSummary.time == "4:00 PM – 5:00 PM")
+        #expect(laterSummary.spoken == "Dentist, Sunday, December 3, 2028 at 4 PM, one hour.")
+        #expect(AddEventModel.addedText(later, now: now, clock: .twelveHour) == "Added · Dec 3, 2028 4:00 PM · Dentist")
+
+        // Across New Year, within six days: still with the year.
+        let december = instant("2026-12-29T18:00:00Z")
+        let brunch = EventDraft(title: "Brunch", timing: .allDay(date: "2027-01-02"), timeZone: zone)
+        #expect(DraftSummary(brunch, now: december, clock: .twelveHour).day == "Saturday, January 2, 2027")
+        #expect(AddEventModel.addedText(brunch, now: december, clock: .twelveHour) == "Added · Jan 2, 2027 all day · Brunch")
+
+        // The year is the events' zone's: at 9 PM on 31 December in Chicago
+        // it is already 2027 in UTC, and 10 PM that night is still this year.
+        let eve = instant("2027-01-01T03:00:00Z")
+        let party = EventDraft(title: "Party", timing: .timed(start: instant("2027-01-01T04:00:00Z"), end: instant("2027-01-01T05:00:00Z")), timeZone: zone)
+        #expect(DraftSummary(party, now: eve, clock: .twelveHour).day == "Thursday, December 31")
+        #expect(DraftSummary(party, now: eve, clock: .twelveHour).spoken == "Party, Thursday at 10 PM, one hour.")
+        #expect(AddEventModel.addedText(party, now: eve, clock: .twelveHour) == "Added · Thu 10:00 PM · Party")
+        let brunchJan1 = EventDraft(title: "Brunch", timing: .timed(start: instant("2027-01-01T16:00:00Z"), end: instant("2027-01-01T17:00:00Z")), timeZone: zone)
+        #expect(DraftSummary(brunchJan1, now: eve, clock: .twelveHour).day == "Friday, January 1, 2027")
+        #expect(AddEventModel.addedText(brunchJan1, now: eve, clock: .twelveHour) == "Added · Jan 1, 2027 10:00 AM · Brunch")
+    }
+
+    /// (5): a start at midnight says which night it is.
+    @Test func aMidnightStartSaysWhichNightItIs() {
+        let now = instant("2026-11-22T19:30:00Z")
+        let parser = EventPhraseParser(detector: FakeDateDetector())
+        for line in ["flight friday at midnight", "flight friday 12am", "flight at 12 friday night"] {
+            guard case .draft(let draft) = parser.parse(line, now: now, timeZone: zone) else {
+                Issue.record("\(line): expected a draft")
+                continue
+            }
+            let summary = DraftSummary(draft, now: now, clock: .twelveHour)
+            #expect(summary.day == "Saturday, November 28", "\(line)")
+            #expect(summary.time == "12:00 AM – 1:00 AM", "\(line)")
+            #expect(summary.midnightNote == "Starts at midnight at the end of Friday, November 27.", "\(line)")
+            #expect(summary.spoken == "Flight, Friday at midnight, one hour.", "\(line)")
+        }
+        #expect(DraftSummary(meeting, now: now, clock: .twelveHour).midnightNote == nil)
+    }
+
+    /// (4): Google saying the sign-in cannot add events drops write access
+    /// from the stored scopes; the connection keeps reading, and Settings
+    /// (which offers "Connect again to add events" while `canAddEvents` is
+    /// false) is no dead end.
+    @Test func insufficientScopeDropsWriteAccessSoSettingsOffersConnectAgain() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let google = await connected(context)
+        #expect(google.canAddEvents)
+        let adder = adder(google)
+        stub.answer(GoogleAPIStub.postCreate, GoogleAPIStub.error(.forbidden, "insufficient_scope"))
+        review(adder, line)
+        adder.confirm()
+        await settle(adder)
+
+        #expect(google.connection == .connected)
+        #expect(!google.canAddEvents)
+        let readOnly = GoogleOAuthConfig.split(FakeGoogle.allScopes)?.subtracting([GoogleOAuthConfig.writeScope])
+        #expect(google.grantedScopes == readOnly)
+        // As stored: the next launch reads the same.
+        let relaunched = googleModel(context)
+        #expect(relaunched.connection == .connected)
+        #expect(!relaunched.canAddEvents)
+        // The calendars are still read.
+        let before = stub.count(GoogleAPIStub.postEvents)
+        await google.refresh(force: true)
+        #expect(stub.count(GoogleAPIStub.postEvents) > before)
+        #expect(google.statusProblem == nil)
+        // The next line asks to connect again instead of sending.
+        adder.cancel()
+        review(adder, line)
+        #expect(adder.stage == .blocked(meeting, .connectAgain))
+        #expect(creates().count == 1)
+    }
+
+    /// (9): the retry id outlives the day screen within the app run.
+    @Test func theRetryIdOutlivesTheDayScreen() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let google = await connected(context)
+        let pending = AddEventPending()
+        stub.answer(
+            GoogleAPIStub.postCreate,
+            GoogleAPIStub.error(.badGateway, "timeout"),
+            GoogleAPIStub.created(id: IDSource.id(1), created: false),
+            GoogleAPIStub.created(id: IDSource.id(2))
+        )
+        let first = adder(google, pending: pending)
+        review(first, line)
+        first.confirm()
+        await settle(first)
+        guard case .failed = first.stage else {
+            Issue.record("expected a failure, got \(first.stage)")
+            return
+        }
+        // The day screen closes and opens again: a new model, the same holder.
+        let second = adder(google, pending: pending)
+        review(second, line)
+        second.confirm()
+        await settle(second)
+        #expect(second.stage == .closed)
+        // Once added, the same line again is a new event.
+        let third = adder(google, pending: pending)
+        review(third, line)
+        third.confirm()
+        await settle(third)
+        #expect(creates().map { $0.body["id"] } == [IDSource.id(1), IDSource.id(1), IDSource.id(2)])
+    }
+
+    @Test func afterReopeningADifferentDraftGetsANewIdAndARefusalClearsIt() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let google = await connected(context)
+        let pending = AddEventPending()
+        stub.answer(
+            GoogleAPIStub.postCreate,
+            GoogleAPIStub.error(.badGateway, "timeout"),
+            GoogleAPIStub.error(.badGateway, "rejected"),
+            GoogleAPIStub.created(id: "x")
+        )
+        let first = adder(google, pending: pending)
+        review(first, line)
+        first.confirm()
+        await settle(first)
+        // Reopened with another line: a new id; Google refuses it.
+        let second = adder(google, pending: pending)
+        review(second, line + " for 2 hours")
+        second.confirm()
+        await settle(second)
+        // Reopened with that line again: the refusal cleared it, a new id.
+        let third = adder(google, pending: pending)
+        review(third, line + " for 2 hours")
+        third.confirm()
+        await settle(third)
+        #expect(creates().map { $0.body["id"] } == [IDSource.id(1), IDSource.id(2), IDSource.id(3)])
+    }
+
+    /// (10): no answer by the deadline shows the uncertain state; the late
+    /// answer moves nothing, and Try again sends the same id.
+    @Test func noAnswerByTheDeadlineSaysItMayNotHaveBeenAdded() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let google = await connected(context)
+        let pending = AddEventPending()
+        let adder = adder(google, pending: pending, deadline: .milliseconds(300))
+        stub.answer(
+            GoogleAPIStub.postCreate,
+            GoogleAPIStub.created(id: IDSource.id(1)),
+            GoogleAPIStub.created(id: IDSource.id(1), created: false)
+        )
+        stub.hold(GoogleAPIStub.postCreate)
+        review(adder, line)
+        adder.confirm()
+        await stub.waitUntilParked(GoogleAPIStub.postCreate, count: 1)
+        await settle(adder)
+        guard case .failed(meeting, let note) = adder.stage else {
+            Issue.record("expected the uncertain state, got \(adder.stage)")
+            return
+        }
+        #expect(note.canRetry && !note.opensSettings)
+        #expect(note.header == "May not have been added")
+        #expect(note.text.contains("may not have been added"))
+
+        // The late answer does not move the popup.
+        stub.release()
+        #expect(await eventually { !pending.isRequestOut })
+        #expect(adder.stage == .failed(meeting, note))
+        #expect(adder.addedNote == nil)
+
+        // Try again sends the same id.
+        adder.confirm()
+        await settle(adder)
+        #expect(adder.stage == .closed)
+        #expect(creates().map { $0.body["id"] } == [IDSource.id(1), IDSource.id(1)])
+    }
+
+    @Test func tryAgainWhileTheFirstSendIsStillOutWaitsForItInsteadOfSendingAgain() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let google = await connected(context)
+        let pending = AddEventPending()
+        let adder = adder(google, pending: pending, deadline: .milliseconds(500))
+        stub.answer(GoogleAPIStub.postCreate, GoogleAPIStub.created(id: IDSource.id(1)))
+        stub.hold(GoogleAPIStub.postCreate)
+        review(adder, line)
+        adder.confirm()
+        await stub.waitUntilParked(GoogleAPIStub.postCreate, count: 1)
+        await settle(adder)
+        guard case .failed = adder.stage else {
+            Issue.record("expected the uncertain state, got \(adder.stage)")
+            return
+        }
+        #expect(pending.isRequestOut)
+        adder.confirm()
+        #expect(adder.stage == .sending(meeting))
+        stub.release()
+        await settle(adder)
+        #expect(adder.stage == .closed)
+        #expect(creates().count == 1)
     }
 }

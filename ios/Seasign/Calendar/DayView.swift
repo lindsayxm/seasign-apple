@@ -85,23 +85,12 @@ struct DayView: View {
     }
 
     #if DEBUG
-    /// `-debugAddEventLine "lunch tomorrow at noon"` opens the field with
-    /// that line; `-debugAddEventSubmit YES` also shows the popup for it;
-    /// `-debugAddEventConfirm YES` also confirms it (with `-debugGoogle YES`
-    /// the sample adds nothing and answers success).
+    /// The `-debugAddEvent…` launch arguments (`AddEventModel.openDebugEntry`),
+    /// only with the sample account, which sends nothing: with a real
+    /// connection they are ignored here and again in the model.
     private func openDebugEntry() {
-        let defaults = UserDefaults.standard
-        guard let adder, let line = defaults.string(forKey: "debugAddEventLine"), !line.isEmpty, !adder.isOpen else { return }
-        adder.open(line: line)
-        if defaults.bool(forKey: "debugAddEventSubmit") || defaults.bool(forKey: "debugAddEventConfirm") { adder.submit() }
-        // After the sheet is up: a sheet closed while it is still being
-        // presented stays on screen.
-        if defaults.bool(forKey: "debugAddEventConfirm") {
-            Task {
-                try? await Task.sleep(for: .seconds(1.5))
-                adder.confirm()
-            }
-        }
+        guard let adder, adder.usesSample else { return }
+        adder.openDebugEntry()
     }
     #endif
 

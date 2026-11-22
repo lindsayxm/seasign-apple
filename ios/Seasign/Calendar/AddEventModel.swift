@@ -11,7 +11,11 @@ import Observation
 /// answer it with the same `confirm()` and `cancel()`. Confirm is
 /// single-flight: whatever calls it, one draft is sent once at a time, and
 /// a retry of the same draft to the same calendar sends the same event id,
-/// so a retry after a timeout cannot add it twice.
+/// so a retry after a timeout cannot add it twice. That id, and the send
+/// still out, are kept in `AddEventPending`, which outlives the day screen,
+/// so closing and reopening it between a timeout and Try again changes
+/// nothing. A send with no answer after `sendDeadline` shows "may not have
+/// been added"; Try again then waits for that same send while it is out.
 @MainActor
 @Observable
 final class AddEventModel {
@@ -63,6 +67,13 @@ final class AddEventModel {
         var opensSettings: Bool
         /// Try again waits until then (our 429's `Retry-After`).
         var retryAt: Date?
+        /// Google may have added it (no answer, or no clear one).
+        var uncertain = false
+
+        /// The popup's header over this note.
+        var header: String {
+            uncertain ? "May not have been added" : "Not added"
+        }
     }
 
     /// The line on screen after an event was added: "Added · Sun 3:00 PM ·
@@ -89,10 +100,14 @@ final class AddEventModel {
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let clock: @MainActor () -> ClockStyle
     @ObservationIgnored private let makeID: @Sendable () -> String
-    /// The id minted for a confirmed draft and the calendar it went to,
-    /// kept for retries of that same draft to that calendar.
-    @ObservationIgnored private var pending: (draft: EventDraft, calendarID: String, id: String)?
-    /// The send that is out; owned here, so closing a view cannot cancel it.
+    /// The id minted for a confirmed draft, and the send that is out; kept
+    /// beyond this model (and the day screen) for the app run.
+    @ObservationIgnored private let pending: AddEventPending
+    /// How long the popup says "Adding…" before it says the event may not
+    /// have been added.
+    @ObservationIgnored private let sendDeadline: Duration
+    /// The wait for the send that is out (or the deadline); owned here, so
+    /// closing a view cannot cancel it.
     @ObservationIgnored private(set) var sending: Task<Void, Never>?
 
     init(
@@ -101,7 +116,9 @@ final class AddEventModel {
         timeZone: @escaping @MainActor () -> TimeZone,
         now: @escaping @Sendable () -> Date = { Date() },
         clock: @escaping @MainActor () -> ClockStyle = { .system },
-        makeID: @escaping @Sendable () -> String = { GoogleNewEvent.makeID() }
+        makeID: @escaping @Sendable () -> String = { GoogleNewEvent.makeID() },
+        pending: AddEventPending = AddEventPending(),
+        sendDeadline: Duration = .seconds(20)
     ) {
         self.google = google
         self.parser = parser
@@ -109,6 +126,8 @@ final class AddEventModel {
         self.now = now
         self.clock = clock
         self.makeID = makeID
+        self.pending = pending
+        self.sendDeadline = sendDeadline
     }
 
     var isOpen: Bool {
@@ -187,11 +206,11 @@ final class AddEventModel {
         guard let calendar = google.newEventsCalendar else { return }
         // The same draft to the same calendar keeps its id; anything else gets a new one.
         let id: String
-        if let pending, pending.draft == draft, pending.calendarID == calendar.calendarID {
-            id = pending.id
+        if let entry = pending.entry, entry.draft == draft, entry.calendarID == calendar.calendarID {
+            id = entry.id
         } else {
             id = makeID()
-            pending = (draft, calendar.calendarID, id)
+            pending.entry = AddEventPending.Entry(draft: draft, calendarID: calendar.calendarID, id: id)
         }
         stage = .sending(draft)
         let event = GoogleNewEvent(
@@ -199,9 +218,26 @@ final class AddEventModel {
             timezone: GoogleNewEvent.zoneName(draft.timeZone), timing: draft.timing
         )
         let link = calendar.id
+        // One send per id at a time: a Try again while the send that ran
+        // past the deadline is still out waits for that send.
+        let request: Task<GoogleCalendarModel.CreateOutcome?, Never>
+        if let out = pending.request, out.id == id {
+            request = out.task
+        } else {
+            let google = google
+            request = Task { await Self.send(event, google: google) }
+            pending.request = (id, request)
+            Task { [pending] in
+                _ = await request.value
+                if pending.request?.task == request { pending.request = nil }
+            }
+        }
+        let deadline = sendDeadline
         sending = Task { [weak self] in
+            // nil: no answer by the deadline. That send's answer, when it
+            // comes, moves nothing; the popup says it may have been added.
+            let outcome = await PushDeadline.race(request, deadline: deadline, fallback: nil)
             guard let self else { return }
-            let outcome = await self.send(event)
             self.finish(outcome, draft: draft, link: link)
         }
     }
@@ -214,7 +250,7 @@ final class AddEventModel {
         line = ""
     }
 
-    private func send(_ event: GoogleNewEvent) async -> GoogleCalendarModel.CreateOutcome {
+    private static func send(_ event: GoogleNewEvent, google: GoogleCalendarModel) async -> GoogleCalendarModel.CreateOutcome? {
         #if DEBUG
         // `-debugAddEventFail <problem>` with the sample: as if Google answered so.
         if google.isSample, let problem = Self.debugFailure() { return .failed(problem) }
@@ -222,20 +258,25 @@ final class AddEventModel {
         return await google.createEvent(event)
     }
 
-    private func finish(_ outcome: GoogleCalendarModel.CreateOutcome, draft: EventDraft, link: UUID) {
+    /// `outcome` nil: no answer by the deadline.
+    private func finish(_ outcome: GoogleCalendarModel.CreateOutcome?, draft: EventDraft, link: UUID) {
         sending = nil
+        guard let outcome else {
+            stage = .failed(draft, Self.noAnswer)
+            return
+        }
         switch outcome {
         case .added:
             // `created: false` is Google already having this id: an earlier
             // try did add it, so the draft is shown as added.
-            pending = nil
+            pending.entry = nil
             stage = .closed
             line = ""
             addedNote = AddedNote(text: Self.addedText(draft, now: now(), clock: clock()))
             onAdded?(Self.event(draft, link: link))
         case .failed(let problem):
             let note = Self.note(for: problem, calendar: calendarName)
-            if !note.canRetry { pending = nil }
+            if !note.canRetry { pending.entry = nil }
             stage = .failed(draft, note)
         }
     }
@@ -246,6 +287,12 @@ final class AddEventModel {
     }
 
     // MARK: Words
+
+    /// No answer by `sendDeadline`.
+    static let noAnswer = Note(
+        text: "Google hasn't answered yet, so the event may not have been added. Try again; it won't be added twice.",
+        canRetry: true, opensSettings: false, uncertain: true
+    )
 
     static func note(for problem: GoogleCalendarModel.CreateProblem, calendar: String?) -> Note {
         let name = calendar.map { "“\($0)”" } ?? "that calendar"
@@ -265,7 +312,7 @@ final class AddEventModel {
         case .rateLimited(let until):
             return Note(text: "Too many requests just now, so the event wasn't added. Try again in a minute.", canRetry: true, opensSettings: false, retryAt: until)
         case .unavailable:
-            return Note(text: "Google couldn't be reached, so the event may not have been added. Try again; it won't be added twice.", canRetry: true, opensSettings: false)
+            return Note(text: "Google couldn't be reached, so the event may not have been added. Try again; it won't be added twice.", canRetry: true, opensSettings: false, uncertain: true)
         case .signInTrouble:
             return Note(text: "Google didn't accept the sign-in just now, so the event wasn't added. Try again in a moment.", canRetry: true, opensSettings: false)
         }
@@ -295,6 +342,41 @@ final class AddEventModel {
     }
 
     #if DEBUG
+    /// Whether this adds to the DEBUG sample (`-debugGoogle YES`), which
+    /// sends nothing.
+    var usesSample: Bool {
+        google.isSample
+    }
+
+    /// `-debugAddEventLine "lunch tomorrow at noon"` opens the field with
+    /// that line; `-debugAddEventSubmit YES` also shows the popup for it;
+    /// `-debugAddEventConfirm YES` also confirms it `confirmDelay` later.
+    /// Only with the sample account (the model's, not the launch argument,
+    /// since the app falls back to the real one when the sample cannot be
+    /// made): with a real connection it does nothing at all, so no launch
+    /// argument can add a real event.
+    func openDebugEntry(defaults: UserDefaults = .standard, confirmDelay: Duration = .seconds(1.5)) {
+        guard google.isSample else { return }
+        guard let line = defaults.string(forKey: "debugAddEventLine"), !line.isEmpty, !isOpen else { return }
+        open(line: line)
+        let confirms = defaults.bool(forKey: "debugAddEventConfirm")
+        if defaults.bool(forKey: "debugAddEventSubmit") || confirms { submit() }
+        // After the sheet is up: a sheet closed while it is still being
+        // presented stays on screen.
+        if confirms {
+            Task { [weak self] in
+                try? await Task.sleep(for: confirmDelay)
+                self?.debugConfirm()
+            }
+        }
+    }
+
+    /// `-debugAddEventConfirm`'s tap: inert unless this is the sample.
+    func debugConfirm() {
+        guard google.isSample else { return }
+        confirm()
+    }
+
     private static func debugFailure() -> GoogleCalendarModel.CreateProblem? {
         switch UserDefaults.standard.string(forKey: "debugAddEventFail") {
         case "insufficient_scope": .needsWriteAccess
@@ -309,11 +391,37 @@ final class AddEventModel {
     #endif
 }
 
+/// The confirmed draft whose id is kept for Try again, and the send that is
+/// out for it. In memory for the app run (Today keeps one), not on disk, so
+/// it outlives the day screen and the `AddEventModel` each opening makes: a
+/// Try again after a timeout, even from a reopened day screen, sends the
+/// same id and cannot add the event twice. A different draft or calendar
+/// replaces it; an add or a failure that cannot be retried clears it.
+@MainActor
+final class AddEventPending {
+    struct Entry: Equatable {
+        var draft: EventDraft
+        var calendarID: String
+        var id: String
+    }
+
+    fileprivate(set) var entry: Entry?
+    fileprivate var request: (id: String, task: Task<GoogleCalendarModel.CreateOutcome?, Never>)?
+
+    init() {}
+
+    /// A send is out (it may have run past the popup's deadline).
+    var isRequestOut: Bool {
+        request != nil
+    }
+}
+
 /// The popup's lines for one draft, worded for the screen and for reading
 /// aloud (task 172). Pure.
 struct DraftSummary: Equatable {
     var title: String
-    /// "Sunday, November 29"
+    /// "Sunday, November 29"; with the year when it is not this year in
+    /// the events' zone: "Sunday, November 21, 2027".
     var day: String
     /// "3:00 PM – 4:00 PM", or "All day".
     var time: String
@@ -322,6 +430,9 @@ struct DraftSummary: Equatable {
     /// "This time has already passed today." or "This day has already
     /// passed." when the draft is in the past; nil otherwise.
     var pastNote: String?
+    /// "Starts at midnight at the end of Friday, November 27." for a start
+    /// at 00:00, which "friday at midnight" and "friday 12am" both give.
+    var midnightNote: String?
     /// "Meeting with Rahaf, Sunday at 3 PM, one hour." for reading aloud.
     var spoken: String
 
@@ -332,14 +443,22 @@ struct DraftSummary: Equatable {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = calendar
         formatter.timeZone = draft.timeZone
-        formatter.dateFormat = "EEEE, MMMM d"
+        let thisYear = calendar.component(.year, from: now)
+        /// "Sunday, November 29", or "Sunday, November 21, 2027" in another year.
+        func fullDay(_ date: Date) -> String {
+            formatter.dateFormat = calendar.component(.year, from: date) == thisYear ? "EEEE, MMMM d" : "EEEE, MMMM d, yyyy"
+            return formatter.string(from: date)
+        }
+        /// "Sunday", or the full day in another year.
+        func spokenDay(_ date: Date) -> String {
+            guard calendar.component(.year, from: date) == thisYear else { return fullDay(date) }
+            formatter.dateFormat = "EEEE"
+            return formatter.string(from: date)
+        }
         title = draft.title
-        let spokenDay: String
         switch draft.timing {
         case .timed(let start, let end):
-            day = formatter.string(from: start)
-            formatter.dateFormat = "EEEE"
-            spokenDay = formatter.string(from: start)
+            day = fullDay(start)
             let begin = calendar.dateComponents([.hour, .minute], from: start)
             let finish = calendar.dateComponents([.hour, .minute], from: end)
             let from = clock.clock(hour: begin.hour ?? 0, minute: begin.minute ?? 0).spoken
@@ -351,17 +470,21 @@ struct DraftSummary: Equatable {
                 pastNote = calendar.isDate(start, inSameDayAs: now)
                     ? "This time has already passed today." : "This day has already passed."
             }
-            spoken = "\(draft.title), \(spokenDay) at \(Self.spokenClock(begin.hour ?? 0, begin.minute ?? 0, clock: clock)), \(Self.length(minutes: minutes, words: true))."
+            var when = "\(spokenDay(start)) at \(Self.spokenClock(begin.hour ?? 0, begin.minute ?? 0, clock: clock))"
+            // A start at 00:00 is named by the night it ends.
+            if begin.hour == 0, begin.minute == 0, let eve = calendar.date(byAdding: .day, value: -1, to: start) {
+                midnightNote = "Starts at midnight at the end of \(fullDay(eve))."
+                when = "\(spokenDay(eve)) at midnight"
+            }
+            spoken = "\(draft.title), \(when), \(Self.length(minutes: minutes, words: true))."
         case .allDay(let date):
             let parts = date.split(separator: "-").compactMap { Int($0) }
             let start = parts.count == 3 ? calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) ?? now : now
-            day = formatter.string(from: start)
-            formatter.dateFormat = "EEEE"
-            spokenDay = formatter.string(from: start)
+            day = fullDay(start)
             time = "All day"
             length = nil
             if start < calendar.startOfDay(for: now) { pastNote = "This day has already passed." }
-            spoken = "\(draft.title), \(spokenDay), all day."
+            spoken = "\(draft.title), \(spokenDay(start)), all day."
         }
     }
 
@@ -387,7 +510,8 @@ struct DraftSummary: Equatable {
         return minute == 0 ? "\(hour12) \(half)" : String(format: "%d:%02d %@", hour12, minute, half)
     }
 
-    /// "Sun 3:00 PM", "Sun all day"; more than six days off, "Dec 3 3:00 PM".
+    /// "Sun 3:00 PM", "Sun all day"; more than six days off, "Dec 3 3:00 PM";
+    /// in another year (in the events' zone), "Nov 21, 2027 all day".
     static func shortWhen(_ draft: EventDraft, now: Date, clock: ClockStyle) -> String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = draft.timeZone
@@ -407,7 +531,11 @@ struct DraftSummary: Equatable {
             start = parts.count == 3 ? calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) ?? now : now
         }
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: start)).day ?? 0
-        formatter.dateFormat = (0...6).contains(days) ? "EEE" : "MMM d"
+        if calendar.component(.year, from: start) != calendar.component(.year, from: now) {
+            formatter.dateFormat = "MMM d, yyyy"
+        } else {
+            formatter.dateFormat = (0...6).contains(days) ? "EEE" : "MMM d"
+        }
         return "\(formatter.string(from: start)) \(time)"
     }
 }

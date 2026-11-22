@@ -183,6 +183,45 @@ enum Expected: CustomStringConvertible {
         ("retreat at 9am for 30 hours", .problem(.badLength)),
         ("reunion Jan 5 2033", .problem(.outOfRange)),
         ("reunion Nov 1 2025", .problem(.outOfRange)),
+        // Review fixes (second pass).
+        // (3) A single a or p glued to a number is a time only as a bare number is.
+        ("meeting in room 3a", .allDay("Meeting in room 3a", "2026-11-22")),
+        ("seat 12a flight tomorrow", .allDay("Seat 12a flight", "2026-11-23")),
+        ("gate 5p", .allDay("Gate 5p", "2026-11-22")),
+        ("party 3-5p", .allDay("Party 3-5p", "2026-11-22")),
+        ("call at 3p", .timed("Call", "2026-11-22 15:00", "2026-11-22 16:00")),
+        ("nap at 3a", .timed("Nap", "2026-11-22 03:00", "2026-11-22 04:00")),
+        ("from 9a to 5p shift", .timed("Shift", "2026-11-22 09:00", "2026-11-22 17:00")),
+        ("call mom 3 pm", .timed("Call mom", "2026-11-22 15:00", "2026-11-22 16:00")),
+        ("lunch 3p.m. tomorrow", .timed("Lunch", "2026-11-23 15:00", "2026-11-23 16:00")),
+        ("call 3pm friday", .timed("Call", "2026-11-27 15:00", "2026-11-27 16:00")),
+        // (5) 12 with tonight, night or evening is midnight at the end of that
+        // day; 12am and midnight agree (the end of the day named); 12 alone is noon.
+        ("party at 12 tonight", .timed("Party", "2026-11-23 00:00", "2026-11-23 01:00")),
+        ("show at 12 friday night", .timed("Show", "2026-11-28 00:00", "2026-11-28 01:00")),
+        ("flight at 12am", .timed("Flight", "2026-11-23 00:00", "2026-11-23 01:00")),
+        ("flight friday 12am", .timed("Flight", "2026-11-28 00:00", "2026-11-28 01:00")),
+        ("flight friday at 12:30am", .timed("Flight", "2026-11-28 00:30", "2026-11-28 01:30")),
+        ("party 10pm to 12am", .timed("Party", "2026-11-22 22:00", "2026-11-23 00:00")),
+        ("lunch at 12", .timed("Lunch", "2026-11-22 12:00", "2026-11-22 13:00")),
+        ("breakfast at 12", .timed("Breakfast", "2026-11-22 12:00", "2026-11-22 13:00")),
+        ("tea at 12 in the afternoon", .timed("Tea", "2026-11-22 12:00", "2026-11-22 13:00")),
+        ("lunch at 12pm friday", .timed("Lunch", "2026-11-27 12:00", "2026-11-27 13:00")),
+        // (6) A time from now is a problem, not an all-day event today.
+        ("call mom in 30 minutes", .problem(.relativeTime)),
+        ("nap in two hours", .problem(.relativeTime)),
+        ("call back in 30min", .problem(.relativeTime)),
+        ("call in an hour", .problem(.relativeTime)),
+        ("break in half an hour", .problem(.relativeTime)),
+        ("tea in 1 hr", .problem(.relativeTime)),
+        ("standup 15 minutes from now", .problem(.relativeTime)),
+        ("call back in a few minutes", .problem(.relativeTime)),
+        // (7) Titles keep what was typed; a plain number right after the day is a problem.
+        ("9-5 shift", .allDay("9-5 shift", "2026-11-22")),
+        ("meeting tomorrow 3-4", .problem(.unclearTime)),
+        ("shift friday 9 to 5", .problem(.unclearTime)),
+        ("standup tomorrow 9", .problem(.unclearTime)),
+        ("flight tomorrow 5p", .problem(.unclearTime)),
     ]
 
     @Test(arguments: table.indices)

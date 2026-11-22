@@ -96,6 +96,9 @@ enum EventDraftProblem: Error, Equatable, Sendable {
     case badLength
     /// More than a year back or five years ahead (the API's limit).
     case outOfRange
+    /// A time from now ("in 30 minutes", "in two hours"): not read; a day
+    /// and a clock time are asked for instead.
+    case relativeTime
 
     var message: String {
         switch self {
@@ -117,6 +120,8 @@ enum EventDraftProblem: Error, Equatable, Sendable {
             "An event can last at most a day, and must end after it starts."
         case .outOfRange:
             "Events can be added from a year ago up to five years ahead."
+        case .relativeTime:
+            "Give a day and time, like “today at 3pm”, instead of a time from now."
         }
     }
 }
@@ -134,13 +139,18 @@ enum EventParse: Equatable, Sendable {
 ///    "for 90 min" (at most a day).
 /// 3. One time: "3pm", "3:30 pm", "3.30pm", "15:00", "noon", "midnight",
 ///    "at 3", "3 o'clock", a span "3 to 5pm", "3-5pm", "from 3 until 4:30pm",
-///    and a zone after it ("3pm EST"). A bare hour needs "at" or "from"
-///    before it ("dinner at 8"), else it is title text ("Room 3"). With no
-///    am or pm: 13-23, 0 and a leading zero are 24-hour; the other end of a
-///    span lends its half of the day; "tonight", "evening", "afternoon",
-///    "night", "dinner" or "supper" in the line mean pm, "morning" or
-///    "breakfast" am; otherwise 1-6 is pm, 7-11 am and 12 noon. "Midnight"
-///    is the midnight at the end of the day named (or of today).
+///    and a zone after it ("3pm EST"). A bare hour, or one with a single
+///    "a" or "p" glued to it ("3p"), needs "at" before it ("dinner at 8"),
+///    or "at" or "from" before a span of them ("from 9a to 5p"); else it is
+///    title text ("Room 3", "seat 12a"). With no am or pm: 13-23, 0 and a
+///    leading zero are 24-hour; the other end of a span lends its half of
+///    the day; "tonight", "evening", "afternoon", "night", "dinner" or
+///    "supper" in the line mean pm, "morning" or "breakfast" am; otherwise
+///    1-6 is pm and 7-11 am. 12 alone is noon, but midnight with
+///    "tonight", "night" or "evening" in the line. "Midnight", "12am" (and
+///    "12:30am") are at the midnight at the end of the day named (or of
+///    today), so "friday at midnight" and "friday 12am" both start as
+///    Friday ends; a 24-hour "00:00" is the start of the day named.
 /// 4. One day: "today", "tonight", "tomorrow", "the day after tomorrow",
 ///    "in 3 days", "in 2 weeks", a weekday ("sunday" is today on a Sunday,
 ///    else the next one; "next sunday" is the first one after today;
@@ -155,7 +165,9 @@ enum EventParse: Equatable, Sendable {
 ///    "an", "please") are dropped, the first letter capitalised, at most 200
 ///    characters. Names stay title text ("Meeting with Rahaf").
 /// 7. Anything left that looks like a time or a day it could not read is a
-///    problem, never a guess.
+///    problem, never a guess: a plain number right after the day
+///    ("tomorrow 3-4", "friday 9 to 5") and a time from now ("in 30
+///    minutes") among them.
 struct EventPhraseParser: Sendable {
     var detector: any EventDateDetecting = SystemDateDetector()
 
@@ -329,10 +341,18 @@ private struct PhraseScan {
         var isNoon = false
         var isMidnight = false
         var oclock = false
+        /// The am or pm is a single letter glued to the number ("3p", "12a"),
+        /// which is also how rooms, seats and gates are named.
+        var singleLetter = false
 
         /// A plain number with nothing to say what it is ("3", not "3pm", "15:00" or "noon").
         var isBare: Bool {
             meridiem == nil && !hasColon && !isNoon && !isMidnight && !oclock
+        }
+
+        /// Read as a time only after "at" (or in a span after "at" or "from").
+        var needsLead: Bool {
+            isBare || singleLetter
         }
 
         /// Read as a 24-hour time whatever else the line says.
@@ -430,8 +450,22 @@ private struct PhraseScan {
         return true
     }
 
+    /// The words not read, as typed: pieces of one typed word that were
+    /// split ("9-5" into "9", "-", "5") are joined again, so a title keeps
+    /// what was typed.
     func leftoverWords() -> [String] {
-        tokens.indices.filter { !used[$0] }.map { tokens[$0].raw }
+        var words: [String] = []
+        var previous: Int?
+        for index in tokens.indices where !used[index] {
+            if let previous, previous == index - 1,
+               NSMaxRange(tokens[previous].range) == tokens[index].range.location, !words.isEmpty {
+                words[words.count - 1] += tokens[index].raw
+            } else {
+                words.append(tokens[index].raw)
+            }
+            previous = index
+        }
+        return words
     }
 
     // MARK: Numbers
@@ -516,6 +550,8 @@ private struct PhraseScan {
 
     private static let pmHints: Set<String> = ["tonight", "evening", "afternoon", "night", "dinner", "supper"]
     private static let amHints: Set<String> = ["morning", "breakfast"]
+    /// With one of these in the line, 12 alone is midnight, not noon.
+    private static let nightHints: Set<String> = ["tonight", "night", "evening"]
     private static let partsOfDay: Set<String> = ["morning", "afternoon", "evening", "night"]
     private static let timeLeads: Set<String> = ["at", "@", "from", "around", "about"]
     private static let spanWords: Set<String> = ["to", "till", "til", "until", "-", "through", "thru"]
@@ -550,13 +586,15 @@ private struct PhraseScan {
             let separator = match.range(at: 2).location == NSNotFound ? nil : ns.substring(with: match.range(at: 2))
             let minute = match.range(at: 3).location == NSNotFound ? 0 : Int(ns.substring(with: match.range(at: 3))) ?? 0
             var meridiem = match.range(at: 4).location == NSNotFound ? nil : self.meridiem(of: ns.substring(with: match.range(at: 4)))
+            var singleLetter = false
             if match.range(at: 4).location != NSNotFound, meridiem == nil {
                 // "3a" or "3p": a single letter.
                 meridiem = ns.substring(with: match.range(at: 4)).hasPrefix("a") ? .am : .pm
+                singleLetter = true
             }
             // "3.30" is a time only with am or pm after it.
             if separator == ".", meridiem == nil, !(self.word(next).flatMap(self.meridiem(of:)) != nil) { return nil }
-            clock = Clock(hour: hour, minute: minute, meridiem: meridiem, hasColon: separator != nil, leadingZero: hourText.count == 2 && hourText.hasPrefix("0"))
+            clock = Clock(hour: hour, minute: minute, meridiem: meridiem, hasColon: separator != nil, leadingZero: hourText.count == 2 && hourText.hasPrefix("0"), singleLetter: singleLetter)
             if clock.meridiem == nil, let following = self.word(next), let value = self.meridiem(of: following) {
                 clock.meridiem = value
                 next += 1
@@ -578,8 +616,9 @@ private struct PhraseScan {
         let pm = !line.isDisjoint(with: Self.pmHints)
         let am = !line.isDisjoint(with: Self.amHints)
         let hint: Meridiem? = pm == am ? nil : (pm ? .pm : .am)
+        let night = !line.isDisjoint(with: Self.nightHints)
         while index < tokens.count {
-            guard let (time, end) = try time(at: index, hint: hint) else {
+            guard let (time, end) = try time(at: index, hint: hint, night: night) else {
                 index += 1
                 continue
             }
@@ -591,7 +630,7 @@ private struct PhraseScan {
         return found
     }
 
-    private func time(at start: Int, hint: Meridiem?) throws -> (Time, Int)? {
+    private func time(at start: Int, hint: Meridiem?, night: Bool) throws -> (Time, Int)? {
         guard let first = self.word(start) else { return nil }
         var index = start
         let led = Self.timeLeads.contains(first)
@@ -603,12 +642,13 @@ private struct PhraseScan {
             closing = value
             index = after
         }
-        // A plain number is a time only after "at" ("dinner at 8"); a span of
-        // plain numbers only after "at" or "from" ("from 9 to 5"). Otherwise
-        // the numbers are title text ("talk about 3 things", "ages 3 to 5").
+        // A plain number (or one with a single "a" or "p") is a time only
+        // after "at" ("dinner at 8", "at 3p"); a span of them only after "at"
+        // or "from" ("from 9 to 5"). Otherwise they are title text ("talk
+        // about 3 things", "ages 3 to 5", "room 3a", "gate 5p").
         let strong = first == "at" || first == "@"
-        if opening.isBare, closing == nil, !strong { return nil }
-        if opening.isBare, let closing, closing.isBare, !(strong || first == "from") { return nil }
+        if opening.needsLead, closing == nil, !strong { return nil }
+        if opening.needsLead, let closing, closing.needsLead, !(strong || first == "from") { return nil }
         if opening.isBare, !(1...23).contains(opening.hour) { throw EventDraftProblem.unclearTime }
         var zone: TimeZone?
         if tokens.indices.contains(index), !used[index] {
@@ -624,16 +664,20 @@ private struct PhraseScan {
         } else if let part = word(index), Self.partsOfDay.contains(part) {
             index += 1
         }
-        let (begin, finish) = try resolve(opening, closing, hint: hint)
+        let (begin, finish) = try resolve(opening, closing, hint: hint, night: night)
         return (Time(start: begin, end: finish, zone: zone, tokens: start..<index), index)
     }
 
-    private func resolve(_ opening: Clock, _ closing: Clock?, hint: Meridiem?) throws -> (ResolvedClock, ResolvedClock?) {
+    private func resolve(_ opening: Clock, _ closing: Clock?, hint: Meridiem?, night: Bool) throws -> (ResolvedClock, ResolvedClock?) {
         func hour(_ clock: Clock, _ meridiem: Meridiem?) throws -> ResolvedClock {
             if clock.isNoon { return ResolvedClock(hour: 12, minute: 0, isMidnight: false) }
             if clock.isMidnight { return ResolvedClock(hour: 0, minute: 0, isMidnight: true) }
             if let meridiem = clock.meridiem ?? (clock.isTwentyFourHour ? nil : meridiem) {
                 guard (1...12).contains(clock.hour) else { throw EventDraftProblem.unclearTime }
+                // "12am", "12:30am": as "midnight", at the end of the day named.
+                if clock.hour == 12, meridiem == .am {
+                    return ResolvedClock(hour: 0, minute: clock.minute, isMidnight: true)
+                }
                 let base = clock.hour % 12
                 return ResolvedClock(hour: meridiem == .pm ? base + 12 : base, minute: clock.minute, isMidnight: false)
             }
@@ -642,6 +686,8 @@ private struct PhraseScan {
         }
         func plain(_ clock: Clock) -> Meridiem? {
             if clock.meridiem != nil || clock.isTwentyFourHour || clock.isNoon || clock.isMidnight { return nil }
+            // 12 alone is noon; "at 12 tonight" is the midnight that ends tonight.
+            if clock.hour == 12 { return night ? .am : .pm }
             if let hint { return hint }
             switch clock.hour {
             case 12, 1...6: return .pm
@@ -865,6 +911,28 @@ private struct PhraseScan {
         "eighteenth", "nineteenth", "twentieth", "thirtieth",
     ]
 
+    /// "3", "15", "5p", "12a": an hour with nothing (or a single letter) to
+    /// say which half of the day.
+    private static func isPlainHour(_ word: String) -> Bool {
+        guard word.range(of: "^\\d{1,2}([ap]\\.?)?$", options: .regularExpression) != nil,
+              let hour = Int(word.prefix { $0.isNumber })
+        else { return false }
+        return (0...23).contains(hour)
+    }
+
+    /// "30 minutes", "an hour", "half an hour", "30min", "two hours", "a
+    /// few minutes", "a couple of hours" from `start`.
+    private func isAmountOfTime(after start: Int) -> Bool {
+        if length(after: start) != nil { return true }
+        var index = start
+        if word(index) == "a" { index += 1 }
+        guard let amount = word(index), ["few", "couple"].contains(amount) else { return false }
+        index += 1
+        if word(index) == "of" { index += 1 }
+        guard let unit = word(index) else { return false }
+        return Self.hourUnits.contains(unit) || Self.minuteUnits.contains(unit)
+    }
+
     /// A time or day word that was not read is a problem, not title text.
     func checkLeftovers(hasTime: Bool) throws {
         for index in tokens.indices where !used[index] {
@@ -875,6 +943,13 @@ private struct PhraseScan {
                next.range(of: "^\\d{1,2}([:.]\\d{1,2})?$", options: .regularExpression) != nil {
                 throw EventDraftProblem.unclearTime
             }
+            // "in 30 minutes", "in an hour", "15 minutes from now": a time from now.
+            if word == "in", isAmountOfTime(after: index + 1) { throw EventDraftProblem.relativeTime }
+            if word == "from", self.word(index + 1) == "now" { throw EventDraftProblem.relativeTime }
+            // "tomorrow 3-4", "friday 9 to 5", "tomorrow 9": a plain number
+            // right after the day reads as a time, but its half of the day is
+            // not said.
+            if dayTokens.contains(index - 1), Self.isPlainHour(word) { throw EventDraftProblem.unclearTime }
             if Self.dayWords.contains(word) { throw EventDraftProblem.unclearDay }
             if word == "next", let next = self.word(index + 1), ["week", "month", "year"].contains(next) {
                 throw EventDraftProblem.unclearDay

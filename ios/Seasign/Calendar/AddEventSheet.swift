@@ -40,7 +40,7 @@ struct AddEventSheet: View {
         switch model.stage {
         case .entering, .closed: "New event"
         case .problem: "Not understood"
-        case .failed: "Not added"
+        case .failed(_, let note): note.header
         default: "Add this event?"
         }
     }
@@ -157,6 +157,10 @@ struct AddEventSheet: View {
             }
             if let calendar = model.calendarName {
                 row("Calendar", calendar)
+            }
+            // A start at 00:00: which night it is.
+            if let midnight = lines.midnightNote {
+                note(midnight, problem: false)
             }
         }
         .accessibilityElement(children: .combine)

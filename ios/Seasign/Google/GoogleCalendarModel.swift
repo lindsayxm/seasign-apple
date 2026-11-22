@@ -764,7 +764,9 @@ final class GoogleCalendarModel {
         } catch let failure as SeasignAPI.GoogleCreateFailure {
             switch failure {
             case .googleAuth: return .failed(.signInTrouble)
-            case .insufficientScope: return .failed(.needsWriteAccess)
+            case .insufficientScope:
+                if started == generation { dropWriteAccess() }
+                return .failed(.needsWriteAccess)
             case .forbidden: return .failed(.calendarRefused)
             case .notFound: return .failed(.calendarMissing)
             case .invalidRequest: return .failed(.invalid)
@@ -791,6 +793,19 @@ final class GoogleCalendarModel {
         } catch {
             return .failed(.unavailable)
         }
+    }
+
+    /// Google said this sign-in cannot add events (`insufficient_scope`),
+    /// whatever the stored scopes said: the write scope is dropped from them,
+    /// where they are stored, so `canAddEvents` is false and Settings offers
+    /// "Connect again to add events". The connection keeps reading.
+    private func dropWriteAccess() {
+        guard connection == .connected, let scopes = grantedScopes,
+              scopes.contains(GoogleOAuthConfig.writeScope)
+        else { return }
+        let kept = scopes.subtracting([GoogleOAuthConfig.writeScope])
+        grantedScopes = kept
+        store.setGrantedScopes(kept)
     }
 
     /// Our 429 on the add path: hold Today's requests too, never shortening

@@ -25,6 +25,9 @@ struct TodayView: View {
     @State private var isPullingCalendar = false
     /// A headline pull is running; another one does nothing until it ends.
     @State private var isPullingHeadlines = false
+    /// The day screen's confirmed draft and its event id, kept while the app
+    /// runs so a Try again from a reopened day screen sends the same id.
+    @State private var addPending = AddEventPending()
 
     #if DEBUG
     @AppStorage(SceneDebugOverride.timeKey) private var debugTime = ""
@@ -400,7 +403,7 @@ struct TodayView: View {
             EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent)
         }
         let day = DayModel(events: events, google: google, timeZone: zone)
-        let adder = AddEventModel(google: google, timeZone: zone)
+        let adder = AddEventModel(google: google, timeZone: zone, pending: addPending)
         #if DEBUG
         return DayView(model: day, speak: debugDayButtons ? {} : nil, adder: adder)
         #else
