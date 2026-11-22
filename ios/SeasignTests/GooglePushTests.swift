@@ -1198,8 +1198,9 @@ final class FakeReceiver: RemotePushReceiver {
         #expect(ContinuousClock.now - started < .seconds(5))
         // Revoked while the unwatch is still out; the unwatch is not cancelled.
         #expect(endpoint.revoked == [FakeGoogle.refresh])
-        #expect(stub.outstanding(GoogleAPIStub.postUnwatch) == 1)
         #expect(store.stored == nil)
+        try await waitUntil { stub.outstanding(GoogleAPIStub.postUnwatch) == 1 }
+        #expect(unwatches.count == 1)
         stub.release(GoogleAPIStub.postUnwatch)
         try await idle(model)
         try #require(unwatches.count == 1)
