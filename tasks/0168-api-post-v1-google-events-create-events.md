@@ -1,11 +1,11 @@
 ---
 id: 168
 title: API: POST /v1/google/events/create (events.insert with the user's token)
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [167]
 created: 2026-11-22T17:50:02Z
-updated: 2026-11-22T17:50:02Z
+updated: 2026-11-22T18:45:19Z
 ---
 
 ## Goal
@@ -33,3 +33,4 @@ Plan plans/2026-11-22-day-calendar-and-voice.md, task 3. Create one event in a G
 ## Log
 
 - 2026-11-22T17:50:02Z [li] created (todo)
+- 2026-11-22T18:45:19Z [implementer-1] status: todo → in-progress — claimed by implementer-1
