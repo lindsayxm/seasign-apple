@@ -51,12 +51,16 @@ final class EventsModel {
     /// The API takes at most this many links in one request.
     nonisolated static let maxLinks = 10
 
-    /// Events younger than this are not fetched again. The API caches each
-    /// calendar for one minute (KV's shortest expiry), so with Today's
-    /// one-minute loop an event added to a calendar shows within about a
-    /// minute or two. That is one request a minute, well under the API's
-    /// calendar limit of 20 a minute per network.
-    static let refreshInterval: TimeInterval = 60
+    /// Events younger than this are not fetched again by the scheduled
+    /// checks. User decision 2026-11-21: pasted links are the slow fallback
+    /// (Connect Google is the fast path). The API caches each calendar for 5
+    /// minutes too, so with Today's minute loop an event added to a calendar
+    /// shows within about 5 minutes, up to about 10 when another phone keeps
+    /// the same link's cache entry warm. A pull, adding a link and a return to
+    /// the foreground with stale events ask the API to read the links again
+    /// (`fresh`). That is one scheduled request every 5 minutes, far under
+    /// the API's calendar limit of 20 a minute per network.
+    static let refreshInterval: TimeInterval = 5 * 60
 
     /// The user's links, oldest first.
     private(set) var links: [CalendarLink] = []
@@ -72,6 +76,13 @@ final class EventsModel {
     @ObservationIgnored private let now: @Sendable () -> Date
     /// Set for the DEBUG sample: nothing is fetched and nothing is dropped.
     @ObservationIgnored private var isFrozen = false
+    /// Fresh requests (`refresh(force: true)`) started so far, and how many
+    /// are in flight. A scheduled answer that overlapped a fresh request is
+    /// dropped: it may come from the API's cache and is never newer than the
+    /// fresh one (on a return to the foreground the minute loop and the
+    /// return can both ask at once).
+    @ObservationIgnored private var freshStarted = 0
+    @ObservationIgnored private var freshInFlight = 0
 
     /// `timeZone` is asked each time events are fetched or shown: the zip's
     /// zone when a zip is set, otherwise the phone's (see `EventZone`).
@@ -121,8 +132,24 @@ final class EventsModel {
         snapshot?.status(for: link.id)
     }
 
+    /// Whether a scheduled check would ask now: there are links and the
+    /// events are missing, lack a link, belong to another zone or are at
+    /// least `refreshInterval` old. Today reads it as the app comes back to
+    /// the foreground, to decide whether that return asks with `force`.
+    var isDue: Bool {
+        guard !isFrozen, !links.isEmpty else { return false }
+        guard let snapshot, snapshot.timezone == timeZone().identifier else { return true }
+        let coversEveryLink = Set(snapshot.statuses.map(\.link)) == Set(links.map(\.id))
+        return !coversEveryLink || now().timeIntervalSince(snapshot.fetchedAt) >= Self.refreshInterval
+    }
+
     /// Fetches the events of every link unless the current ones are fresh. If
     /// the request fails as a whole, what is on screen stays.
+    ///
+    /// `force` (the pull, a return to the foreground with stale events) asks
+    /// even when the events are fresh, and asks the API to read the links
+    /// again instead of answering from its cache. A 429's delay still holds
+    /// it back.
     func refresh(force: Bool = false) async {
         guard !isFrozen else { return }
         let zone = timeZone().identifier
@@ -144,9 +171,17 @@ final class EventsModel {
             }
         }
         if let retryNotBefore, now() < retryNotBefore { return }
+        let fresh = force
+        let freshBefore = freshStarted
+        let overlapsFresh = freshInFlight > 0
+        if fresh {
+            freshStarted += 1
+            freshInFlight += 1
+        }
+        defer { if fresh { freshInFlight -= 1 } }
         let answer: CalendarAnswer
         do {
-            answer = try await api.calendarEvents(links: links.map(\.url), timezone: zone)
+            answer = try await api.calendarEvents(links: links.map(\.url), timezone: zone, fresh: fresh)
         } catch {
             // What is on screen stays; after a 429 nothing is asked again
             // until the delay has passed.
@@ -154,6 +189,8 @@ final class EventsModel {
             return
         }
         retryNotBefore = nil
+        // A fresh request that overlapped this scheduled one answers instead.
+        if !fresh, overlapsFresh || freshStarted != freshBefore { return }
         // The links or the zone may have changed while the request was in
         // flight; whatever changed them asks again.
         guard ids == links.map(\.id), zone == timeZone().identifier else { return }
@@ -172,7 +209,8 @@ final class EventsModel {
         let zone = timeZone().identifier
         let answer: CalendarAnswer
         do {
-            answer = try await api.calendarEvents(links: [url], timezone: zone)
+            // Fresh: the link may have been cached by an earlier try.
+            answer = try await api.calendarEvents(links: [url], timezone: zone, fresh: true)
         } catch SeasignAPI.CalendarFailure.rateLimited(let seconds) {
             hold(seconds)
             throw AddProblem.rateLimited

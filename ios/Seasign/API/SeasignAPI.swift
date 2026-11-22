@@ -300,7 +300,7 @@ struct SeasignAPI: Sendable {
         }
     }
 
-    /// Why `calendarEvents(links:timezone:)` failed as a whole. It carries
+    /// Why `calendarEvents(links:timezone:fresh:)` failed as a whole. It carries
     /// nothing from the request or the underlying error: either could hold a
     /// calendar link, which is a credential.
     enum CalendarFailure: Error, Equatable {
@@ -317,11 +317,16 @@ struct SeasignAPI: Sendable {
     /// have not ended and start within seven days, and how reading each link
     /// went. A link that cannot be read is reported in `calendars`, not
     /// thrown. Throws a `CalendarFailure`.
-    func calendarEvents(links: [String], timezone: String?) async throws -> CalendarAnswer {
+    ///
+    /// `fresh` asks the API to read every link again instead of answering
+    /// from its 5-minute cache: for a pull, adding a link and a return to the
+    /// foreground, never for the scheduled checks. It is left out of the body
+    /// when false, so a scheduled request looks as it always has.
+    func calendarEvents(links: [String], timezone: String?, fresh: Bool = false) async throws -> CalendarAnswer {
         let output: Operations.postCalendarEvents.Output
         do {
             output = try await client.postCalendarEvents(
-                body: .json(.init(links: links, timezone: timezone))
+                body: .json(.init(links: links, timezone: timezone, fresh: fresh ? true : nil))
             )
         } catch {
             // The error is dropped on purpose: its description includes the request.

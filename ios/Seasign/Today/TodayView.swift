@@ -70,7 +70,10 @@ struct TodayView: View {
             // failing search never holds up or blanks the followed sites.
             // It sends nothing unless AI search is on and a search is due.
             Task { await ai.refreshIfDue() }
-            // Refresh at launch, then whenever the sky has gone stale.
+            // Refresh at launch, then whenever the sky (10 minutes) or the
+            // pasted-link events (5 minutes, `EventsModel.refreshInterval`)
+            // have gone stale. These scheduled checks never send `fresh`, so
+            // the API may answer events from its 5-minute cache.
             while !Task.isCancelled {
                 await model.refresh()
                 await events.refresh()
@@ -99,9 +102,14 @@ struct TodayView: View {
                 saved.flushNotes()
             }
             if phase == .active {
+                // Pasted-link events 5 minutes old or more are asked for with
+                // `force` (read again by the API, not from its cache). Read
+                // now, before the sky's request, so an answer to the minute
+                // loop's own check landing meanwhile does not hide it.
+                let eventsDue = events.isDue
                 Task {
                     await model.refresh()
-                    await events.refresh()
+                    await events.refresh(force: eventsDue)
                 }
                 Task { await feed.refresh() }
                 // The Keychain is asked again first: one that could not be

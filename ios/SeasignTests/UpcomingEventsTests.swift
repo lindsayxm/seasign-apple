@@ -81,6 +81,17 @@ private func event(
         #expect(stub.requests == [.init(links: [TestLinks.google, TestLinks.icloud], timezone: "America/Chicago")])
     }
 
+    /// `fresh` goes in the body only when true: a scheduled check's body is
+    /// unchanged.
+    @Test func sendsFreshOnlyWhenAsked() async throws {
+        let stub = CalendarStub([TestLinks.google: .events([])])
+        let api = stubbedCalendarAPI(stub)
+        _ = try await api.calendarEvents(links: [TestLinks.google], timezone: nil, fresh: true)
+        _ = try await api.calendarEvents(links: [TestLinks.google], timezone: nil, fresh: false)
+        _ = try await api.calendarEvents(links: [TestLinks.google], timezone: nil)
+        #expect(stub.requests.map(\.fresh) == [true, nil, nil])
+    }
+
     @Test func everyErrorCodeOfTheAPIIsKnown() async throws {
         for problem in LinkProblem.allCases {
             let stub = CalendarStub([TestLinks.google: .failure(problem.rawValue)])

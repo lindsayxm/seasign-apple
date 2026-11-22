@@ -1,6 +1,7 @@
 import Foundation
 import HTTPTypes
 import OpenAPIRuntime
+import Testing
 
 @testable import Seasign
 
@@ -79,6 +80,8 @@ final class CalendarStub: ClientTransport, @unchecked Sendable {
     struct Request: Equatable {
         var links: [String]
         var timezone: String?
+        /// The body's `fresh`; nil when it was left out.
+        var fresh: Bool? = nil
     }
 
     private let lock = NSLock()
@@ -122,6 +125,7 @@ final class CalendarStub: ClientTransport, @unchecked Sendable {
             let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             sent.links = object?["links"] as? [String] ?? []
             sent.timezone = object?["timezone"] as? String
+            sent.fresh = object?["fresh"] as? Bool
         }
         let (offline, table, fixed) = lock.withLock {
             recorded.append(sent)
@@ -154,6 +158,57 @@ final class CalendarStub: ClientTransport, @unchecked Sendable {
         events.sort { ($0["start"] as? String ?? "") < ($1["start"] as? String ?? "") }
         let data = try JSONSerialization.data(withJSONObject: ["events": events, "calendars": calendars])
         return (response, HTTPBody(data))
+    }
+}
+
+/// Passes requests to a `CalendarStub` and, while holding, keeps each answer
+/// (already made from the stub's table at the time of the request) until
+/// released: puts two calendar requests in flight at once.
+final class HeldCalendarTransport: ClientTransport, @unchecked Sendable {
+    private let stub: CalendarStub
+    private let lock = NSLock()
+    private var holding = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+
+    init(_ stub: CalendarStub) {
+        self.stub = stub
+    }
+
+    func setHolding(_ on: Bool) {
+        lock.withLock { holding = on }
+    }
+
+    /// Lets every held answer through.
+    func releaseAll() {
+        let waiting = lock.withLock {
+            defer { held.removeAll() }
+            return held
+        }
+        for continuation in waiting { continuation.resume() }
+    }
+
+    /// Waits up to five seconds until `count` answers are held.
+    func waitUntilHeld(_ count: Int) async {
+        for _ in 0..<1000 {
+            if lock.withLock({ held.count }) >= count { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        Issue.record("expected \(count) held calendar requests")
+    }
+
+    func send(
+        _ request: HTTPRequest,
+        body: HTTPBody?,
+        baseURL: URL,
+        operationID: String
+    ) async throws -> (HTTPResponse, HTTPBody?) {
+        let answer = try await stub.send(request, body: body, baseURL: baseURL, operationID: operationID)
+        if lock.withLock({ holding }) {
+            await withCheckedContinuation { continuation in
+                lock.withLock { held.append(continuation) }
+            }
+        }
+        return answer
     }
 }
 

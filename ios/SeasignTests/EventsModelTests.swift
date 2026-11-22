@@ -1,4 +1,5 @@
 import Foundation
+import OpenAPIRuntime
 import SwiftData
 import Testing
 
@@ -30,10 +31,11 @@ private final class World {
     private let lunch = StubEvent(title: "Lunch", start: "2026-11-17T17:00:00Z", end: "2026-11-17T18:00:00Z")
     private let trip = StubEvent(title: "Trip", start: "2026-11-18T05:00:00Z", end: "2026-11-19T05:00:00Z", allDay: true, date: "2026-11-18")
 
-    private func model(_ context: ModelContext) -> EventsModel {
+    private func model(_ context: ModelContext, transport: (any ClientTransport)? = nil) -> EventsModel {
         let world = world
         let clock = world.clock
-        return EventsModel(api: stubbedCalendarAPI(stub), context: context, timeZone: { world.zone }, now: { clock.now })
+        let api = transport.map { SeasignAPI(serverURL: URL(string: "https://example.test")!, transport: $0) } ?? stubbedCalendarAPI(stub)
+        return EventsModel(api: api, context: context, timeZone: { world.zone }, now: { clock.now })
     }
 
     private func times(_ model: EventsModel, clock: ClockStyle = .twelveHour) -> [String] {
@@ -61,8 +63,9 @@ private final class World {
         #expect(model.links.map(\.name) == ["Family"])
         #expect(model.links.map(\.url) == [TestLinks.google])
         #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist", "TUE 12:00PM Lunch"])
-        // One request did both the check and the fetch, for that link alone.
-        #expect(stub.requests == [.init(links: [TestLinks.google], timezone: "America/New_York")])
+        // One request did both the check and the fetch, for that link alone,
+        // read again by the API rather than from its cache.
+        #expect(stub.requests == [.init(links: [TestLinks.google], timezone: "America/New_York", fresh: true)])
         #expect(model.status(for: model.links[0]) == LinkStatus(problem: nil, partial: false))
 
         await model.remove(model.links[0])
@@ -278,8 +281,9 @@ private final class World {
         try await model.add(name: "Family", link: TestLinks.google)
         #expect(stub.requests.count == 1)
 
-        #expect(EventsModel.refreshInterval == 60)
-        world.clock.now += 59
+        // Pasted links are the slow fallback (user decision 2026-11-21).
+        #expect(EventsModel.refreshInterval == 5 * 60)
+        world.clock.now += 299
         await model.refresh()
         #expect(stub.requests.count == 1)
 
@@ -289,12 +293,14 @@ private final class World {
         #expect(stub.requests.count == 2)
         #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
         #expect(model.snapshot?.fetchedAt == world.clock.now)
+        // A scheduled check may be answered from the API's cache.
+        #expect(stub.requests.last?.fresh == nil)
     }
 
     /// Today asks on its one-minute loop and again on every return to the
-    /// foreground. However often it asks, automatic refreshes go out at most
-    /// once a minute: far under the API's 20 calendar requests a minute.
-    @Test func anOpenAppAsksAboutOnceAMinute() async throws {
+    /// foreground. However often it asks, scheduled checks go out at most
+    /// every 5 minutes, and none asks the API to skip its cache.
+    @Test func anOpenAppAsksEveryFiveMinutes() async throws {
         stub.set(TestLinks.google, .events([show]))
         let model = model(try inMemoryContext())
         try await model.add(name: "Family", link: TestLinks.google)
@@ -305,10 +311,12 @@ private final class World {
             world.clock.now += 10
             await model.refresh()
         }
-        #expect(stub.requests.count - before == 10)
+        #expect(stub.requests.count - before == 2)
+        #expect(stub.requests.dropFirst(before).allSatisfy { $0.fresh == nil })
     }
 
-    /// The pull on Today: sent even when the events are fresh.
+    /// The pull on Today: sent even when the events are fresh, and read
+    /// again by the API instead of from its cache.
     @Test func aForcedRefreshAsksAgainAtOnce() async throws {
         stub.set(TestLinks.google, .events([show]))
         let model = model(try inMemoryContext())
@@ -319,7 +327,95 @@ private final class World {
         stub.set(TestLinks.google, .events([show, dentist]))
         await model.refresh(force: true)
         #expect(stub.requests.count == before + 1)
+        #expect(stub.requests.last?.fresh == true)
         #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+    }
+
+    /// What Today reads on a return to the foreground: due (so the return
+    /// asks with `force`, fresh) once the events are 5 minutes old.
+    @Test func isDueOnceTheEventsAreFiveMinutesOldOrMissing() async throws {
+        let context = try inMemoryContext()
+        let model = model(context)
+        // Nothing to ask for without a link.
+        #expect(!model.isDue)
+
+        stub.set(TestLinks.google, .events([show]))
+        try await model.add(name: "Family", link: TestLinks.google)
+        #expect(!model.isDue)
+        world.clock.now += 299
+        #expect(!model.isDue)
+        world.clock.now += 1
+        #expect(model.isDue)
+        await model.refresh()
+        #expect(!model.isDue)
+
+        // Events placed for another zone are due at once.
+        world.zone = TimeZone(identifier: "America/Los_Angeles")!
+        #expect(model.isDue)
+        world.zone = TimeZone(identifier: "America/New_York")!
+
+        // A link without events yet is due at once.
+        stub.setOffline(true)
+        context.insert(CalendarLink(name: "Work", url: TestLinks.icloud, createdAt: world.clock.now))
+        try context.save()
+        #expect(self.model(context).isDue)
+    }
+
+    /// On a return to the foreground the minute loop's own check and the
+    /// return's fresh one can both be in flight. The scheduled answer, which
+    /// may come from the API's cache, never replaces the fresh one, whichever
+    /// lands first.
+    @Test func aScheduledAnswerThatLandsAfterAFreshOneIsDropped() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += EventsModel.refreshInterval
+
+        // The scheduled check goes out and is held with the old events...
+        held.setHolding(true)
+        let scheduled = Task { await model.refresh() }
+        await held.waitUntilHeld(1)
+        // ...the fresh one goes out after it and lands first.
+        held.setHolding(false)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        await model.refresh(force: true)
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+
+        held.releaseAll()
+        await scheduled.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+        #expect(stub.requests.suffix(2).map(\.fresh) == [nil, true])
+    }
+
+    @Test func aScheduledAnswerThatLandsWhileAFreshOneIsInFlightIsDropped() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += EventsModel.refreshInterval
+
+        // The pull's fresh request is held with the new events...
+        held.setHolding(true)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        let pull = Task { await model.refresh(force: true) }
+        await held.waitUntilHeld(1)
+        // ...while a scheduled check goes out and lands at once with an older
+        // copy from the cache: it is not shown.
+        held.setHolding(false)
+        stub.set(TestLinks.google, .events([show, lunch]))
+        await model.refresh()
+        #expect(stub.requests.count == 3)
+        #expect(times(model) == ["8:25PM Hanna's show"])
+
+        held.releaseAll()
+        await pull.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+
+        // With nothing fresh in flight a scheduled answer is shown as usual.
+        world.clock.now += EventsModel.refreshInterval
+        await model.refresh()
+        #expect(times(model) == ["8:25PM Hanna's show", "TUE 12:00PM Lunch"])
     }
 
     @Test func aLinkWithoutCachedEventsIsFetchedAtLaunch() async throws {
