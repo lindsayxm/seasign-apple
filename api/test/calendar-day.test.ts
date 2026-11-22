@@ -3,7 +3,7 @@
 // cached occurrences as a plain request.
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dayBounds, dayEvents, dayInRange, dayWall, parseCalendar } from "../src/lib/calendar.ts";
+import { CACHED_KEEP_BEFORE, MAX_CALENDAR_BYTES, dayBounds, dayEvents, dayInRange, dayWall, parseCalendar, upcomingEvents } from "../src/lib/calendar.ts";
 import { calendarCacheKey } from "../src/routes/calendar.ts";
 import { startWorker } from "./start-worker.ts";
 
@@ -303,6 +303,200 @@ describe("the day helpers", () => {
     ).events;
     expect(dayEvents(stored, dayWall("2026-11-01")!, NY)).toEqual([
       { title: "Late", start: "2026-11-02T04:30:00Z", end: "2026-11-02T04:59:00Z", allDay: false },
+    ]);
+  });
+});
+
+// ───────── review fixes (task 167, second pass) ─────────
+
+const HOUR_MS = 3600_000;
+const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+/** A 30-minute UTC event starting at `ms`. */
+const halfHour = (title: string, ms: number) => [`SUMMARY:${title}`, `DTSTART:${stamp(ms)}`, `DTEND:${stamp(ms + 30 * 60_000)}`];
+
+/**
+ * 495 events that ended within the last day, 10 that ended 30 to 40 hours
+ * ago, 3 in three days. Parsed one day back, 498 occurrences: under the cap.
+ * Parsed two days back, 508: over it.
+ */
+function nearTheCap(now: Date): string {
+  const t = now.getTime();
+  return calendar([
+    ...Array.from({ length: 495 }, (_, i) => halfHour("Ended within the day", t - 20 * HOUR_MS + i * 60_000)),
+    ...Array.from({ length: 10 }, (_, i) => halfHour(`Two days back ${i}`, t - 40 * HOUR_MS + i * 60_000)),
+    ...Array.from({ length: 3 }, (_, i) => halfHour(`Upcoming ${i}`, t + 72 * HOUR_MS + i * HOUR_MS)),
+  ]);
+}
+
+const UPCOMING_THREE = [0, 1, 2].map((i) => ({
+  calendar: 0,
+  title: `Upcoming ${i}`,
+  start: instantOf(NOW.getTime() + 72 * HOUR_MS + i * HOUR_MS),
+  end: instantOf(NOW.getTime() + 72 * HOUR_MS + i * HOUR_MS + 30 * 60_000),
+  allDay: false,
+}));
+
+function instantOf(ms: number): string {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+describe("a plain request near the caps answers what it answered when one day back was kept", () => {
+  it("does not let ended events from the second day back push upcoming ones past the cut of 500", async () => {
+    const file = nearTheCap(NOW);
+    mockCalendars({ [LINK]: file });
+
+    const plain = await events({ links: [LINK], timezone: NY });
+
+    expect(plain.events).toEqual(UPCOMING_THREE);
+    // The same as answering from a one-day parse, as before the cache kept two.
+    expect(plain.events.map(({ calendar: _, ...event }) => event)).toEqual(upcomingEvents(parseCalendar(file, NOW).events, NOW, NY));
+  });
+
+  it("does not stop reading the file early for ended events from the second day back", async () => {
+    // 2000 occurrences that ended 29 to 40 hours ago, listed before the upcoming ones:
+    // as many as stop the read (4 x 500) if they are counted.
+    const t = NOW.getTime();
+    const file = calendar([
+      ...Array.from({ length: 2000 }, (_, i) => halfHour("Second day back", t - 40 * HOUR_MS + i * 20_000)),
+      ...Array.from({ length: 3 }, (_, i) => halfHour(`Upcoming ${i}`, t + 72 * HOUR_MS + i * HOUR_MS)),
+    ]);
+    expect(file.length).toBeLessThan(MAX_CALENDAR_BYTES);
+    mockCalendars({ [LINK]: file });
+
+    const plain = await events({ links: [LINK], timezone: NY });
+
+    expect(plain.events).toEqual(UPCOMING_THREE);
+    expect(plain.calendars[0]).toMatchObject({ index: 0, ok: true });
+
+    // What is cached: the three, then the 497 of the second day that end latest.
+    const parsed = parseCalendar(file, NOW, CACHED_KEEP_BEFORE);
+    expect(parsed.events).toHaveLength(500);
+    expect(parsed.partial).toBe(true);
+    expect(parsed.events[0]!.start).toBe((t - 40 * HOUR_MS + 1503 * 20_000) / 1000);
+    expect(parsed.events.slice(-3).map((event) => event.title)).toEqual(["Upcoming 0", "Upcoming 1", "Upcoming 2"]);
+  });
+
+  it("fills what room is left under the cap with the second day's occurrences nearest now, and says some were left out", () => {
+    const file = nearTheCap(NOW);
+    const oneDay = parseCalendar(file, NOW);
+    const twoDays = parseCalendar(file, NOW, CACHED_KEEP_BEFORE);
+
+    expect(oneDay.events).toHaveLength(498);
+    expect(oneDay.partial).toBe(false);
+    expect(twoDays.events).toHaveLength(500);
+    expect(twoDays.partial).toBe(true);
+    // Everything the one-day parse kept, in the same order, plus the two latest of the ten.
+    expect(twoDays.events.filter((event) => !event.title.startsWith("Two days back"))).toEqual(oneDay.events);
+    expect(twoDays.events.filter((event) => event.title.startsWith("Two days back")).map((event) => event.title)).toEqual([
+      "Two days back 8",
+      "Two days back 9",
+    ]);
+    // Sorted by start, as before.
+    const starts = twoDays.events.map((event) => event.start);
+    expect(starts).toEqual([...starts].sort((a, b) => a - b));
+  });
+
+  it("keeps the whole second day when there is room", () => {
+    const t = NOW.getTime();
+    const file = calendar([
+      ...Array.from({ length: 10 }, (_, i) => halfHour(`Two days back ${i}`, t - 40 * HOUR_MS + i * 60_000)),
+      halfHour("Upcoming", t + HOUR_MS),
+    ]);
+    const parsed = parseCalendar(file, NOW, CACHED_KEEP_BEFORE);
+    expect(parsed.events).toHaveLength(11);
+    expect(parsed.partial).toBe(false);
+  });
+});
+
+/** The date a zone's clocks show at an instant (Unix seconds), YYYY-MM-DD. */
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+function dateIn(seconds: number, timeZone: string): string {
+  let format = dateFormatters.get(timeZone);
+  if (!format) dateFormatters.set(timeZone, (format = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" })));
+  const parts = format.formatToParts(new Date(seconds * 1000));
+  const part = (type: string) => parts.find((p) => p.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+const dayText = (wall: number) => new Date(wall * 1000).toISOString().slice(0, 10);
+
+describe("days whose clocks jump at midnight", () => {
+  it("starts the day at the moment its date begins, in Santiago and Havana where midnight is skipped", () => {
+    // Santiago, 6 September 2026: at midnight (UTC-4) the clocks go to 01:00 (UTC-3).
+    const santiago = dayBounds(dayWall("2026-09-06")!, "America/Santiago");
+    expect(instantOf(santiago.from * 1000)).toBe("2026-09-06T04:00:00Z");
+    expect(instantOf(santiago.to * 1000)).toBe("2026-09-07T03:00:00Z");
+    expect(dayBounds(dayWall("2026-09-05")!, "America/Santiago").to).toBe(santiago.from);
+    // Havana, 8 March 2026: at midnight (UTC-5) the clocks go to 01:00 (UTC-4).
+    const havana = dayBounds(dayWall("2026-03-08")!, "America/Havana");
+    expect(instantOf(havana.from * 1000)).toBe("2026-03-08T05:00:00Z");
+    expect(havana.to - havana.from).toBe(23 * 3600);
+    expect(dayBounds(dayWall("2026-03-07")!, "America/Havana").to).toBe(havana.from);
+  });
+
+  it("starts each day of 2026 where its date begins and ends it where the next begins, in every zone", () => {
+    const failures: string[] = [];
+    for (const zone of Intl.supportedValuesOf("timeZone")) {
+      const first = dayWall("2026-01-01")!;
+      let previous = dayBounds(first - 86400, zone);
+      for (let wall = first; wall < dayWall("2027-01-01")!; wall += 86400) {
+        const bounds = dayBounds(wall, zone);
+        const day = dayText(wall);
+        if (dateIn(bounds.from, zone) !== day || dateIn(bounds.from - 1, zone) !== dayText(wall - 86400) || previous.to !== bounds.from) {
+          failures.push(`${zone} ${day}`);
+        }
+        previous = bounds;
+      }
+    }
+    expect(failures).toEqual([]);
+  }, 30_000);
+
+  it("puts all-day and floating events on the date they name, on both sides of a skipped midnight", () => {
+    const santiago = "America/Santiago";
+    const stored = parseCalendar(
+      calendar([
+        ["SUMMARY:All day Sunday", "DTSTART;VALUE=DATE:20260906", "DTEND;VALUE=DATE:20260907"],
+        ["SUMMARY:All day Saturday", "DTSTART;VALUE=DATE:20260905", "DTEND;VALUE=DATE:20260906"],
+        ["SUMMARY:Floating late Saturday", "DTSTART:20260905T233000", "DTEND:20260905T235900"],
+        ["SUMMARY:Floating in the skipped hour", "DTSTART:20260906T003000", "DTEND:20260906T010000"],
+        ["SUMMARY:Saturday 23:30", "DTSTART;TZID=America/Santiago:20260905T233000", "DTEND;TZID=America/Santiago:20260905T235900"],
+        ["SUMMARY:Sunday 01:30", "DTSTART;TZID=America/Santiago:20260906T013000", "DTEND;TZID=America/Santiago:20260906T020000"],
+      ]),
+      new Date("2026-09-05T12:00:00Z"),
+    ).events;
+    const titles = (day: string) => dayEvents(stored, dayWall(day)!, santiago).map((event) => event.title).sort();
+
+    expect(titles("2026-09-05")).toEqual(["All day Saturday", "Floating late Saturday", "Saturday 23:30"]);
+    expect(titles("2026-09-06")).toEqual(["All day Sunday", "Floating in the skipped hour", "Sunday 01:30"]);
+  });
+});
+
+describe("a day request on a day the clocks change", () => {
+  it("answers the 25-hour day in New York, its repeated hour and its last hour included", async () => {
+    // Thursday 29 October: Sunday 1 November is three days on.
+    vi.setSystemTime(new Date("2026-10-29T12:00:00Z"));
+    mockCalendars({
+      [LINK]: calendar([
+        ["SUMMARY:Ended at the first midnight", "DTSTART;TZID=America/New_York:20261031T230000", "DTEND;TZID=America/New_York:20261101T000000"],
+        ["SUMMARY:Sunday", "DTSTART;VALUE=DATE:20261101", "DTEND;VALUE=DATE:20261102"],
+        ["SUMMARY:Just after midnight", "DTSTART;TZID=America/New_York:20261101T003000", "DTEND;TZID=America/New_York:20261101T010000"],
+        ["SUMMARY:01:30 the first time", "DTSTART:20261101T053000Z", "DTEND:20261101T060000Z"],
+        ["SUMMARY:01:30 the second time", "DTSTART:20261101T063000Z", "DTEND:20261101T070000Z"],
+        ["SUMMARY:Last hour", "DTSTART;TZID=America/New_York:20261101T233000", "DTEND;TZID=America/New_York:20261102T000000"],
+        ["SUMMARY:Floating last hour", "DTSTART:20261101T233000", "DTEND:20261101T235900"],
+        ["SUMMARY:Monday", "DTSTART;TZID=America/New_York:20261102T000000", "DTEND;TZID=America/New_York:20261102T010000"],
+      ]),
+    });
+
+    const sunday = await events({ links: [LINK], timezone: NY, day: "2026-11-01" });
+
+    expect(sunday.events).toEqual([
+      { calendar: 0, title: "Sunday", start: "2026-11-01T04:00:00Z", end: "2026-11-02T05:00:00Z", allDay: true, date: "2026-11-01" },
+      { calendar: 0, title: "Just after midnight", start: "2026-11-01T04:30:00Z", end: "2026-11-01T05:00:00Z", allDay: false },
+      { calendar: 0, title: "01:30 the first time", start: "2026-11-01T05:30:00Z", end: "2026-11-01T06:00:00Z", allDay: false },
+      { calendar: 0, title: "01:30 the second time", start: "2026-11-01T06:30:00Z", end: "2026-11-01T07:00:00Z", allDay: false },
+      { calendar: 0, title: "Floating last hour", start: "2026-11-02T04:30:00Z", end: "2026-11-02T04:59:00Z", allDay: false },
+      { calendar: 0, title: "Last hour", start: "2026-11-02T04:30:00Z", end: "2026-11-02T05:00:00Z", allDay: false },
     ]);
   });
 });

@@ -54,7 +54,9 @@ const KEEP_BEFORE = DAY;
  * request (task 167), which wants all of today, ended events included. The
  * start of today is up to 25 hours back (a fall-back day), and a floating or
  * all-day time is kept by its wall clock, which in UTC-12 reads 12 hours
- * earlier than the instant it is placed at: 37 hours in all.
+ * earlier than the instant it is placed at: 37 hours in all. The second day
+ * back only fills room left under MAX_KEPT, so a plain request is answered
+ * from the same occurrences as with one day (`parseCalendar`).
  */
 export const CACHED_KEEP_BEFORE = 2 * DAY;
 const KEEP_AFTER = (UPCOMING_DAYS + 1) * DAY;
@@ -856,10 +858,29 @@ function shapeOf(component: Component, recurring: boolean, budget: Budget): Shap
   return { title: titleOf(component), start, startWall, zone, kind, duration };
 }
 
-type Window = { keepFrom: number; keepUntil: number };
+/**
+ * `keepFrom` and `keepUntil` bound what is kept. `countFrom` is `now - 1 day`
+ * whatever `keepBefore` is: occurrences that end after it go to `events` and
+ * are counted against the caps exactly as when one day back was all that was
+ * kept; earlier ones go to `earlier` and only fill room left under MAX_KEPT
+ * (`parseCalendar`), so that keeping more never changes which of the others
+ * are kept.
+ */
+type Window = { keepFrom: number; keepUntil: number; countFrom: number };
+
+/** What `expand` adds to. `earlier` holds at most 2 x MAX_KEPT; `earlierCut` is true once some were let go. */
+type Kept = { events: StoredEvent[]; earlier: StoredEvent[]; earlierCut: boolean };
+
+/** Cuts `earlier` to the `limit` that end latest (nearest now), if it holds more. */
+function cutEarlier(kept: Kept, limit: number): void {
+  if (kept.earlier.length <= limit) return;
+  kept.earlier.sort((a, b) => b.end - a.end);
+  kept.earlier.length = limit;
+  kept.earlierCut = true;
+}
 
 /**
- * Adds one VEVENT's occurrences near the window to `out`.
+ * Adds one VEVENT's occurrences near the window to `kept`.
  * `overridden` holds the instances of this event's series that other VEVENTs
  * replace. `single` is true for such a replacement: it never repeats.
  */
@@ -867,9 +888,9 @@ function expand(
   component: Component,
   overridden: Set<string> | undefined,
   single: boolean,
-  { keepFrom, keepUntil }: Window,
+  { keepFrom, keepUntil, countFrom }: Window,
   budget: Budget,
-  out: StoredEvent[],
+  kept: Kept,
 ): void {
   // Judged on the wall clock, before any time zone work: an event or a
   // series that starts after the window, and a single event that ended before it.
@@ -889,7 +910,13 @@ function expand(
 
   const emit = (occurrence: Resolved) => {
     if (occurrence.value >= keepUntil || occurrence.value + duration <= keepFrom) return;
-    out.push({ kind: occurrence.kind, title, start: occurrence.value, end: occurrence.value + duration });
+    const event: StoredEvent = { kind: occurrence.kind, title, start: occurrence.value, end: occurrence.value + duration };
+    if (event.end > countFrom) {
+      kept.events.push(event);
+    } else {
+      kept.earlier.push(event);
+      if (kept.earlier.length >= 2 * MAX_KEPT) cutEarlier(kept, MAX_KEPT);
+    }
   };
 
   if (!recurring) {
@@ -988,7 +1015,7 @@ function expand(
   for (const rule of rules) {
     const until = rule.until;
     expandRule(rule, anchor, fromDay, toDay, budget, (day) => {
-      if (budget.work <= 0 || out.length >= 4 * MAX_KEPT) {
+      if (budget.work <= 0 || kept.events.length >= 4 * MAX_KEPT) {
         budget.partial = true;
         return false;
       }
@@ -1480,7 +1507,10 @@ function cleanEvent(vevent: JCal, budget: Budget): JCal {
 /**
  * Parses the text of an .ics file and returns the occurrences near `now`:
  * those that end after `now - keepBefore` (seconds; one day unless given)
- * and start before `now + 8 days`.
+ * and start before `now + 8 days`. Those that end after `now - 1 day` are
+ * kept and cut to MAX_KEPT exactly as when one day back was the whole window;
+ * any from further back only fill the room left, the latest first (`partial`
+ * when some do not fit), so a wider window never pushes out a later event.
  * Throws `CalendarParseError` when the text is not a calendar, and its
  * subclass `CalendarTooLargeError` when it is longer than MAX_CALENDAR_BYTES
  * characters or holds more than `readableLines` gives ical.js.
@@ -1574,7 +1604,11 @@ export function parseCalendar(text: string, now: Date, keepBefore: number = KEEP
   const wrap = (data: JCal) => new ICAL.Component(data);
 
   const nowSeconds = Math.floor(now.getTime() / 1000);
-  const window: Window = { keepFrom: nowSeconds - keepBefore, keepUntil: nowSeconds + KEEP_AFTER };
+  const window: Window = {
+    keepFrom: nowSeconds - keepBefore,
+    keepUntil: nowSeconds + KEEP_AFTER,
+    countFrom: nowSeconds - Math.min(keepBefore, KEEP_BEFORE),
+  };
 
   // A repeating event and the VEVENTs that override single instances of it
   // share a UID; the overrides carry a RECURRENCE-ID.
@@ -1605,7 +1639,8 @@ export function parseCalendar(text: string, now: Date, keepBefore: number = KEEP
     }
   }
 
-  const events: StoredEvent[] = [];
+  const kept: Kept = { events: [], earlier: [], earlierCut: false };
+  const { events, earlier } = kept;
   const each = (data: JCal, single: boolean) => {
     // Far more occurrences in the window than will be kept: stop reading.
     if (budget.work <= 0 || events.length >= 4 * MAX_KEPT) {
@@ -1619,7 +1654,7 @@ export function parseCalendar(text: string, now: Date, keepBefore: number = KEEP
       const uid = single ? undefined : component.getFirstPropertyValue("uid");
       // A cancelled override is still in `overridden`, so its instance is
       // removed, not handed back to the series.
-      expand(component, typeof uid === "string" ? overridden.get(uid) : undefined, single, window, budget, events);
+      expand(component, typeof uid === "string" ? overridden.get(uid) : undefined, single, window, budget, kept);
     } catch {
       // One unreadable event does not spoil the calendar.
       budget.partial = true;
@@ -1634,6 +1669,16 @@ export function parseCalendar(text: string, now: Date, keepBefore: number = KEEP
   if (events.length > MAX_KEPT) {
     events.length = MAX_KEPT;
     budget.partial = true;
+  }
+  // Room left under the cap goes to the occurrences from before one day back
+  // that end latest. They are only ever answered to a `day` request, so a
+  // plain answer is what it was when they were not kept at all.
+  if (earlier.length > 0) {
+    cutEarlier(kept, MAX_KEPT - events.length);
+    if (kept.earlierCut) budget.partial = true;
+    // A stable sort: the others stay in the order they had.
+    events.push(...earlier);
+    events.sort((a, b) => a.start - b.start);
   }
   return { events, partial: budget.partial };
 }
@@ -1708,26 +1753,56 @@ export function dayInRange(day: string, now: Date, timeZone: string): number | n
  * midnight on its clocks, so 23 or 25 hours on a day the clocks change.
  */
 export function dayBounds(wall: number, timeZone: string): { from: number; to: number } {
-  return { from: wallToEpoch(wall, timeZone), to: wallToEpoch(wall + DAY, timeZone) };
+  return { from: dayStart(wall, timeZone), to: dayStart(wall + DAY, timeZone) };
+}
+
+/**
+ * The instant a date begins in a zone: its midnight or, where the clocks jump
+ * over midnight (America/Santiago on 2026-09-06, America/Havana on
+ * 2026-03-08), the moment they jump. `wallToEpoch` gives a time in the
+ * skipped hour as the earlier of its two readings in zones west of UTC, which
+ * here would be 23:00 the evening before; the two readings straddle the jump,
+ * and the later one is where the date begins.
+ */
+function dayStart(wall: number, timeZone: string): number {
+  const at = wallToEpoch(wall, timeZone);
+  if (at + offsetAt(at, timeZone) === wall) return at;
+  return Math.max(at, wall - offsetAt(wall, timeZone));
+}
+
+/**
+ * Whether a stored occurrence overlaps a day (`wall`, its midnight as
+ * wall-clock seconds) in `timeZone`, which must pass `isTimeZone`. An
+ * occurrence overlaps when it starts before the day ends and ends after it
+ * begins, so one that ends at the day's first midnight belongs to the day
+ * before; one without a length belongs to the day it starts on. Instants are
+ * compared with `dayBounds`; floating and all-day times by their own wall
+ * clock, so that each lands on the date it names even where the clocks skip
+ * its hour.
+ */
+export function overlapsDay(wall: number, timeZone: string): (event: StoredEvent) => boolean {
+  const { from, to } = dayBounds(wall, timeZone);
+  return (event) => {
+    const [dayFrom, dayTo] = event.kind === "instant" ? [from, to] : [wall, wall + DAY];
+    if (event.start >= dayTo) return false;
+    return event.end === event.start ? event.start >= dayFrom : event.end > dayFrom;
+  };
 }
 
 /**
  * The stored occurrences that overlap one day in `timeZone` (which must pass
- * `isTimeZone`), ended ones included, placed as `upcomingEvents` places them.
- * `wall` is the day's midnight as wall-clock seconds (`dayWall`). An event
- * overlaps when it starts before the day ends and ends after it begins, so
- * one that ends at the day's first midnight belongs to the day before; one
- * without a length belongs to the day it starts on. Unsorted.
+ * `isTimeZone`; `overlapsDay` says which), ended ones included, placed as
+ * `upcomingEvents` places them. `wall` is the day's midnight as wall-clock
+ * seconds (`dayWall`). Unsorted.
  */
 export function dayEvents(stored: StoredEvent[], wall: number, timeZone: string): UpcomingEvent[] {
-  const { from, to } = dayBounds(wall, timeZone);
+  const overlaps = overlapsDay(wall, timeZone);
   const found: UpcomingEvent[] = [];
   for (const event of stored) {
+    if (!overlaps(event)) continue;
     const placed = event.kind !== "instant";
     const start = placed ? wallToEpoch(event.start, timeZone) : event.start;
     const end = placed ? wallToEpoch(event.end, timeZone) : event.end;
-    if (start >= to) continue;
-    if (end === start ? start < from : end <= from) continue;
     found.push({
       title: event.title,
       start: instant(start),

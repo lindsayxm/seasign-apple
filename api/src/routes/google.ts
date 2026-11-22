@@ -1,6 +1,16 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import { UPCOMING_DAYS, dayBounds, dayEvents, dayInRange, isTimeZone, upcomingEvents, type StoredEvent, type UpcomingEvent } from "../lib/calendar.ts";
+import {
+  UPCOMING_DAYS,
+  dayBounds,
+  dayEvents,
+  dayInRange,
+  isTimeZone,
+  overlapsDay,
+  upcomingEvents,
+  type StoredEvent,
+  type UpcomingEvent,
+} from "../lib/calendar.ts";
 import {
   GOOGLE_ACCESS_ROLES,
   GOOGLE_EVENT_TYPES,
@@ -230,9 +240,16 @@ const rfc3339 = (seconds: number) => new Date(seconds * 1000).toISOString().repl
 /**
  * Every page of one calendar's events that end after `from` and start before
  * `to` (Unix seconds; Google's timeMin and timeMax). Recurring events come
- * expanded into their instances.
+ * expanded into their instances. With `keep`, only the events it accepts are
+ * kept and counted against MAX_KEPT.
  */
-async function readCalendar(id: string, token: string, from: number, to: number): Promise<{ events: StoredEvent[]; partial: boolean }> {
+async function readCalendar(
+  id: string,
+  token: string,
+  from: number,
+  to: number,
+  keep?: (event: StoredEvent) => boolean,
+): Promise<{ events: StoredEvent[]; partial: boolean }> {
   const path = `/calendar/v3/calendars/${encodeURIComponent(id)}/events`;
   return withGoogleDeadline(async (signal) => {
     const events: StoredEvent[] = [];
@@ -263,7 +280,7 @@ async function readCalendar(id: string, token: string, from: number, to: number)
         const event = storedEventOf(item);
         if (event === "cancelled") continue;
         if (event === null) partial = true;
-        else events.push(event);
+        else if (!keep || keep(event)) events.push(event);
       }
       pageToken = typeof body.nextPageToken === "string" && body.nextPageToken !== "" ? body.nextPageToken : undefined;
       if (!pageToken) break;
@@ -328,15 +345,22 @@ google.openapi(postGoogleEvents, async (c) => {
   // Without `day`: a day before now to eight days after (the exact seven-day
   // rule is applied by `upcomingEvents`, once all-day events are placed in the
   // request's time zone, which may not be the calendar's). With `day`: that
-  // day in the request's zone, midnight to midnight, and `dayEvents` keeps
-  // what overlaps it. Checked before Google is called.
+  // day in the request's zone with a day of margin either side, since Google
+  // places an all-day event in the calendar's own zone and leaves out an
+  // event without a length at timeMin; only what overlaps the day is kept
+  // (and counted against the cap), and `dayEvents` answers it. Checked
+  // before Google is called.
   let day: number | null = null;
   let from = nowSeconds - DAY;
   let to = nowSeconds + (UPCOMING_DAYS + 1) * DAY;
+  let keep: ((event: StoredEvent) => boolean) | undefined;
   if (body.day !== undefined) {
     day = dayInRange(body.day, now, timeZone);
     if (day === null) return c.json(INVALID_REQUEST, 400);
-    ({ from, to } = dayBounds(day, timeZone));
+    const bounds = dayBounds(day, timeZone);
+    from = bounds.from - DAY;
+    to = bounds.to + DAY;
+    keep = overlapsDay(day, timeZone);
   }
   const select = (events: StoredEvent[]) => (day === null ? upcomingEvents(events, now, timeZone) : dayEvents(events, day, timeZone));
 
@@ -346,7 +370,7 @@ google.openapi(postGoogleEvents, async (c) => {
     body.calendars.map(async (id, index) => {
       try {
         let read = reads.get(id);
-        if (!read) reads.set(id, (read = readCalendar(id, token, from, to)));
+        if (!read) reads.set(id, (read = readCalendar(id, token, from, to, keep)));
         const { events, partial } = await read;
         return { index, partial, events: select(events) };
       } catch (error) {
