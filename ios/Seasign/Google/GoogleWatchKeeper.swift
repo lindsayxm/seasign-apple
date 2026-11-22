@@ -94,6 +94,8 @@ final class GoogleWatchKeeper {
     static let renewalWindow: TimeInterval = 2 * 24 * 60 * 60
     /// After a failure other than our 429, opening the app does not try again before this.
     static let failureHold: TimeInterval = 15 * 60
+    /// What a failure hold on stopping the channels is about (see `heldFingerprint`).
+    private static let unwatchHoldKey = "unwatch"
 
     /// Why the last watch did not happen, when Settings should say so.
     enum Problem: Equatable {
@@ -129,10 +131,21 @@ final class GoogleWatchKeeper {
     @ObservationIgnored private var registered = false
     @ObservationIgnored private var holdUntil: Date?
     @ObservationIgnored private var holdIsRateLimit = false
-    /// The set a failure hold is about (other than our 429, which holds everything).
+    /// The set a failure hold is about (other than our 429, which holds
+    /// everything), or `unwatchHoldKey` for an unwatch that could not be sent.
     @ObservationIgnored private var heldFingerprint: String?
-    /// A watch made this launch may have left channels at the API.
-    @ObservationIgnored private var mayHaveChannels = false
+    /// Channels may be at the API for this device (a record from an earlier
+    /// launch, or a watch made this launch).
+    @ObservationIgnored private(set) var mayHaveChannels = false
+    /// A complete watch answered with under `renewalWindow` left (Google gave
+    /// less, or this device's clock runs ahead): sending it again at once
+    /// would get the same answer, so that set counts as fresh until `until`.
+    /// Memory only: a relaunch with such a record watches once more.
+    @ObservationIgnored private var shortAnswer: (fingerprint: String, until: Date)?
+    /// Disconnect came before the device token, with channels possibly at
+    /// the API: the unwatch is sent with this token when the device token
+    /// arrives (memory only, never logged).
+    @ObservationIgnored private var owedUnwatch: GoogleSecret?
     /// Moves when the connection ends, so a watch answering afterwards changes nothing.
     @ObservationIgnored private var generation = 0
 
@@ -168,6 +181,15 @@ final class GoogleWatchKeeper {
     /// The system gave a device token (every launch; it may differ from last time).
     func registered(_ token: APNsDeviceToken) {
         deviceToken = token
+        if let owed = owedUnwatch {
+            owedUnwatch = nil
+            // Connected again meanwhile: the next watch replaces the
+            // device's channels, so the unwatch is not needed.
+            if host?.watchCalendars == nil {
+                want(.unwatch(device: token, token: owed))
+                return
+            }
+        }
         sync(.token)
     }
 
@@ -201,32 +223,52 @@ final class GoogleWatchKeeper {
         if calendars.isEmpty {
             // Nothing to be woken for: an empty watch is refused, so the
             // channels are stopped instead.
-            return mayHaveChannels ? .unwatch(device: device, token: nil) : nil
+            guard mayHaveChannels, !isHeld(Self.unwatchHoldKey, reason: reason) else { return nil }
+            return .unwatch(device: device, token: nil)
         }
         let fingerprint = Self.fingerprint(calendars: calendars, device: device, environment: environment)
         if isFresh(fingerprint) { return nil }
         // Already on its way: whatever it leaves is looked at when it ends.
         if sendingFingerprint == fingerprint { return nil }
-        // Our 429 holds everything. Another failure holds only retries of
-        // the same set that nobody asked for (opening the app, the check
-        // after a request); a set chosen since then goes ahead.
-        if let holdUntil, now() < holdUntil {
-            if holdIsRateLimit { return nil }
-            let unasked = reason == .opened || reason == .launch || reason == .afterRequest
-            if unasked, heldFingerprint == fingerprint { return nil }
-        }
+        if isHeld(fingerprint, reason: reason) { return nil }
         return .watch(calendars: calendars, device: device, fingerprint: fingerprint)
+    }
+
+    /// Our 429 holds everything. Another failure holds only retries of the
+    /// same operation that nobody asked for (opening the app, the check
+    /// after a request); a set chosen since then goes ahead.
+    private func isHeld(_ key: String, reason: Reason) -> Bool {
+        guard let holdUntil, now() < holdUntil else { return false }
+        if holdIsRateLimit { return true }
+        let unasked = reason == .opened || reason == .launch || reason == .afterRequest
+        return unasked && heldFingerprint == key
+    }
+
+    /// What an operation is, for telling whether the one after a request repeats it.
+    private static func key(_ operation: Operation) -> String {
+        switch operation {
+        case .watch(_, _, let fingerprint): fingerprint
+        case .unwatch: unwatchHoldKey
+        }
     }
 
     /// The connection ended (Disconnect, or the sign-in expired): forgets the
     /// channels here and asks the API to stop them with `token`, after any
-    /// request already out. Without a device token or a Google token nothing
-    /// can be sent; the channels then end by themselves within 7 days and
-    /// their pushes find nothing connected.
-    func stop(using token: GoogleSecret?) async {
+    /// request already out. The API forgets the device's channels whatever
+    /// Google makes of the token, so an expired or revoked one still helps.
+    ///
+    /// With no device token yet and `channelsLeft` (channels may be at the
+    /// API), the unwatch is owed: it is sent with `token` when the device
+    /// token arrives this launch, unless Google is connected again by then.
+    /// Without a Google token nothing can be sent (the sign-in was found
+    /// ended at launch, before any token was had); the channels then end by
+    /// themselves within 7 days, the API has nothing to wake, and pushes find
+    /// nothing connected.
+    func stop(using token: GoogleSecret?, channelsLeft: Bool) async {
         forget()
-        guard let device = deviceToken, let token else {
-            wanted = nil
+        guard let token else { return }
+        guard let device = deviceToken else {
+            if channelsLeft { owedUnwatch = token }
             return
         }
         want(.unwatch(device: device, token: token))
@@ -242,6 +284,8 @@ final class GoogleWatchKeeper {
         holdUntil = nil
         holdIsRateLimit = false
         heldFingerprint = nil
+        shortAnswer = nil
+        owedUnwatch = nil
         problem = nil
         calendarProblems = [:]
         mayHaveChannels = false
@@ -249,9 +293,11 @@ final class GoogleWatchKeeper {
         updateLive()
     }
 
-    /// Whether `stop` could send anything (a device token is known).
-    var canUnwatch: Bool {
-        deviceToken != nil
+    /// Whether an unwatch could be wanted when the connection ends: a
+    /// device token is known (send now), or channels may be at the API (send
+    /// when the token arrives).
+    var mayNeedUnwatch: Bool {
+        deviceToken != nil || mayHaveChannels
     }
 
     /// Returns when no request is out or queued.
@@ -280,9 +326,10 @@ final class GoogleWatchKeeper {
     }
 
     /// The stored channels cover `fingerprint` completely and have more than
-    /// `renewalWindow` left.
+    /// `renewalWindow` left, or were just answered with less (`shortAnswer`).
     private func isFresh(_ fingerprint: String) -> Bool {
         guard let record, record.fingerprint == fingerprint, record.complete else { return false }
+        if let shortAnswer, shortAnswer.fingerprint == fingerprint, now() < shortAnswer.until { return true }
         return record.expiresAt.timeIntervalSince(now()) > Self.renewalWindow
     }
 
@@ -298,6 +345,7 @@ final class GoogleWatchKeeper {
     }
 
     private func store(_ value: (fingerprint: String, expiresAt: Date, complete: Bool)?) {
+        shortAnswer = nil
         for row in (try? context.fetch(FetchDescriptor<GoogleWatchRecord>())) ?? [] {
             context.delete(row)
         }
@@ -312,6 +360,8 @@ final class GoogleWatchKeeper {
     }
 
     private func hold(_ seconds: TimeInterval, rateLimit: Bool, fingerprint: String? = nil) {
+        // A hold for one operation never cuts our 429's hold on everything short.
+        if !rateLimit, holdIsRateLimit, let holdUntil, now() < holdUntil { return }
         holdUntil = now().addingTimeInterval(seconds)
         holdIsRateLimit = rateLimit
         heldFingerprint = fingerprint
@@ -330,6 +380,7 @@ final class GoogleWatchKeeper {
     private func drain() async {
         while let operation = wanted {
             wanted = nil
+            let started = generation
             await perform(operation)
             // An unwatch with its own token (the connection ended) stays
             // queued; anything else is decided again from the state now, so
@@ -338,6 +389,14 @@ final class GoogleWatchKeeper {
             if let calendars = host?.watchCalendars {
                 updateLive()
                 wanted = nextOperation(calendars: calendars, reason: .afterRequest)
+                // The calendars do not change by themselves, so the check
+                // after a request asking for that same request again means
+                // its outcome was not taken in. Hold it rather than send it
+                // over and over; opening the app tries again after the hold.
+                if let next = wanted, started == generation, Self.key(next) == Self.key(operation) {
+                    wanted = nil
+                    hold(Self.failureHold, rateLimit: false, fingerprint: Self.key(operation))
+                }
             }
         }
         running = nil
@@ -351,7 +410,13 @@ final class GoogleWatchKeeper {
             let started = generation
             var token = token
             if token == nil { token = try? await host?.watchToken() }
-            guard let token else { return }
+            guard let token else {
+                // No Google token to be had (offline, Google down, the
+                // Keychain locked): tried again when the app opens after
+                // the hold, or when a calendar change asks for it.
+                if started == generation { hold(Self.failureHold, rateLimit: false, fingerprint: Self.unwatchHoldKey) }
+                return
+            }
             // Best effort: the API forgets the channels even when Google
             // will not stop them, and channels end by themselves.
             _ = try? await api.googleUnwatch(token: token, deviceToken: device)
@@ -399,6 +464,12 @@ final class GoogleWatchKeeper {
                 holdUntil = nil
                 holdIsRateLimit = false
                 heldFingerprint = nil
+                if expiresAt.timeIntervalSince(now()) <= Self.renewalWindow {
+                    // Fresh until these channels end, and at least for the
+                    // failure hold (an answer already ended, from a clock
+                    // running a week or more ahead, would otherwise repeat).
+                    shortAnswer = (fingerprint, max(expiresAt, now().addingTimeInterval(Self.failureHold)))
+                }
             } else {
                 hold(Self.failureHold, rateLimit: false, fingerprint: fingerprint)
             }

@@ -422,7 +422,8 @@ final class GoogleCalendarModel {
         let token = try? tokens.read()
         let valid = access?.validToken
         let last = access?.lastToken
-        let canUnwatch = watch.canUnwatch
+        let mayNeedUnwatch = watch.mayNeedUnwatch
+        let channelsLeft = watch.mayHaveChannels
         watch.forget()
         try? tokens.delete()
         access?.forget()
@@ -437,13 +438,16 @@ final class GoogleCalendarModel {
         limitReached = false
         listHeld = false
         setConnection(.notConnected)
-        if canUnwatch {
+        if mayNeedUnwatch {
             var unwatchToken = valid
             if unwatchToken == nil, let token, let client {
                 // One fresh token for the unwatch alone; it is not kept.
                 unwatchToken = try? await client.refresh(token).access
             }
-            await watch.stop(using: unwatchToken ?? last)
+            // Without a device token yet, the keeper keeps this token for an
+            // unwatch sent when the device token arrives (after the revoke
+            // below: the API forgets the channels whatever Google says).
+            await watch.stop(using: unwatchToken ?? last, channelsLeft: channelsLeft)
         }
         if let token, let client { await client.revoke(token) }
     }
@@ -635,9 +639,10 @@ final class GoogleCalendarModel {
         // With none in memory (the sign-in was found ended at launch), no
         // unwatch can be sent; the channels end by themselves.
         let last = access?.lastToken
+        let channelsLeft = watch.mayHaveChannels
         watch.forget()
         if let last {
-            Task { [watch] in await watch.stop(using: last) }
+            Task { [watch] in await watch.stop(using: last, channelsLeft: channelsLeft) }
         }
         try? tokens.delete()
         access?.forget()
