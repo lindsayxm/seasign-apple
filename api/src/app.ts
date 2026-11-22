@@ -4,6 +4,7 @@ import { calendar } from "./routes/calendar.ts";
 import { discover } from "./routes/discover.ts";
 import { feed } from "./routes/feed.ts";
 import { google } from "./routes/google.ts";
+import { googleCreate } from "./routes/google-create.ts";
 import { NOTIFY_PATH, googlePush } from "./routes/google-push.ts";
 import { health } from "./routes/health.ts";
 import { sites } from "./routes/sites.ts";
@@ -84,6 +85,7 @@ app.route("/", feed);
 app.route("/", discover);
 app.route("/", google);
 app.route("/", googlePush);
+app.route("/", googleCreate);
 
 export const openAPIConfig = {
   openapi: "3.0.3",

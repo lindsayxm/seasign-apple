@@ -323,6 +323,13 @@ describe("the other Google routes the app calls", () => {
     ["/v1/google/calendars", { headers: { "x-google-token": FAKE_GOOGLE_TOKEN } }],
     ["/v1/google/watch", json({ calendars: ["primary"], deviceToken: DEVICE, environment: "sandbox" }, { "x-google-token": FAKE_GOOGLE_TOKEN })],
     ["/v1/google/unwatch", json({ deviceToken: DEVICE }, { "x-google-token": FAKE_GOOGLE_TOKEN })],
+    [
+      "/v1/google/events/create",
+      json(
+        { calendar: "primary", id: "3f2b8c9d4e5f40718293a4b5c6d7e8f9", title: "Lunch", timezone: "UTC", date: "2026-11-22" },
+        { "x-google-token": FAKE_GOOGLE_TOKEN },
+      ),
+    ],
   ] as const;
 
   it.each(routes)("%s is in the google group and refused before any fetch or database use", async (path, init) => {

@@ -13,6 +13,10 @@
 // - events.watch: https://developers.google.com/workspace/calendar/api/v3/reference/events/watch
 // - channels.stop: https://developers.google.com/workspace/calendar/api/v3/reference/channels/stop
 //
+// Read on 2026-11-22 for creating events (task 168):
+// - events.insert: https://developers.google.com/workspace/calendar/api/v3/reference/events/insert
+// - errors (409 duplicate): https://developers.google.com/workspace/calendar/api/guides/errors
+//
 // The token goes into one place only, the Authorization header of a request to
 // GOOGLE_ORIGIN. It is never put into an error, a log line or a return value.
 // Nothing Google sends back in an error (status text, message, headers) is
@@ -62,12 +66,26 @@ export type GoogleFailureCode =
    */
   | "webhook_refused";
 
+/**
+ * A finer reason for some failures, read only by events.insert
+ * (routes/google-create.ts). It never changes `code`, so the read and watch
+ * routes answer exactly as before: a scope 403 is still `forbidden` there and
+ * a 409 still `fetch_failed`. See FAILURE_REASONS.
+ */
+export type GoogleFailureReason =
+  /** 403: the token was granted without a scope this call needs (here: no write scope). */
+  | "insufficient_scope"
+  /** 409: an event with the client-made id already exists in the calendar. */
+  | "duplicate";
+
 export class GoogleFailure extends Error {
   readonly code: GoogleFailureCode;
-  constructor(code: GoogleFailureCode) {
+  readonly reason: GoogleFailureReason | undefined;
+  constructor(code: GoogleFailureCode, reason?: GoogleFailureReason) {
     super(code);
     this.name = "GoogleFailure";
     this.code = code;
+    this.reason = reason;
   }
 }
 
@@ -103,6 +121,53 @@ function classify(status: number, body: unknown): GoogleFailureCode {
 }
 
 /**
+ * The finer reasons, as one table to correct after the first real request
+ * (task 168). Read on 2026-11-22:
+ * - 409 `duplicate`, "The requested identifier already exists.", is in the
+ *   Calendar errors guide (https://developers.google.com/workspace/calendar/api/guides/errors);
+ *   its body carries no event. 409 `conflict` is a different failure and
+ *   stays `fetch_failed`.
+ * - The two 403s are NOT in Google's Calendar documentation. The scope one
+ *   comes from Google's ErrorReason ACCESS_TOKEN_SCOPE_INSUFFICIENT
+ *   (https://github.com/googleapis/googleapis/blob/master/google/api/error_reason.proto,
+ *   sent in `error.details[].reason`), RFC 6750 §3.1 (WWW-Authenticate
+ *   error="insufficient_scope" with 403), and reports of the legacy reason
+ *   `insufficientPermissions`, "Request had insufficient authentication scopes.".
+ *   A calendar the user cannot write to is reported as reason
+ *   `requiredAccessLevel`, "You need to have writer access to this calendar."
+ *   (community reports only); it, `forbiddenForNonOrganizer` and every other
+ *   or unreadable 403 stay plain `forbidden`. That is the conservative side:
+ *   `insufficient_scope` sends the user through Connect again, which cannot
+ *   help with a calendar they may not write to.
+ * Rate-limit 403s are `rate_limited` before this table is looked at.
+ */
+const FAILURE_REASONS: readonly { status: number; reasons: readonly string[]; reason: GoogleFailureReason }[] = [
+  { status: 403, reasons: ["insufficientPermissions", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"], reason: "insufficient_scope" },
+  { status: 409, reasons: ["duplicate"], reason: "duplicate" },
+];
+
+/** Every `reason` in an error body: the legacy `error.errors[]` and the newer `error.details[]` (ErrorInfo). */
+function reasonsIn(body: unknown): string[] {
+  if (!isRecord(body) || !isRecord(body.error)) return [];
+  const entries = [
+    ...(Array.isArray(body.error.errors) ? body.error.errors : []),
+    ...(Array.isArray(body.error.details) ? body.error.details : []),
+  ];
+  return entries.flatMap((entry) => (isRecord(entry) && typeof entry.reason === "string" ? [entry.reason] : []));
+}
+
+/** RFC 6750 §3.1: `WWW-Authenticate: Bearer ..., error="insufficient_scope"`. */
+const INSUFFICIENT_SCOPE_HEADER = /(?:^|[\s,])error\s*=\s*"?insufficient_scope"?/i;
+
+function reasonOf(status: number, code: GoogleFailureCode, body: unknown, wwwAuthenticate: string | null): GoogleFailureReason | undefined {
+  // A rate limit or a webhook refusal is already said by the code.
+  if (status === 403 && code !== "forbidden") return undefined;
+  if (status === 403 && wwwAuthenticate !== null && INSUFFICIENT_SCOPE_HEADER.test(wwwAuthenticate)) return "insufficient_scope";
+  const found = reasonsIn(body);
+  return FAILURE_REASONS.find((row) => row.status === status && row.reasons.some((reason) => found.includes(reason)))?.reason;
+}
+
+/**
  * Runs `work` with an abort signal that fires after `googleDeadline.ms`; a
  * failure after that is `timeout`.
  */
@@ -132,7 +197,7 @@ export async function getGoogleJson(path: string, params: URLSearchParams, token
 
 /**
  * POSTs a JSON body to one Google Calendar API path (events.watch,
- * channels.stop) under the same rules as getGoogleJson. Returns the parsed
+ * channels.stop, events.insert) under the same rules as getGoogleJson. Returns the parsed
  * JSON object, or an empty object for a 2xx with an empty body (channels.stop
  * answers 204 or 200 with nothing).
  */
@@ -176,7 +241,8 @@ async function sendGoogle(
       if (signal.aborted) throw new GoogleFailure("timeout");
       // Unreadable or too large: classified by the status alone.
     }
-    throw new GoogleFailure(classify(response.status, parsed));
+    const code = classify(response.status, parsed);
+    throw new GoogleFailure(code, reasonOf(response.status, code, parsed, response.headers.get("www-authenticate")));
   }
   return response;
 }

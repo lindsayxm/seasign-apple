@@ -1688,6 +1688,25 @@ export function parseCalendar(text: string, now: Date, keepBefore: number = KEEP
 const instant = (epoch: number) => new Date(epoch * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 
 /**
+ * One stored occurrence as it is answered, with floating and all-day times
+ * placed in `timeZone` (which must pass `isTimeZone`). No window is applied:
+ * `upcomingEvents` and `dayEvents` choose which to place; the create route
+ * (routes/google-create.ts) places the one event Google echoes back.
+ */
+export function placeEvent(event: StoredEvent, timeZone: string): UpcomingEvent {
+  const placed = event.kind !== "instant";
+  const start = placed ? wallToEpoch(event.start, timeZone) : event.start;
+  const end = placed ? wallToEpoch(event.end, timeZone) : event.end;
+  return {
+    title: event.title,
+    start: instant(start),
+    end: instant(end),
+    allDay: event.kind === "allDay",
+    ...(event.kind === "allDay" ? { date: instant(event.start).slice(0, 10) } : {}),
+  };
+}
+
+/**
  * The stored occurrences that have not ended and start within the next seven
  * days, with floating and all-day times placed in `timeZone` (which must pass
  * `isTimeZone`). Unsorted.
@@ -1703,13 +1722,7 @@ export function upcomingEvents(stored: StoredEvent[], now: Date, timeZone: strin
     if (start >= horizon) continue;
     // An event without a length (no DTEND) is over the moment it starts.
     if (end === start ? start < nowSeconds : end <= nowSeconds) continue;
-    upcoming.push({
-      title: event.title,
-      start: instant(start),
-      end: instant(end),
-      allDay: event.kind === "allDay",
-      ...(event.kind === "allDay" ? { date: instant(event.start).slice(0, 10) } : {}),
-    });
+    upcoming.push(placeEvent(event, timeZone));
   }
   return upcoming;
 }
@@ -1799,17 +1812,7 @@ export function dayEvents(stored: StoredEvent[], wall: number, timeZone: string)
   const overlaps = overlapsDay(wall, timeZone);
   const found: UpcomingEvent[] = [];
   for (const event of stored) {
-    if (!overlaps(event)) continue;
-    const placed = event.kind !== "instant";
-    const start = placed ? wallToEpoch(event.start, timeZone) : event.start;
-    const end = placed ? wallToEpoch(event.end, timeZone) : event.end;
-    found.push({
-      title: event.title,
-      start: instant(start),
-      end: instant(end),
-      allDay: event.kind === "allDay",
-      ...(event.kind === "allDay" ? { date: instant(event.start).slice(0, 10) } : {}),
-    });
+    if (overlaps(event)) found.push(placeEvent(event, timeZone));
   }
   return found;
 }
