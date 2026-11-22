@@ -146,13 +146,19 @@ struct SeasignAPI: Sendable {
     /// cannot be read is reported in `calendars`, not thrown. Not sent over
     /// plain http when `keyNeedsHTTPS` is on (as `googleCalendars`). Throws a
     /// `GoogleFailure`.
-    func googleEvents(token: GoogleSecret, calendars: [String], timezone: String?) async throws -> GoogleEventsAnswer {
+    ///
+    /// `day` (`YYYY-MM-DD` in `timezone`, today or one of the next six days)
+    /// asks instead for every event that overlaps that day, ended ones
+    /// included (the day screen). Any other date is the 400
+    /// (`invalidRequest`). Left out of the body when nil, so Today's
+    /// requests look as they always have.
+    func googleEvents(token: GoogleSecret, calendars: [String], timezone: String?, day: String? = nil) async throws -> GoogleEventsAnswer {
         guard secretMayBeSent else { throw GoogleFailure.unavailable }
         let output: Operations.postGoogleEvents.Output
         do {
             output = try await client.postGoogleEvents(
                 headers: .init(x_hyphen_google_hyphen_token: token.secret),
-                body: .json(.init(calendars: calendars, timezone: timezone))
+                body: .json(.init(calendars: calendars, timezone: timezone, day: day))
             )
         } catch {
             if let delay = ServerRateLimit.delay(after: error) { throw GoogleFailure.rateLimited(retryAfter: delay) }
@@ -327,11 +333,16 @@ struct SeasignAPI: Sendable {
     /// from its 5-minute cache: for a pull, adding a link and a return to the
     /// foreground, never for the scheduled checks. It is left out of the body
     /// when false, so a scheduled request looks as it always has.
-    func calendarEvents(links: [String], timezone: String?, fresh: Bool = false) async throws -> CalendarAnswer {
+    ///
+    /// `day` (`YYYY-MM-DD` in `timezone`, today or one of the next six days)
+    /// asks instead for every event that overlaps that day, ended ones
+    /// included (the day screen). Any other date is the 400
+    /// (`invalidRequest`). Left out of the body when nil.
+    func calendarEvents(links: [String], timezone: String?, fresh: Bool = false, day: String? = nil) async throws -> CalendarAnswer {
         let output: Operations.postCalendarEvents.Output
         do {
             output = try await client.postCalendarEvents(
-                body: .json(.init(links: links, timezone: timezone, fresh: fresh ? true : nil))
+                body: .json(.init(links: links, timezone: timezone, fresh: fresh ? true : nil, day: day))
             )
         } catch {
             // The error is dropped on purpose: its description includes the request.

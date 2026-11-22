@@ -319,6 +319,23 @@ struct TodayOverlayLayout {
         return TodayType.dayName(size)
     }
 
+    // MARK: The day screen
+
+    /// Where a tap opens the day screen (task 170): the events box, from its
+    /// fixed top down to the hairline. The same place when there is no box
+    /// (no events and no zip prompt), so it can always be tapped; never
+    /// under 44 points tall (the hairline sits at least 16 points under the
+    /// temperature, well over 44 below the box's top).
+    var eventsTarget: CGRect {
+        let top = Mockup.boxTop * scale
+        return CGRect(
+            x: Mockup.boxLeft * scale,
+            y: top,
+            width: (Mockup.boxRight - Mockup.boxLeft) * scale,
+            height: max(44, hairlineY - top)
+        )
+    }
+
     // MARK: Pull spinners
 
     /// The frame of each pull's spinner, in points (not scaled).

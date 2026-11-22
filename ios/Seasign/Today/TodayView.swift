@@ -42,10 +42,16 @@ struct TodayView: View {
     /// `-debugOpenSettings YES`: Settings opens over Today at launch, for
     /// screenshots when UI automation cannot reach the always-moving scene.
     @AppStorage("debugOpenSettings") private var debugOpenSettings = false
+    /// `-debugOpenDay YES`: the day screen opens over Today at launch.
+    @AppStorage("debugOpenDay") private var debugOpenDay = false
+    /// `-debugDayButtons YES`: the day screen shows its mic and + buttons,
+    /// which do nothing yet. Until tasks 171 and 172 wire them, they are
+    /// hidden otherwise, so the app never shows a dead button.
+    @AppStorage("debugDayButtons") private var debugDayButtons = false
     #endif
 
     enum Destination: String, Identifiable {
-        case settings, doGet, saved, history
+        case settings, doGet, saved, history, day
         var id: String { rawValue }
     }
 
@@ -59,6 +65,7 @@ struct TodayView: View {
         #if DEBUG
         .onAppear {
             if debugOpenSettings { destination = .settings }
+            if debugOpenDay { destination = .day }
         }
         #endif
         .task {
@@ -137,6 +144,8 @@ struct TodayView: View {
                 SavedView(timeZone: headlineZone)
             case .history:
                 HistoryView(timeZone: headlineZone)
+            case .day:
+                dayView
             }
         }
         .fullScreenCover(item: $reading) { entry in
@@ -252,7 +261,8 @@ struct TodayView: View {
                 EventsColumn(
                     layout: layout,
                     ink: ink,
-                    zipPrompt: model.zip == nil ? { destination = .settings } : nil
+                    zipPrompt: model.zip == nil ? { destination = .settings } : nil,
+                    openDay: { destination = .day }
                 )
 
                 // The hairline that closes the header.
@@ -379,6 +389,21 @@ struct TodayView: View {
             timeZone: eventZone,
             clock: clockStyle
         )
+    }
+
+    /// The day screen, reading in the same zone as Today's events. The mic
+    /// and + are wired by tasks 171 and 172; until then they are shown only
+    /// with `-debugDayButtons YES` (and do nothing).
+    private var dayView: some View {
+        let today = model
+        let day = DayModel(events: events, google: google) {
+            EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent)
+        }
+        #if DEBUG
+        return DayView(model: day, speak: debugDayButtons ? {} : nil, type: debugDayButtons ? {} : nil)
+        #else
+        return DayView(model: day)
+        #endif
     }
 
     /// How often Today polls Google now, or nil when it does not

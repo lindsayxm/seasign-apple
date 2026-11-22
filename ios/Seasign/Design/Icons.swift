@@ -13,6 +13,11 @@ enum LineIcon: CaseIterable {
     case history
     /// `∀`, for all publications: opens the 7-day history (design v11).
     case allPublications
+    /// A microphone, a capsule in a cradle on a stem: adds an event by
+    /// voice on the day screen.
+    case mic
+    /// `+`: adds an event by typing on the day screen.
+    case plus
 
     func path(in rect: CGRect) -> Path {
         let side = min(rect.width, rect.height)
@@ -71,6 +76,26 @@ enum LineIcon: CaseIterable {
             path.addLine(to: point(0.92, 0.04))
             path.move(to: point(0.226, 0.36))
             path.addLine(to: point(0.774, 0.36))
+        case .mic:
+            path.addRoundedRect(
+                in: CGRect(x: origin.x + 0.34 * side, y: origin.y, width: 0.32 * side, height: 0.6 * side),
+                cornerSize: CGSize(width: 0.16 * side, height: 0.16 * side)
+            )
+            // The cradle: a half circle under the capsule, open at the top.
+            path.move(to: point(0.18, 0.42))
+            path.addArc(
+                center: point(0.5, 0.42), radius: 0.32 * side,
+                startAngle: .degrees(180), endAngle: .degrees(0), clockwise: true
+            )
+            path.move(to: point(0.5, 0.74))
+            path.addLine(to: point(0.5, 0.98))
+            path.move(to: point(0.32, 0.98))
+            path.addLine(to: point(0.68, 0.98))
+        case .plus:
+            path.move(to: point(0.5, 0.04))
+            path.addLine(to: point(0.5, 0.96))
+            path.move(to: point(0.04, 0.5))
+            path.addLine(to: point(0.96, 0.5))
         }
         return path
     }

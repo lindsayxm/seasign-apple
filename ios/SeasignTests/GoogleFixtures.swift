@@ -166,6 +166,8 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
         var timezone: String?
         var deviceToken: String? = nil
         var environment: String? = nil
+        /// The body's `day`; nil when it was left out.
+        var day: String? = nil
     }
 
     private struct Gate {
@@ -250,6 +252,7 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
             entry.timezone = object?["timezone"] as? String
             entry.deviceToken = object?["deviceToken"] as? String
             entry.environment = object?["environment"] as? String
+            entry.day = object?["day"] as? String
         }
         let waits = lock.withLock { () -> Bool in
             recorded.append(entry)

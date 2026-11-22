@@ -82,6 +82,8 @@ final class CalendarStub: ClientTransport, @unchecked Sendable {
         var timezone: String?
         /// The body's `fresh`; nil when it was left out.
         var fresh: Bool? = nil
+        /// The body's `day`; nil when it was left out.
+        var day: String? = nil
     }
 
     private let lock = NSLock()
@@ -126,6 +128,7 @@ final class CalendarStub: ClientTransport, @unchecked Sendable {
             sent.links = object?["links"] as? [String] ?? []
             sent.timezone = object?["timezone"] as? String
             sent.fresh = object?["fresh"] as? Bool
+            sent.day = object?["day"] as? String
         }
         let (offline, table, fixed) = lock.withLock {
             recorded.append(sent)

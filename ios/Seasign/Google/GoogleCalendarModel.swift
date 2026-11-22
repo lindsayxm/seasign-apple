@@ -616,6 +616,73 @@ final class GoogleCalendarModel {
         return setSnapshot(fresh) ? .changed : .unchanged
     }
 
+    // MARK: The day screen (task 170)
+
+    /// What `dayEvents` came to.
+    enum DayRead: Equatable {
+        /// No Google events to show: not connected, or no calendar on.
+        case off
+        /// Nothing was asked: a hold is on, or the answer arrived after a
+        /// disconnect, a reconnect or a change of calendars, or was cancelled.
+        case skipped
+        /// The chosen calendars' answer; `calendars` are the choices' ids in
+        /// the order their Google ids were sent.
+        case answer(GoogleEventsAnswer, calendars: [UUID])
+        /// The API refused the request (400). For a day request that is
+        /// most likely the day being out of range: a request for today sent
+        /// just before midnight that arrived after it. The caller works out
+        /// the date again; nothing is held back and no status is set.
+        case refused
+        /// The request failed as a whole; handled as Today's poll handles a
+        /// failure (token renewal, holds, back-off, the sign-in ending).
+        case failed
+    }
+
+    /// Whether this is the DEBUG sample (`-debugGoogle YES`), which asks
+    /// nothing. Always false in a Release build.
+    var isSample: Bool {
+        isFrozen
+    }
+
+    /// The day screen's read: every event of the chosen calendars that
+    /// overlaps `day` (`YYYY-MM-DD` in `timezone`), ended ones included.
+    /// Goes through the same token renewal and failure handling as Today's
+    /// poll, and is held back by the same holds, but never touches Today's
+    /// snapshot, its cache or its poll state.
+    func dayEvents(day: String, timezone: String) async -> DayRead {
+        guard !isFrozen, connection == .connected, access != nil else { return .off }
+        let on = chosen
+        guard !on.isEmpty else { return .off }
+        if let retryNotBefore, now() < retryNotBefore { return .skipped }
+        let started = generation
+        let ids = on.map(\.id)
+        let googleIDs = on.map(\.calendarID)
+        let answer: GoogleEventsAnswer
+        do {
+            answer = try await withToken { api, token in
+                try await api.googleEvents(token: token, calendars: googleIDs, timezone: timezone, day: day)
+            }
+        } catch {
+            // Cancelled (the day screen closed, the app left the
+            // foreground): not a failure, as in `fetch`.
+            guard started == generation, !Task.isCancelled else { return .skipped }
+            // Not `handle`: a day refused at midnight must not put Today's
+            // poll into back-off or show a problem in Settings.
+            if case SeasignAPI.GoogleFailure.invalidRequest? = error as? SeasignAPI.GoogleFailure { return .refused }
+            handle(error)
+            return .failed
+        }
+        guard started == generation, ids == chosen.map(\.id) else { return .skipped }
+        // Google answered: as after a successful poll, the failures are over.
+        failures = 0
+        statusProblem = nil
+        retryNotBefore = nil
+        if answer.calendars.contains(where: { $0.error == .rateLimited }) {
+            hold(Self.googleRateLimitHold)
+        }
+        return .answer(answer, calendars: ids)
+    }
+
     // MARK: Push
 
     /// A background push from the Worker (`type` from its payload). For

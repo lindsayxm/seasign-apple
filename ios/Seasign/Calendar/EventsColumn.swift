@@ -13,11 +13,19 @@ import SwiftUI
 /// broken between characters, and every drawn line is also held to the
 /// column's width. With no events and no prompt there is no box. This view
 /// fills the screen and draws at the layout's positions.
+///
+/// The whole box is one button that opens the day screen (task 170), also
+/// where the box would be when there is none (`eventsTarget`). It lies under
+/// the rows and the zip prompt, so the prompt keeps its own taps. It fires
+/// on a tap only (`TapOnlyButtonStyle`), so a pull that starts on the box
+/// pulls and never opens the day screen.
 struct EventsColumn: View {
     var layout: TodayOverlayLayout
     var ink: Color
     /// Set while no zip is saved; opens Settings.
     var zipPrompt: (() -> Void)?
+    /// Opens the day screen.
+    var openDay: (() -> Void)?
 
     private var s: CGFloat { layout.scale }
     private var line: CGFloat { TodayOverlayLayout.Mockup.line * s }
@@ -38,9 +46,15 @@ struct EventsColumn: View {
                     .placed(x: box.minX, y: box.minY)
                     .accessibilityHidden(true)
             }
-            // By position: two identical events would share an id.
+            if let openDay {
+                dayButton(action: openDay)
+            }
+            // By position: two identical events would share an id. Taps
+            // fall through to the day button under them; VoiceOver still
+            // reads each row.
             ForEach(Array(layout.rows.enumerated()), id: \.offset) { _, row in
                 eventRow(row)
+                    .allowsHitTesting(false)
                     .placed(x: boxX, y: row.top)
             }
             if let prompt = layout.prompt, let zipPrompt {
@@ -85,6 +99,20 @@ struct EventsColumn: View {
         .accessibilityLabel(Text(verbatim: row.label.spoken))
     }
 
+    /// The whole box (or its place) as one button.
+    private func dayButton(action: @escaping () -> Void) -> some View {
+        let target = layout.eventsTarget
+        return Button(action: action) {
+            Color.clear
+                .frame(width: target.width, height: target.height)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(TapOnlyButtonStyle())
+        .accessibilityLabel("Today's calendar")
+        .accessibilityHint("Shows all of today's events")
+        .placed(x: target.minX, y: target.minY)
+    }
+
     /// How far the prompt's 44-point target reaches above its row.
     private func promptInset(_ prompt: TodayOverlayLayout.PromptRow) -> CGFloat {
         max(0, (44 - prompt.height) / 2)
@@ -122,5 +150,15 @@ struct EventsColumn: View {
             .fill(ink.opacity(0.6))
             .frame(width: 1, height: height)
             .placed(x: layout.ruleX - boxX, y: 0)
+    }
+}
+
+/// A button that fires on a tap only: a touch that moves (the pull on
+/// Today) fails the tap, whatever the button's size, so a drag that starts
+/// and ends inside it does not fire it. VoiceOver activates it as any button.
+struct TapOnlyButtonStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .onTapGesture { configuration.trigger() }
     }
 }

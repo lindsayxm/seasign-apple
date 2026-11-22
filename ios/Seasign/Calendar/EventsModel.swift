@@ -116,6 +116,12 @@ final class EventsModel {
         links.count < Self.maxLinks
     }
 
+    /// Whether this is the DEBUG sample (`-debugEvents YES`), whose links
+    /// are made up and must never be sent. Always false in a Release build.
+    var isSample: Bool {
+        isFrozen
+    }
+
     /// The next events for Today at `now`, in the events' time zone, with
     /// times in the phone's 12- or 24-hour form (`clock`). Empty while the
     /// cached events belong to another time zone.

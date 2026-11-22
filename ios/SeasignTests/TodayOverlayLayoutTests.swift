@@ -28,6 +28,27 @@ import UIKit
 
     private let sample = ["Hanna\u{2019}s show", "Submit work hours for studio payroll", "Brush pets teeth"]
 
+    /// Task 170: the whole box opens the day screen; with no box its place
+    /// still does, never under 44 points, and it never reaches the buttons
+    /// hung from the hairline.
+    @Test func theDayTargetIsTheBoxOrItsPlace() throws {
+        for titles in [[], ["Dentist"], sample] {
+            for prompt in [false, true] {
+                let layout = layout(titles, prompt: prompt)
+                let target = layout.eventsTarget
+                #expect(target.height >= 44)
+                #expect(target.width >= 44)
+                #expect(target.maxY <= layout.hairlineY + 0.001)
+                if let box = layout.box {
+                    #expect(target == box)
+                }
+                for center in layout.buttonCenters {
+                    #expect(!target.contains(CGPoint(x: center.x, y: center.y - 22)))
+                }
+            }
+        }
+    }
+
     @Test func theMockupSampleMatchesItsFigures() {
         let layout = layout(sample)
         #expect(layout.rows.map(\.lines.count) == [1, 2, 1])
