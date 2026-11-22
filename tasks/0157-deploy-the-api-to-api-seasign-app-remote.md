@@ -1,11 +1,11 @@
 ---
 id: 157
 title: Deploy the API to api.seasign.app: remote D1 and KV, migration, custom domain, APNs secrets, app base URL per build configuration
-status: in-progress
-owner: lead
+status: todo
+owner: 
 depends_on: [156]
 created: 2026-11-20T22:28:10Z
-updated: 2026-11-22T03:11:34Z
+updated: 2026-11-22T04:02:51Z
 ---
 
 ## Goal
@@ -40,3 +40,5 @@ Plan plans/2026-11-19-google-calendar-push.md, task D. Put the Worker on https:/
 - 2026-11-21T13:53:49Z [lead] Lead: read-only pre-deploy checks (cloudflare-api MCP, 2026-11-21). One account. seasign.app is an active zone in it (Free website plan), with zero DNS records, so api.seasign.app is free. The account has no Workers, no D1 databases and no KV namespaces, so rate-limit namespace IDs 19001-19007 cannot clash. Workers plan NOT determined: the subscriptions endpoint answers 403 for this connection; account settings show default_usage_model standard, which does not prove Paid. Ask the user to confirm Workers Paid (5 USD a month minimum) in the dashboard before deploy. Rate Limiting binding: docs still give no separate price (binding page dated 2026-11-12, pricing page); GA since 2025-09-19. Worker fetch to APNs over HTTP/2: docs still silent; stays a post-deploy check. Nothing was created or changed.
 - 2026-11-21T14:07:02Z [lead] Lead: carry into the deploy round (small API follow-ups from the #159 review, none blocking): the watch 500 text 'nothing was changed' is untrue when the batch commits and then throws (earlier channels are deleted but not stopped; fixing the text changes the spec); optionally race the APNs provider-token await against the 3 s deadline (apns.ts about 228); decision-record nit: after a commit-then-throw the sweep did run.
 - 2026-11-22T03:11:34Z [lead] Lead: for distribution (from the #158 review): the entitlement is aps-environment development while Release builds send environment production. A TestFlight/App Store build is re-signed with production and is fine; a Release build run from Xcode with development signing would send production with a sandbox device token, and pushes fail silently. When a distribution task is created, add a check or derive the environment from the embedded entitlement.
+- 2026-11-22T04:02:51Z [lead] Lead: user, 2026-11-21: 'we are not ready to deploy - i want to add more features first - please put the deploy tasks in to do for now'. Released to todo. The read-only pre-deploy findings and the follow-up notes above stand. The user has no Workers Paid plan; a Free-plan deploy was discussed (push routes fit; /v1/feed and large pasted calendars likely exceed 10 ms CPU; KV 1,000 writes a day) and not decided.
+- 2026-11-22T04:02:51Z [lead] status: in-progress → todo
