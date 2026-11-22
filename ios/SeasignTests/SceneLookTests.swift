@@ -92,14 +92,26 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         }
     }
 
-    @Test func starsHideOnlyInAClearDaySky() {
+    /// Task 161: no stars while the sun is up, whatever the weather; they
+    /// fade out through sunrise and in through sunset.
+    @Test func starsShowOnlyFromSunsetToSunrise() {
         #expect(scene().starStrength == 0)
         #expect(!scene().showsStars)
         #expect(scene(clouds: .few).starStrength == 0)
-        #expect(scene(clouds: .overcast).starStrength == 0.95)
-        #expect(scene(precipitation: .rain(.light)).starStrength == 0.95)
-        #expect(scene(sun: .up(progress: 0.01)).starStrength == 0.95)
-        #expect(scene(sun: .up(progress: 0.99)).starStrength == 0.95)
+        #expect(scene(clouds: .overcast).starStrength == 0)
+        #expect(scene(precipitation: .rain(.light)).starStrength == 0)
+        #expect(scene(precipitation: .snow(.light)).starStrength == 0)
+        // Sunrise: strongest on the horizon, gone where the look ends.
+        #expect(scene(sun: .up(progress: 0)).starStrength == 0.95)
+        #expect(abs(scene(sun: .up(progress: 0.06)).starStrength - 0.475) < 1e-9)
+        #expect(scene(sun: .up(progress: 0.1199)).starStrength < 0.01)
+        #expect(scene(sun: .up(progress: 0.12)).starStrength == 0)
+        // Sunset: the same, mirrored.
+        #expect(scene(sun: .up(progress: 0.88)).starStrength == 0)
+        #expect(abs(scene(sun: .up(progress: 0.94)).starStrength - 0.475) < 1e-9)
+        #expect(scene(sun: .up(progress: 1)).starStrength == 0.95)
+        // Weather does not bring them back at a low sun's far end either.
+        #expect(scene(sun: .up(progress: 0.5), precipitation: .rain(.light), clouds: .overcast).starStrength == 0)
         #expect(scene(sun: night).starStrength == 1.25)
         #expect(scene(sun: .down(sinceSet: 20 * 60, untilRise: 50_000)).starStrength == 1.25)
     }

@@ -64,8 +64,8 @@ struct SceneState: Equatable, Sendable {
     /// moon more than 97 % lit, night otherwise.
     var look: SceneLook {
         if let placement = sunPlacement {
-            if placement.progress < 0.12 { return .sunrise }
-            if placement.progress > 0.88 { return .sunset }
+            if placement.progress < Self.lowSunShare { return .sunrise }
+            if placement.progress > 1 - Self.lowSunShare { return .sunset }
             switch precipitation {
             case .rain: return .rain
             case .snow: return .snow
@@ -83,14 +83,31 @@ struct SceneState: Equatable, Sendable {
     /// The one highlight colour of the screen.
     var ink: SceneRGB { look.ink }
 
-    /// How bright the stars are drawn (the mockup's multipliers): full at
-    /// night, a little less with the sun low or behind weather, none in a
-    /// clear (or few-cloud) day sky away from sunrise and sunset.
+    /// The share of the sun's path, at each end, that has the sunrise or
+    /// sunset look.
+    static let lowSunShare = 0.12
+
+    /// The stars' strength with the sun on the horizon (the mockup's
+    /// multiplier for its sunrise and sunset looks).
+    static let lowSunStarStrength = 0.95
+
+    /// How bright the stars are drawn: full once the sun is down; none while
+    /// it is up, whatever the weather, except that they fade out through the
+    /// sunrise look (from `lowSunStarStrength` at the horizon to nothing
+    /// where the look ends) and fade in the same way through the sunset look
+    /// (task 161: no stars in a daytime sky).
     var starStrength: Double {
         switch look {
-        case .dusk, .night, .full: 1.25
-        case .sunrise, .sunset, .cloudy, .rain, .snow: 0.95
-        case .day: 0
+        case .dusk, .night, .full:
+            return 1.25
+        case .day, .cloudy, .rain, .snow:
+            return 0
+        case .sunrise:
+            let progress = sunPlacement?.progress ?? 0
+            return Self.lowSunStarStrength * min(1, max(0, 1 - progress / Self.lowSunShare))
+        case .sunset:
+            let progress = sunPlacement?.progress ?? 1
+            return Self.lowSunStarStrength * min(1, max(0, 1 - (1 - progress) / Self.lowSunShare))
         }
     }
 
