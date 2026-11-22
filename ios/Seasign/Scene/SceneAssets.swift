@@ -59,6 +59,7 @@ struct SceneBits: Sendable {
 
     /// From the middle of the horizon to past the top corners.
     static let far = 540.0
+    static let starCount = 2600
 
     static let shared = SceneBits()
 
@@ -69,29 +70,18 @@ struct SceneBits: Sendable {
         var wrnd = Mulberry32(seed: 703)
         var grnd = Mulberry32(seed: 704)
 
-        let clumps: [(Double, Double, Double)] = (0..<11).map { _ in
-            let a = srnd.next() * tau
-            let d = Self.far * (0.25 + 0.7 * srnd.next())
-            return (d * cos(a), d * sin(a), 28 + srnd.next() * 60)
-        }
-        stars = (0..<2600).map { _ in
-            var px: Double
-            var py: Double
-            if srnd.next() < 0.45 {
-                let c = clumps[Int(srnd.next() * Double(clumps.count))]
-                px = c.0 + (srnd.next() + srnd.next() + srnd.next() - 1.5) * c.2
-                py = c.1 + (srnd.next() + srnd.next() + srnd.next() - 1.5) * c.2
-            } else {
-                let a = srnd.next() * tau
-                let d = Self.far * srnd.next().squareRoot()
-                px = d * cos(a)
-                py = d * sin(a)
-            }
+        // Every star is spread evenly over the wheel's disc (task 163). The
+        // mockup put 45 % of them in eleven clumps; on the turning wheel a
+        // clump passing the moon read as stars gathering round it, so the
+        // app's field no longer matches the v11 stills star for star.
+        stars = (0..<Self.starCount).map { _ in
+            let angle = srnd.next() * tau
+            let distance = Self.far * srnd.next().squareRoot()
             let size = 0.6 + srnd.next() * srnd.next() * 2.0
             let phase = srnd.next() * tau
             let violet = srnd.next() < 0.13
             return Star(
-                angle: atan2(py, px), distance: (px * px + py * py).squareRoot(),
+                angle: angle, distance: distance,
                 size: size, phase: phase, violet: violet, base: 0.6 + 0.4 * sceneHash(phase * 3.3)
             )
         }

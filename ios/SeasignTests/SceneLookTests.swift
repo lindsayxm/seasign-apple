@@ -497,4 +497,28 @@ private let night = SkyBodyState.down(sinceSet: 4 * hour, untilRise: 9 * hour)
         let neutral = SceneState.make(snapshot: nil, now: instant("2026-11-16T17:00:00Z"), deviceTimeZone: newYork)
         #expect(neutral.accessibilityDescription(clock: .twelveHour) == "The sun is up over the water.")
     }
+
+    /// Task 163: the stars are spread evenly over the wheel's disc, with no
+    /// clump for the turning wheel to carry past the moon. The disc is cut
+    /// into 48 cells of equal area (4 rings by 12 sectors); an even spread
+    /// puts about 54 stars in each, and the mockup's clumps put 150 or more
+    /// in some.
+    @Test func theStarFieldHasNoClumps() {
+        let stars = SceneBits.shared.stars
+        #expect(stars.count == SceneBits.starCount)
+        let rings = 4
+        let sectors = 12
+        var cells = [Int](repeating: 0, count: rings * sectors)
+        for star in stars {
+            #expect(star.distance >= 0 && star.distance <= SceneBits.far)
+            let share = (star.distance / SceneBits.far) * (star.distance / SceneBits.far)
+            let ring = min(rings - 1, Int(share * Double(rings)))
+            let turn = (star.angle / (2 * .pi)).truncatingRemainder(dividingBy: 1)
+            let sector = min(sectors - 1, Int((turn < 0 ? turn + 1 : turn) * Double(sectors)))
+            cells[ring * sectors + sector] += 1
+        }
+        let even = Double(stars.count) / Double(cells.count)
+        #expect(Double(cells.max() ?? 0) < even * 1.6)
+        #expect(Double(cells.min() ?? 0) > even * 0.5)
+    }
 }
