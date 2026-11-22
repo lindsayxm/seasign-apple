@@ -1186,7 +1186,7 @@
           },
           "timezone": {
             "type": "string",
-            "description": "IANA time zone the event is meant in. Google keeps it with a timed event; the answer places an all-day event's midnights in it",
+            "description": "IANA time zone name the event is meant in (`UTC`, or Area/Location such as America/New_York; offsets such as +05:00 and abbreviations such as EST are refused). Google keeps it with a timed event; the answer places an all-day event's midnights in it",
             "example": "America/New_York"
           },
           "start": {

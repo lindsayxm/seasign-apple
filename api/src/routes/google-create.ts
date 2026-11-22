@@ -1,10 +1,11 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import { dayWall, isTimeZone, placeEvent } from "../lib/calendar.ts";
+import { dayWall, placeEvent } from "../lib/calendar.ts";
 import { GoogleFailure, postGoogleJson, storedEventOf, withGoogleDeadline } from "../lib/google.ts";
 import { retryAfterHeader } from "../lib/rate-limit.ts";
 import { isJsonContentType } from "../lib/site-reader.ts";
 import { CalendarEventSchema } from "./calendar.ts";
+import { isIanaZone } from "./discover.ts";
 import { GoogleHeadersSchema, MAX_ID_LENGTH, isCalendarId } from "./google.ts";
 
 // Creating one event in a Google calendar the user owns (plan
@@ -89,9 +90,11 @@ const GoogleCreateEventRequestSchema = z
       description: "The event's title, 1 to 200 characters once white space at either end is removed; no control characters such as line breaks",
       example: "Meeting with Rahaf",
     }),
-    timezone: z.string().refine(isTimeZone).openapi({
+    // The stricter shape check from /v1/discover: the name is sent on to
+    // Google, and Intl alone accepts +05:00, EST and lower-case spellings.
+    timezone: z.string().refine(isIanaZone).openapi({
       description:
-        "IANA time zone the event is meant in. Google keeps it with a timed event; the answer places an all-day event's midnights in it",
+        "IANA time zone name the event is meant in (`UTC`, or Area/Location such as America/New_York; offsets such as +05:00 and abbreviations such as EST are refused). Google keeps it with a timed event; the answer places an all-day event's midnights in it",
       example: "America/New_York",
     }),
     start: instantField("For a timed event: when it starts, RFC 3339 to the second with Z or an offset. Send `end` with it and leave out `date`", "2026-11-22T15:00:00-05:00"),
