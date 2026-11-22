@@ -9,9 +9,20 @@ import SwiftData
 final class GoogleAccount {
     /// A `GoogleConnection` raw value.
     var stateRaw: String
+    /// The scopes Google granted, sorted and joined by spaces
+    /// (`GoogleOAuthConfig.joined`). Nil for a connection made before the
+    /// sign-in asked for write access (task 169), or when Google's answer did
+    /// not say: read-only, no adding events. Set from each code exchange and
+    /// from any token answer that names the scopes.
+    var grantedScopes: String?
+    /// Google's id of the calendar new events go to, when the user chose
+    /// one; nil means the primary calendar.
+    var newEventsCalendarID: String?
 
-    init(stateRaw: String) {
+    init(stateRaw: String, grantedScopes: String? = nil, newEventsCalendarID: String? = nil) {
         self.stateRaw = stateRaw
+        self.grantedScopes = grantedScopes
+        self.newEventsCalendarID = newEventsCalendarID
     }
 }
 
@@ -29,20 +40,37 @@ final class GoogleCalendarChoice {
     var isOn: Bool
     /// Position in Google's list (primary first).
     var order: Int
+    /// A `GoogleAccessRole` raw value from the last calendar list read; nil
+    /// when unknown (stored before task 169, or Google gave none), and then
+    /// the calendar is not offered for new events.
+    var accessRoleRaw: String?
 
-    init(id: UUID = UUID(), calendarID: String, name: String, isPrimary: Bool, isOn: Bool, order: Int) {
+    init(
+        id: UUID = UUID(), calendarID: String, name: String, isPrimary: Bool, isOn: Bool, order: Int,
+        accessRole: GoogleAccessRole? = nil
+    ) {
         self.id = id
         self.calendarID = calendarID
         self.name = name
         self.isPrimary = isPrimary
         self.isOn = isOn
         self.order = order
+        accessRoleRaw = accessRole?.rawValue
     }
 
     /// The name to show: the calendar's own, else its id.
     var displayName: String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? calendarID : trimmed
+    }
+
+    var accessRole: GoogleAccessRole? {
+        accessRoleRaw.flatMap(GoogleAccessRole.init(rawValue:))
+    }
+
+    /// Whether new events may go to this calendar (`GoogleAccessRole.takesNewEvents`).
+    var takesNewEvents: Bool {
+        accessRole?.takesNewEvents ?? false
     }
 }
 
@@ -225,6 +253,25 @@ enum GoogleCalendarMerge {
     }
 }
 
+/// Which calendar a new event goes to.
+enum GoogleNewEventsCalendar {
+    /// The calendars offered, in Google's order: those that take new events
+    /// (`GoogleAccessRole.takesNewEvents`; an unknown role is not offered).
+    static func offered(_ calendars: [GoogleCalendarChoice]) -> [GoogleCalendarChoice] {
+        calendars.filter(\.takesNewEvents)
+    }
+
+    /// The chosen calendar (`storedID`, Google's id) while it is still
+    /// offered; otherwise the primary calendar if it is offered; otherwise
+    /// none. A choice whose calendar left the list or whose role dropped
+    /// falls back to the primary without being forgotten.
+    static func resolve(_ calendars: [GoogleCalendarChoice], storedID: String?) -> GoogleCalendarChoice? {
+        let offered = offered(calendars)
+        if let storedID, let chosen = offered.first(where: { $0.calendarID == storedID }) { return chosen }
+        return offered.first(where: \.isPrimary)
+    }
+}
+
 /// Reads and writes the Google connection state and calendar choices (user
 /// store) and the cached Google events (cache store) in SwiftData.
 @MainActor
@@ -236,11 +283,19 @@ struct GoogleCalendarStore {
         return GoogleConnection(rawValue: row.stateRaw) ?? .notConnected
     }
 
+    /// Not connected deletes the row (and with it the stored scopes and the
+    /// calendar for new events); otherwise the one row is updated in place,
+    /// so those survive an ended sign-in, as the calendar choices do.
     func setConnection(_ state: GoogleConnection) {
-        let rows = (try? context.fetch(FetchDescriptor<GoogleAccount>())) ?? []
-        for row in rows { context.delete(row) }
-        if state != .notConnected {
+        var rows = (try? context.fetch(FetchDescriptor<GoogleAccount>())) ?? []
+        if state == .notConnected {
+            for row in rows { context.delete(row) }
+        } else if rows.isEmpty {
             context.insert(GoogleAccount(stateRaw: state.rawValue))
+        } else {
+            let first = rows.removeFirst()
+            for row in rows { context.delete(row) }
+            first.stateRaw = state.rawValue
         }
         save()
     }
@@ -267,13 +322,44 @@ struct GoogleCalendarStore {
                 choice.isPrimary = row.entry.primary
                 choice.isOn = row.isOn
                 choice.order = order
+                choice.accessRoleRaw = row.entry.accessRole?.rawValue
             } else {
                 context.insert(GoogleCalendarChoice(
                     id: row.id, calendarID: row.entry.id, name: row.entry.name,
-                    isPrimary: row.entry.primary, isOn: row.isOn, order: order
+                    isPrimary: row.entry.primary, isOn: row.isOn, order: order,
+                    accessRole: row.entry.accessRole
                 ))
             }
         }
+        save()
+    }
+
+    private var account: GoogleAccount? {
+        try? context.fetch(FetchDescriptor<GoogleAccount>()).first
+    }
+
+    /// The scopes stored for the connection; nil when unknown (read-only).
+    var grantedScopes: Set<String>? {
+        GoogleOAuthConfig.split(account?.grantedScopes)
+    }
+
+    /// Stores `scopes` (nil: unknown) if they differ from what is stored.
+    func setGrantedScopes(_ scopes: Set<String>?) {
+        guard let account else { return }
+        let text = scopes.map(GoogleOAuthConfig.joined)
+        guard account.grantedScopes != text else { return }
+        account.grantedScopes = text
+        save()
+    }
+
+    /// Google's id of the calendar the user chose for new events, if any.
+    var newEventsCalendarID: String? {
+        account?.newEventsCalendarID
+    }
+
+    func setNewEventsCalendarID(_ id: String?) {
+        guard let account, account.newEventsCalendarID != id else { return }
+        account.newEventsCalendarID = id
         save()
     }
 

@@ -14,7 +14,11 @@ enum FakeGoogle {
     static let access2 = "fake-access-token-two/not+real="
     static let refresh = "fake-refresh-token/not+real"
     static let code = "fake-auth-code/not+real"
-    static let bothScopes = GoogleOAuthConfig.scopes.joined(separator: " ")
+    /// Everything the sign-in asks for: both read scopes and the write scope.
+    static let allScopes = GoogleOAuthConfig.scopes.joined(separator: " ")
+    /// The two read scopes only: write access unticked on Google's page, or
+    /// a connection made before write access was asked for.
+    static let readOnlyScopes = GoogleOAuthConfig.readScopes.joined(separator: " ")
 }
 
 /// Stands in for Google's token and revoke endpoints. Answers each grant
@@ -40,8 +44,10 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
     private var gates: [CheckedContinuation<Void, Never>] = []
     private var heldGrants: Set<String> = []
 
-    static func tokens(access: String = FakeGoogle.access, refresh: String? = FakeGoogle.refresh, expiresIn: Int = 3599, scope: String = FakeGoogle.bothScopes) -> Answer {
-        var object: [String: Any] = ["access_token": access, "expires_in": expiresIn, "token_type": "Bearer", "scope": scope]
+    /// `scope` nil leaves the field out.
+    static func tokens(access: String = FakeGoogle.access, refresh: String? = FakeGoogle.refresh, expiresIn: Int = 3599, scope: String? = FakeGoogle.allScopes) -> Answer {
+        var object: [String: Any] = ["access_token": access, "expires_in": expiresIn, "token_type": "Bearer"]
+        object["scope"] = scope
         object["refresh_token"] = refresh
         let data = try! JSONSerialization.data(withJSONObject: object)
         return Answer(status: 200, json: String(decoding: data, as: UTF8.self))
@@ -309,7 +315,16 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
     static let pushKey = "push"
 
     static func calendars(_ list: [(id: String, name: String, primary: Bool)]) -> Answer {
-        let items = list.map { ["id": $0.id, "name": $0.name, "primary": $0.primary, "selected": true] as [String: Any] }
+        calendars(roles: list.map { ($0.id, $0.name, $0.primary, nil) })
+    }
+
+    /// A calendar list with Google's `accessRole` per calendar (nil leaves it out).
+    static func calendars(roles list: [(id: String, name: String, primary: Bool, role: String?)]) -> Answer {
+        let items = list.map { entry -> [String: Any] in
+            var item: [String: Any] = ["id": entry.id, "name": entry.name, "primary": entry.primary, "selected": true]
+            item["accessRole"] = entry.role
+            return item
+        }
         let data = try! JSONSerialization.data(withJSONObject: ["calendars": items])
         return Answer(status: .ok, json: String(decoding: data, as: UTF8.self))
     }

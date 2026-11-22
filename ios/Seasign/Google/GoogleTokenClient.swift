@@ -16,11 +16,18 @@ struct GoogleTokens: Sendable, Equatable {
     /// than were asked for).
     var scopes: Set<String>?
 
-    /// Whether every scope the app needs was granted. An answer without a
-    /// `scope` field is taken as granting what was asked.
+    /// Whether both read scopes, which every connection needs, were granted.
+    /// An answer without a `scope` field is taken as granting them. The
+    /// write scope is not needed to connect.
     var grantsNeededScopes: Bool {
         guard let scopes else { return true }
-        return Set(GoogleOAuthConfig.scopes).isSubset(of: scopes)
+        return Set(GoogleOAuthConfig.readScopes).isSubset(of: scopes)
+    }
+
+    /// Whether this answer says the write scope was granted. An answer
+    /// without a `scope` field never does.
+    var grantsWriteScope: Bool {
+        GoogleOAuthConfig.allowsAddingEvents(scopes)
     }
 }
 

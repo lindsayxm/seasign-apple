@@ -368,6 +368,90 @@ import Testing
         #expect(try ModelContext(cacheOnly).fetch(FetchDescriptor<CachedGoogleEvents>()).count == 1)
     }
 
+    /// Task 169 added optional fields to `GoogleAccount` (granted scopes, the
+    /// calendar for new events) and `GoogleCalendarChoice` (access role).
+    /// Stores written with the schema just before that (the two models
+    /// declared again, as they were, in `Task168Schema`; every other model
+    /// as it is) open with nothing lost and neither file thrown away; the
+    /// connection reads as connected and polls, with no write access.
+    @Test func storesFromBeforeGoogleWriteAccessOpenAndKeepEverything() throws {
+        defer { cleanUp() }
+        let choiceID = UUID()
+        do {
+            let user: [any PersistentModel.Type] = [
+                Settings.self, ListItem.self, CalendarLink.self, Site.self, SavedItem.self, SearchCount.self,
+                Task168Schema.GoogleAccount.self, Task168Schema.GoogleCalendarChoice.self,
+            ]
+            let old = try ModelContainer(
+                for: Schema(user + SeasignSchema.cacheModels),
+                configurations: [
+                    ModelConfiguration("user", schema: Schema(user), url: files.user),
+                    ModelConfiguration("cache", schema: Schema(SeasignSchema.cacheModels), url: files.cache),
+                ]
+            )
+            let context = ModelContext(old)
+            context.insert(ListItem(kind: .get, title: "Oat milk", createdAt: instant("2026-11-15T12:00:00Z")))
+            context.insert(Settings(zip: "10001"))
+            context.insert(Task168Schema.GoogleAccount(stateRaw: "connected"))
+            context.insert(Task168Schema.GoogleCalendarChoice(
+                id: choiceID, calendarID: "me@example.test", name: "Me", isPrimary: true, isOn: true, order: 0
+            ))
+            context.insert(CachedGoogleEvents(payload: Data("{}".utf8), fetchedAt: .now))
+            try context.save()
+        }
+
+        do {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .kept)
+            let context = ModelContext(opened.container)
+            #expect(try titles(opened.container) == ["Oat milk"])
+            #expect(try context.fetch(FetchDescriptor<Settings>()).map(\.zip) == ["10001"])
+            #expect(try context.fetch(FetchDescriptor<CachedGoogleEvents>()).count == 1)
+            let account = try #require(try context.fetch(FetchDescriptor<GoogleAccount>()).first)
+            #expect(account.stateRaw == "connected")
+            #expect(account.grantedScopes == nil)
+            #expect(account.newEventsCalendarID == nil)
+            let choice = try #require(try context.fetch(FetchDescriptor<GoogleCalendarChoice>()).first)
+            #expect(choice.id == choiceID)
+            #expect(choice.isOn)
+            #expect(choice.accessRoleRaw == nil)
+
+            let model = GoogleCalendarModel(
+                api: SeasignAPI(serverURL: URL(string: "https://example.test")!, transport: GoogleAPIStub()),
+                context: context,
+                config: FakeGoogle.config,
+                tokens: InMemoryGoogleTokenStore(GoogleSecret(FakeGoogle.refresh)),
+                http: FakeGoogleEndpoint().http,
+                timeZone: { .gmt }
+            )
+            #expect(model.connection == .connected)
+            #expect(model.canPoll)
+            #expect(model.chosen.map(\.id) == [choiceID])
+            #expect(model.grantedScopes == nil)
+            #expect(!model.canAddEvents)
+            #expect(model.newEventsCalendar == nil)
+
+            account.grantedScopes = GoogleOAuthConfig.joined(Set(GoogleOAuthConfig.scopes))
+            account.newEventsCalendarID = "me@example.test"
+            choice.accessRoleRaw = GoogleAccessRole.owner.rawValue
+            try context.save()
+        }
+
+        let again = try LocalStore.open(files)
+        #expect(again.cache == .kept)
+        let context = ModelContext(again.container)
+        #expect(try context.fetch(FetchDescriptor<GoogleAccount>()).first?.newEventsCalendarID == "me@example.test")
+        #expect(try context.fetch(FetchDescriptor<GoogleCalendarChoice>()).first?.accessRole == .owner)
+        #expect(try titles(again.container) == ["Oat milk"])
+        // Still in the user store's file.
+        let userOnly = try ModelContainer(
+            for: Schema(SeasignSchema.userModels),
+            configurations: [ModelConfiguration("user", schema: Schema(SeasignSchema.userModels), url: files.user)]
+        )
+        let account = try #require(try ModelContext(userOnly).fetch(FetchDescriptor<GoogleAccount>()).first)
+        #expect(GoogleOAuthConfig.split(account.grantedScopes) == Set(GoogleOAuthConfig.scopes))
+    }
+
     /// A saved article and its notes are the user's: they survive the loss
     /// of the cache, where its feed item was.
     @Test func savedItemsSurviveABrokenCache() throws {
@@ -747,6 +831,39 @@ enum Task11Schema {
             self.notes = notes
             savedAt = .now
             updatedAt = .now
+        }
+    }
+}
+
+/// The two models task 169 changed, exactly as they were before it, for
+/// `storesFromBeforeGoogleWriteAccessOpenAndKeepEverything`. Same class
+/// names, so SwiftData gives them the same entity names as the current models.
+enum Task168Schema {
+    @Model
+    final class GoogleAccount {
+        var stateRaw: String
+
+        init(stateRaw: String) {
+            self.stateRaw = stateRaw
+        }
+    }
+
+    @Model
+    final class GoogleCalendarChoice {
+        var id: UUID
+        var calendarID: String
+        var name: String
+        var isPrimary: Bool
+        var isOn: Bool
+        var order: Int
+
+        init(id: UUID, calendarID: String, name: String, isPrimary: Bool, isOn: Bool, order: Int) {
+            self.id = id
+            self.calendarID = calendarID
+            self.name = name
+            self.isPrimary = isPrimary
+            self.isOn = isOn
+            self.order = order
         }
     }
 }

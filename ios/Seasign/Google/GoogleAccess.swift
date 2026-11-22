@@ -35,6 +35,10 @@ final class GoogleAccess {
     private var renewal: Task<GoogleSecret, any Error>?
     /// Moves on `forget()`, so a renewal that ends afterwards is not kept.
     private var generation = 0
+    /// Told the granted scopes when a renewal's answer names them (Google's
+    /// docs show `scope` in a refresh answer but do not promise it; an
+    /// answer without it says nothing, and this is not called).
+    var scopesRenewed: (@MainActor (Set<String>) -> Void)?
 
     init(client: GoogleTokenClient, store: any GoogleTokenStore, now: @escaping @Sendable () -> Date) {
         self.client = client
@@ -114,6 +118,7 @@ final class GoogleAccess {
                 // Google may rotate the refresh token; otherwise the stored one stays.
                 if let rotated = fresh.refresh, rotated != stored { try? store.save(rotated) }
                 self.current = (fresh.access, fresh.expiresAt)
+                if let scopes = fresh.scopes { self.scopesRenewed?(scopes) }
                 return fresh.access
             }
             renewal = task

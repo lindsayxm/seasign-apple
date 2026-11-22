@@ -37,7 +37,7 @@ import Testing
         #expect(!dumped.contains(pkce.verifier.secret))
     }
 
-    @Test func authorizationURLAsksForCodeWithS256AndBothScopes() throws {
+    @Test func authorizationURLAsksForCodeWithS256AndTheThreeScopes() throws {
         let pkce = GooglePKCE(verifier: String(repeating: "a", count: 43), state: "state-123")
         let url = GoogleAuthorization.url(config: FakeGoogle.config, pkce: pkce)
         let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
@@ -51,7 +51,7 @@ import Testing
         #expect(items["code_challenge"] == pkce.challenge)
         #expect(items["code_challenge_method"] == "S256")
         #expect(items["state"] == "state-123")
-        #expect(items["scope"] == "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.calendarlist.readonly")
+        #expect(items["scope"] == "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.owned")
         // The verifier itself never leaves the phone before the exchange.
         #expect(!url.absoluteString.contains(pkce.verifier.secret))
         #expect(items["client_secret"] == nil)

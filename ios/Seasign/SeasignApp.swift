@@ -75,8 +75,12 @@ struct SeasignApp: App {
             let defaults = UserDefaults.standard
             let events = defaults.bool(forKey: "debugEvents") ? (try? EventsModel.sample()) ?? live : live
             // `-debugGoogle YES`: a connected Google account with sample
-            // calendars and events, in memory, with no token and no requests.
-            let google = defaults.bool(forKey: "debugGoogle") ? (try? GoogleCalendarModel.sample()) ?? liveGoogle : liveGoogle
+            // calendars and events, in memory, with no token and no requests;
+            // `-debugGoogleReadOnly YES` the same without write access.
+            let googleReadOnly = defaults.bool(forKey: "debugGoogleReadOnly")
+            let google = defaults.bool(forKey: "debugGoogle") || googleReadOnly
+                ? (try? GoogleCalendarModel.sample(readOnly: googleReadOnly)) ?? liveGoogle
+                : liveGoogle
             let showAI = defaults.bool(forKey: "debugAI")
             let sample = debugSamples(
                 feed: feed,

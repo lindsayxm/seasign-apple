@@ -30,6 +30,10 @@ final class GoogleCalendarModel {
         case google(String)
         /// Google allowed less than both calendar permissions.
         case missingScope
+        /// Connect again from a working connection did not end with write
+        /// access (declined, or the permission unticked). The connection
+        /// reads as before.
+        case addingNotAllowed
         /// Google could not be reached.
         case unavailable
         /// The sign-in could not be written to the Keychain.
@@ -49,6 +53,8 @@ final class GoogleCalendarModel {
                 "Google refused the sign-in (\(code)). Nothing was connected."
             case .missingScope:
                 "Seasign needs to see both your calendar list and your events. Connect again and allow both."
+            case .addingNotAllowed:
+                "Google didn't allow Seasign to add events, so it still only reads your calendars. Connect again when you want to add events."
             case .unavailable:
                 "We couldn't reach Google. Check your connection and try again."
             case .notSaved:
@@ -107,6 +113,12 @@ final class GoogleCalendarModel {
     private(set) var statusProblem: StatusProblem?
     /// Set when a calendar could not be turned on (ten are on already).
     private(set) var limitReached = false
+    /// The scopes Google granted this connection, as stored; nil when
+    /// unknown (a connection made before write access was asked for).
+    private(set) var grantedScopes: Set<String>?
+    /// Google's id of the calendar the user chose for new events; nil
+    /// means the primary calendar.
+    private(set) var newEventsCalendarID: String?
     /// Polls and unforced refreshes are not sent before this.
     @ObservationIgnored private(set) var retryNotBefore: Date?
     /// The hold is our own 429's delay (not a back-off or Google's limit).
@@ -184,6 +196,8 @@ final class GoogleCalendarModel {
         }
         connection = store.connection
         calendars = store.choices()
+        grantedScopes = store.grantedScopes
+        newEventsCalendarID = store.newEventsCalendarID
         if connection == .connected {
             snapshot = store.cachedEvents()?.pruned(at: now())
         } else {
@@ -195,6 +209,7 @@ final class GoogleCalendarModel {
             }
         }
         watch.host = self
+        access?.scopesRenewed = { [weak self] scopes in self?.scopesRenewed(scopes) }
     }
 
     var config: GoogleOAuthConfig? {
@@ -204,6 +219,46 @@ final class GoogleCalendarModel {
     /// The calendars whose events are shown.
     var chosen: [GoogleCalendarChoice] {
         calendars.filter(\.isOn)
+    }
+
+    // MARK: Adding events (task 169; used by the add path, task 171)
+
+    /// Whether events can be added: connected, and Google granted the write
+    /// scope (`GoogleOAuthConfig.allowsAddingEvents`). False for a
+    /// connection made before write access was asked for, which otherwise
+    /// works as before; Settings then offers "Connect again to add events".
+    var canAddEvents: Bool {
+        connection == .connected && GoogleOAuthConfig.allowsAddingEvents(grantedScopes)
+    }
+
+    /// The calendars new events may go to, in Google's order (owner only;
+    /// see `GoogleAccessRole.takesNewEvents`).
+    var newEventsCalendars: [GoogleCalendarChoice] {
+        GoogleNewEventsCalendar.offered(calendars)
+    }
+
+    /// Where a new event goes: the chosen calendar while it is offered,
+    /// else the primary one; nil when neither is offered (no list read yet,
+    /// or roles not known).
+    var newEventsCalendar: GoogleCalendarChoice? {
+        GoogleNewEventsCalendar.resolve(calendars, storedID: newEventsCalendarID)
+    }
+
+    /// Settings' "New events go to". Choosing the primary calendar stores
+    /// nothing, so it stays the default whatever its id.
+    func setNewEventsCalendar(_ choice: GoogleCalendarChoice) {
+        guard connection == .connected, choice.takesNewEvents else { return }
+        let id: String? = choice.isPrimary ? nil : choice.calendarID
+        newEventsCalendarID = id
+        store.setNewEventsCalendarID(id)
+    }
+
+    /// A token renewal named the scopes; they replace the stored ones if
+    /// they differ. (An answer without them changes nothing.)
+    private func scopesRenewed(_ scopes: Set<String>) {
+        guard connection == .connected, scopes != grantedScopes else { return }
+        grantedScopes = scopes
+        store.setGrantedScopes(scopes)
     }
 
     /// Whether Today should poll: connected with at least one calendar on.
@@ -268,7 +323,7 @@ final class GoogleCalendarModel {
         case .success(let value):
             code = value
         case .failure(.denied):
-            connectProblem = .denied
+            connectProblem = connection == .connected ? .addingNotAllowed : .denied
             return
         case .failure(.google(let error)):
             connectProblem = .google(error)
@@ -303,17 +358,24 @@ final class GoogleCalendarModel {
             Task { await client.revoke(token) }
             return
         }
+        // Connect again from a working connection (to add write access): a
+        // failure leaves that connection exactly as it was. Nothing is
+        // revoked then, since Google's docs do not say whether revoking the
+        // new token would also end the grant the connection runs on.
+        let wasConnected = connection == .connected
         guard fresh.grantsNeededScopes, let refreshToken = fresh.refresh else {
             // Nothing is kept; the partial grant is handed back to Google.
-            let token = fresh.refresh ?? fresh.access
-            Task { await client.revoke(token) }
+            if !wasConnected {
+                let token = fresh.refresh ?? fresh.access
+                Task { await client.revoke(token) }
+            }
             connectProblem = .missingScope
             return
         }
         do {
             try tokens.save(refreshToken)
         } catch {
-            Task { await client.revoke(refreshToken) }
+            if !wasConnected { Task { await client.revoke(refreshToken) } }
             connectProblem = .notSaved
             return
         }
@@ -323,6 +385,11 @@ final class GoogleCalendarModel {
         failures = 0
         statusProblem = nil
         setConnection(.connected)
+        // A new grant: exactly what this answer says (nil when it says
+        // nothing, which reads as no write access).
+        grantedScopes = fresh.scopes
+        store.setGrantedScopes(fresh.scopes)
+        if wasConnected, !fresh.grantsWriteScope { connectProblem = .addingNotAllowed }
         await loadCalendars()
         await refresh(force: true)
     }
@@ -447,6 +514,8 @@ final class GoogleCalendarModel {
         limitReached = false
         listHeld = false
         setConnection(.notConnected)
+        grantedScopes = nil
+        newEventsCalendarID = nil
         if mayNeedUnwatch {
             let disconnected = generation
             let stopping = Task { [weak self, watch, client] in
@@ -860,17 +929,22 @@ extension GoogleCalendarModel {
     /// calendars (two on, one with a problem) and two events, held in a store
     /// in memory with no token at all. Nothing is fetched, nothing is sent to
     /// Google, and the user's store and the real Keychain are not touched.
-    static func sample(now: Date = Date(), timeZone: TimeZone = .current) throws -> GoogleCalendarModel {
+    /// Personal and Family are the user's own (offered for new events),
+    /// Holidays is read-only. With write access by default; `readOnly`
+    /// (`-debugGoogleReadOnly YES`) shows a connection without it, as one
+    /// made before write access was asked for.
+    static func sample(now: Date = Date(), timeZone: TimeZone = .current, readOnly: Bool = false) throws -> GoogleCalendarModel {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let store = GoogleCalendarStore(context: context)
         store.setConnection(.connected)
+        if !readOnly { store.setGrantedScopes(Set(GoogleOAuthConfig.scopes)) }
         let personal = UUID()
         let family = UUID()
         let holidays = UUID()
         store.replaceChoices(with: [
-            .init(id: personal, entry: GoogleCalendarEntry(id: "sample-primary", name: "Personal", primary: true), isOn: true),
-            .init(id: family, entry: GoogleCalendarEntry(id: "sample-family", name: "Family", primary: false), isOn: true),
-            .init(id: holidays, entry: GoogleCalendarEntry(id: "sample-holidays", name: "Holidays", primary: false), isOn: false),
+            .init(id: personal, entry: GoogleCalendarEntry(id: "sample-primary", name: "Personal", primary: true, accessRole: .owner), isOn: true),
+            .init(id: family, entry: GoogleCalendarEntry(id: "sample-family", name: "Family", primary: false, accessRole: .owner), isOn: true),
+            .init(id: holidays, entry: GoogleCalendarEntry(id: "sample-holidays", name: "Holidays", primary: false, accessRole: .reader), isOn: false),
         ])
         let soon = Date(timeIntervalSinceReferenceDate: (now.timeIntervalSinceReferenceDate / 900).rounded(.up) * 900 + 1800)
         store.cache(GoogleEventsSnapshot(

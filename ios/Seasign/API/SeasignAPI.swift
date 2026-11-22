@@ -121,7 +121,12 @@ struct SeasignAPI: Sendable {
         switch output {
         case .ok(let response):
             guard let body = try? response.body.json else { throw GoogleFailure.unavailable }
-            return body.calendars.map { GoogleCalendarEntry(id: $0.id, name: $0.name, primary: $0.primary) }
+            return body.calendars.map {
+                GoogleCalendarEntry(
+                    id: $0.id, name: $0.name, primary: $0.primary,
+                    accessRole: $0.accessRole.flatMap { GoogleAccessRole(rawValue: $0.rawValue) }
+                )
+            }
         case .badRequest:
             throw GoogleFailure.invalidRequest
         case .unauthorized:
@@ -634,6 +639,27 @@ struct GoogleCalendarEntry: Sendable, Equatable {
     /// The user's name for it; may be empty.
     var name: String
     var primary: Bool
+    /// The user's access to it, as Google's calendar list gives it; nil when
+    /// the API left it out (Google gave none, or a value it does not know).
+    var accessRole: GoogleAccessRole? = nil
+}
+
+/// Google's `accessRole` for a calendar on the user's list.
+enum GoogleAccessRole: String, Sendable, Equatable, CaseIterable {
+    case owner
+    case writer
+    case writerWithoutPrivateAccess
+    case reader
+    case freeBusyReader
+
+    /// Whether Seasign offers this calendar for new events. The sign-in
+    /// asks for `calendar.events.owned` ("See, create, change, and delete
+    /// events on Google calendars you own"); Google's docs do not say it
+    /// covers calendars the user may only write to, so only `owner` is
+    /// offered. The one place this is decided.
+    var takesNewEvents: Bool {
+        self == .owner
+    }
 }
 
 /// A `POST /v1/google/events` response in the app's own types. Calendars are

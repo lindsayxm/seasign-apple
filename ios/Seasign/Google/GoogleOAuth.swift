@@ -34,11 +34,38 @@ struct GoogleOAuthConfig: Sendable, Equatable {
     static let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
     static let revokeEndpoint = URL(string: "https://oauth2.googleapis.com/revoke")!
 
-    /// Read-only access to events, and to the list of calendars.
-    static let scopes = [
+    /// Read-only access to events, and to the list of calendars. A grant
+    /// without both is not kept.
+    static let readScopes = [
         "https://www.googleapis.com/auth/calendar.events.readonly",
         "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
     ]
+
+    /// Create (and change or delete) events on the calendars the user owns:
+    /// the narrowest scope `events.insert` accepts. Used only to add an event
+    /// the user confirmed. Google's consent page lets the user untick it; the
+    /// connection then reads as before and cannot add events.
+    static let writeScope = "https://www.googleapis.com/auth/calendar.events.owned"
+
+    /// Everything the sign-in asks for.
+    static let scopes = readScopes + [writeScope]
+
+    /// Whether `granted` (the scopes stored for the connection) allow adding
+    /// events. Nil (a connection made before write access was asked for, or
+    /// an answer that did not say) never does. The one place this is decided.
+    static func allowsAddingEvents(_ granted: Set<String>?) -> Bool {
+        granted?.contains(writeScope) ?? false
+    }
+
+    /// Scopes as stored: sorted, joined by spaces.
+    static func joined(_ scopes: Set<String>) -> String {
+        scopes.sorted().joined(separator: " ")
+    }
+
+    /// Stored scopes read back; nil stays nil.
+    static func split(_ text: String?) -> Set<String>? {
+        text.map { Set($0.split(separator: " ").map(String.init)) }
+    }
 
     private static let clientSuffix = ".apps.googleusercontent.com"
 
