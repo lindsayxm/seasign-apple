@@ -156,6 +156,11 @@ enum DayProblem: Equatable {
     case links
     case google
     case both
+    /// A hold (a 429's delay, a back-off) kept the source from being asked
+    /// since the screen opened, and nothing has been read for it yet.
+    case linksHeld
+    case googleHeld
+    case bothHeld
 
     var message: String {
         switch self {
@@ -165,6 +170,12 @@ enum DayProblem: Equatable {
             "Google Calendar couldn't be read just now, so some events may be missing."
         case .both:
             "Some calendars couldn't be read just now, so some events may be missing."
+        case .linksHeld:
+            "Your pasted calendars will be read again shortly; their events will show then."
+        case .googleHeld:
+            "Google Calendar will be read again shortly; its events will show then."
+        case .bothHeld:
+            "Your calendars will be read again shortly; their events will show then."
         }
     }
 }
@@ -190,6 +201,11 @@ final class DayModel {
     private(set) var linksFailed = false
     /// The last read of Google failed as a whole.
     private(set) var googleFailed = false
+    /// The last ask for the links was held back until then (Today's hold or
+    /// this screen's); observed, since the models' holds are not.
+    private(set) var linksHeldUntil: Date?
+    /// The same for Google.
+    private(set) var googleHeldUntil: Date?
 
     @ObservationIgnored private let api: SeasignAPI
     @ObservationIgnored private let events: EventsModel
@@ -250,26 +266,65 @@ final class DayModel {
         }
     }
 
-    /// The status line at `date`; nil when every source was read.
+    /// How one source stands at a moment, for the status line.
+    private enum SourceState {
+        case fine
+        /// Its last read failed, or a calendar in it could not be read.
+        case failed
+        /// Nothing read for this day yet, and a hold keeps it from being asked.
+        case held
+        /// Nothing read for this day yet; it is being asked.
+        case waiting
+    }
+
+    private func linksState(day: String, zone: TimeZone, at date: Date) -> SourceState {
+        guard expectsLinks else { return .fine }
+        let current = currentLinks(day: day, zone: zone)
+        if linksFailed || !(current?.failed.isEmpty ?? true) { return .failed }
+        guard current == nil else { return .fine }
+        if let linksHeldUntil, date < linksHeldUntil { return .held }
+        return .waiting
+    }
+
+    private func googleState(day: String, zone: TimeZone, at date: Date) -> SourceState {
+        guard expectsGoogle else { return .fine }
+        let current = currentGoogle(day: day, zone: zone)
+        if googleFailed || !(current?.failed.isEmpty ?? true) { return .failed }
+        guard current == nil else { return .fine }
+        if let googleHeldUntil, date < googleHeldUntil { return .held }
+        return .waiting
+    }
+
+    /// The status line at `date`; nil when every source was read (or is
+    /// being read). A failure outranks a hold when the two sources differ.
     func problem(now date: Date) -> DayProblem? {
         let (day, zone) = current(at: date)
-        let linksBad = expectsLinks && (linksFailed || !(currentLinks(day: day, zone: zone)?.failed.isEmpty ?? true))
-        let googleBad = expectsGoogle && (googleFailed || !(currentGoogle(day: day, zone: zone)?.failed.isEmpty ?? true))
-        switch (linksBad, googleBad) {
-        case (true, true): return .both
-        case (true, false): return .links
-        case (false, true): return .google
-        case (false, false): return nil
+        switch (linksState(day: day, zone: zone, at: date), googleState(day: day, zone: zone, at: date)) {
+        case (.failed, .failed), (.failed, .held), (.held, .failed): return .both
+        case (.failed, _): return .links
+        case (_, .failed): return .google
+        case (.held, .held): return .bothHeld
+        case (.held, _): return .linksHeld
+        case (_, .held): return .googleHeld
+        default: return nil
         }
     }
 
-    /// A source that should answer has not answered for this day yet and
-    /// has not failed: the screen says it is reading.
+    /// A source that should answer has not answered for this day yet, has
+    /// not failed and is not held back: the screen says it is reading.
     func isWaiting(now date: Date) -> Bool {
         let (day, zone) = current(at: date)
-        let links = expectsLinks && currentLinks(day: day, zone: zone) == nil && !linksFailed
-        let google = expectsGoogle && currentGoogle(day: day, zone: zone) == nil && !googleFailed
-        return links || google
+        return linksState(day: day, zone: zone, at: date) == .waiting
+            || googleState(day: day, zone: zone, at: date) == .waiting
+    }
+
+    /// A source with nothing read for this day is held back (a 429's delay,
+    /// a back-off, set by Today or by this screen): the status line says it
+    /// will be read again shortly, and the screen does not claim the day is empty.
+    func isHeld(now date: Date) -> Bool {
+        let (day, zone) = current(at: date)
+        return linksState(day: day, zone: zone, at: date) == .held
+            || googleState(day: day, zone: zone, at: date) == .held
     }
 
     /// Whether there is any calendar to read at all.
@@ -347,7 +402,10 @@ final class DayModel {
             linksFailed = false
             return
         }
+        // Our 429's delay lives in `EventsModel`, shared with Today; a
+        // refusal's wait is this screen's own.
         let held = [linksHold, events.retryNotBefore].compactMap { $0 }.max()
+        setIfChanged(\.linksHeldUntil, held.flatMap { now() < $0 ? $0 : nil })
         let (day, zone) = current(at: now())
         guard DayRefresh.isDue(
             force: force, askedFor: linksAskedFor, current: key(day, zone), askedAt: linksAskedAt,
@@ -364,7 +422,12 @@ final class DayModel {
             linksAskedFor = key(askedDay, askedZone)
             let answer: CalendarAnswer
             do {
-                answer = try await api.calendarEvents(links: list.map(\.url), timezone: askedZone.identifier, day: askedDay)
+                // Forced (the screen opened, the app came back): the API reads
+                // the links again rather than answer from its 5-minute cache,
+                // as Today's forced asks do. The timer's asks may be cached.
+                answer = try await api.calendarEvents(
+                    links: list.map(\.url), timezone: askedZone.identifier, fresh: force, day: askedDay
+                )
             } catch {
                 // Cancelled: not a failure; the next start asks again.
                 if Task.isCancelled {
@@ -373,7 +436,8 @@ final class DayModel {
                 }
                 switch error as? SeasignAPI.CalendarFailure {
                 case .rateLimited(let seconds)?:
-                    linksHold = now().addingTimeInterval(TimeInterval(seconds))
+                    // Today's hold: Today and a reopened day screen wait too.
+                    events.hold(seconds)
                 case .invalidRequest?:
                     let (newDay, newZone) = current(at: now())
                     if attempt == 0, key(newDay, newZone) != key(askedDay, askedZone) {
@@ -396,6 +460,7 @@ final class DayModel {
             links = DaySchedule.links(answer, ids: ids, day: askedDay, timezone: askedZone.identifier, previous: previous, now: now())
             linksFailed = false
             linksHold = nil
+            setIfChanged(\.linksHeldUntil, nil)
             return
         }
     }
@@ -411,10 +476,14 @@ final class DayModel {
             return
         }
         #endif
+        // The Google model's holds (Today's poll shares them) and this
+        // screen's refusal wait; `dayEvents` checks the model's again.
+        let held = [googleHold, googleModel.retryNotBefore].compactMap { $0 }.max()
+        setIfChanged(\.googleHeldUntil, held.flatMap { now() < $0 ? $0 : nil })
         let (day, zone) = current(at: now())
         guard DayRefresh.isDue(
             force: force, askedFor: googleAskedFor, current: key(day, zone), askedAt: googleAskedAt,
-            interval: DayRefresh.googleInterval, hold: googleHold, now: now()
+            interval: DayRefresh.googleInterval, hold: held, now: now()
         ) else { return }
         googleInFlight = true
         defer { googleInFlight = false }
@@ -449,9 +518,16 @@ final class DayModel {
                 google = DaySchedule.google(answer, ids: ids, day: askedDay, timezone: askedZone.identifier, previous: previous, now: now())
                 googleFailed = false
                 googleHold = nil
+                setIfChanged(\.googleHeldUntil, nil)
             }
             return
         }
+    }
+
+    /// Sets an observed value only when it changes, so a turn that changes
+    /// nothing redraws nothing.
+    private func setIfChanged(_ path: ReferenceWritableKeyPath<DayModel, Date?>, _ value: Date?) {
+        if self[keyPath: path] != value { self[keyPath: path] = value }
     }
 }
 
@@ -476,6 +552,14 @@ extension DayModel {
     /// passing problem, so the status line shows. Nothing is sent.
     private func showGoogleSample() {
         let date = now()
+        // `-debugDayHeld YES`: as if Today's poll had our 429 when the screen
+        // opened: nothing read for Google, which is held for another minute.
+        if UserDefaults.standard.bool(forKey: "debugDayHeld") {
+            google = nil
+            googleFailed = false
+            setIfChanged(\.googleHeldUntil, date.addingTimeInterval(60))
+            return
+        }
         let (day, zone) = current(at: date)
         let on = googleModel.chosen.map(\.id)
         guard let first = on.first else {

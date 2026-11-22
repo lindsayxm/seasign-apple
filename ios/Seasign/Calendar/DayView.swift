@@ -66,8 +66,10 @@ struct DayView: View {
                                 .padding(.top, 14)
                         }
                         if rows.isEmpty {
-                            note(emptyText(now: now))
-                                .padding(.top, 24)
+                            if let empty = emptyText(now: now) {
+                                note(empty)
+                                    .padding(.top, 24)
+                            }
                         } else {
                             list(rows)
                                 .padding(.top, 6)
@@ -184,12 +186,17 @@ struct DayView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func emptyText(now: Date) -> String {
+    /// Nil while a source is held back with nothing read: the status line
+    /// says it will be read again shortly, and the day may not be empty.
+    private func emptyText(now: Date) -> String? {
         if !model.hasCalendars {
             return "No calendars yet. Connect Google Calendar or paste a calendar link in Settings."
         }
         if model.isWaiting(now: now) {
             return "Reading your calendars…"
+        }
+        if model.isHeld(now: now) {
+            return nil
         }
         return "Nothing on your calendar today."
     }

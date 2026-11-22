@@ -1,6 +1,7 @@
 import Foundation
 import HTTPTypes
 import OpenAPIRuntime
+import Testing
 
 @testable import Seasign
 
@@ -223,6 +224,27 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
             return matching
         }
         for gate in open { gate.continuation.resume() }
+    }
+
+    /// Lets the held request of `operationID` that was parked first through,
+    /// leaving the others held. Answers are taken in the order requests are
+    /// let through, so this sets which request gets which answer.
+    func releaseOldest(_ operationID: String) {
+        let gate = lock.withLock { () -> Gate? in
+            guard let index = gates.firstIndex(where: { $0.operationID == operationID }) else { return nil }
+            return gates.remove(at: index)
+        }
+        gate?.continuation.resume()
+    }
+
+    /// Waits up to five seconds until `count` requests of `operationID` are
+    /// parked at the gate (not merely sent).
+    func waitUntilParked(_ operationID: String, count: Int) async {
+        for _ in 0..<1000 {
+            if lock.withLock({ gates.filter { $0.operationID == operationID }.count }) >= count { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        Issue.record("expected \(count) held \(operationID) requests")
     }
 
     var seen: [Seen] {

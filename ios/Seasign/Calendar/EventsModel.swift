@@ -265,7 +265,10 @@ final class EventsModel {
         await refresh()
     }
 
-    private func hold(_ seconds: Int) {
+    /// Our API's 429 asked to wait `seconds`: no refresh is sent before then.
+    /// The day screen (`DayModel`) records its own 429s here too, so the
+    /// delay holds for Today and for the day screen opened again.
+    func hold(_ seconds: Int) {
         retryNotBefore = now().addingTimeInterval(TimeInterval(seconds))
     }
 

@@ -588,6 +588,7 @@ final class GoogleCalendarModel {
         }
 
         let started = generation
+        let holdAtStart = retryNotBefore
         let googleIDs = on.map(\.calendarID)
         let answer: GoogleEventsAnswer
         do {
@@ -605,15 +606,33 @@ final class GoogleCalendarModel {
         // Disconnected, reconnected, or the calendars or zone changed while
         // the request was out: whatever changed them asks again.
         guard started == generation, ids == chosen.map(\.id), zone == timeZone().identifier else { return .skipped }
-        failures = 0
-        statusProblem = nil
-        retryNotBefore = nil
+        answered(holdAtStart: holdAtStart)
         lastFetch = now()
         let fresh = GoogleEventsSnapshot.make(from: answer, calendars: ids, timezone: zone, previous: snapshot, now: now())
         if fresh.statuses.contains(where: { $0.problem == .rateLimited }) {
-            hold(Self.googleRateLimitHold)
+            holdAtLeast(Self.googleRateLimitHold)
         }
         return setSnapshot(fresh) ? .changed : .unchanged
+    }
+
+    /// An events request sent while `retryNotBefore` was `holdAtStart` was
+    /// answered: as after a successful poll, the failures are over, unless
+    /// another request (the day screen's and Today's can overlap) failed
+    /// while this one was out and set a hold that has not passed. That hold
+    /// (our 429's `Retry-After`, a back-off) stands, with its status and
+    /// failure count: this answer is no newer news about the limit.
+    private func answered(holdAtStart: Date?) {
+        if let retryNotBefore, retryNotBefore != holdAtStart, now() < retryNotBefore { return }
+        failures = 0
+        statusProblem = nil
+        retryNotBefore = nil
+    }
+
+    /// Google limited a calendar: hold for `seconds`, but never shorten a
+    /// longer hold that is already on (`answered` may have kept one).
+    private func holdAtLeast(_ seconds: TimeInterval) {
+        if let retryNotBefore, retryNotBefore >= now().addingTimeInterval(seconds) { return }
+        hold(seconds)
     }
 
     // MARK: The day screen (task 170)
@@ -649,7 +668,7 @@ final class GoogleCalendarModel {
     /// Goes through the same token renewal and failure handling as Today's
     /// poll (a failure sets the same holds, back-off and status), and is
     /// held back by the same holds; an answer clears them as a successful
-    /// poll does. It never touches Today's snapshot, its cache, `lastFetch`
+    /// poll does, except a hold set while it was out (`answered`). It never touches Today's snapshot, its cache, `lastFetch`
     /// or `isRefreshing`.
     func dayEvents(day: String, timezone: String) async -> DayRead {
         guard !isFrozen, connection == .connected, access != nil else { return .off }
@@ -657,6 +676,7 @@ final class GoogleCalendarModel {
         guard !on.isEmpty else { return .off }
         if let retryNotBefore, now() < retryNotBefore { return .skipped }
         let started = generation
+        let holdAtStart = retryNotBefore
         let ids = on.map(\.id)
         let googleIDs = on.map(\.calendarID)
         let answer: GoogleEventsAnswer
@@ -675,12 +695,11 @@ final class GoogleCalendarModel {
             return .failed
         }
         guard started == generation, ids == chosen.map(\.id) else { return .skipped }
-        // Google answered: as after a successful poll, the failures are over.
-        failures = 0
-        statusProblem = nil
-        retryNotBefore = nil
+        // Google answered: as after a successful poll, the failures are over
+        // (unless a hold was set while this request was out).
+        answered(holdAtStart: holdAtStart)
         if answer.calendars.contains(where: { $0.error == .rateLimited }) {
-            hold(Self.googleRateLimitHold)
+            holdAtLeast(Self.googleRateLimitHold)
         }
         return .answer(answer, calendars: ids)
     }

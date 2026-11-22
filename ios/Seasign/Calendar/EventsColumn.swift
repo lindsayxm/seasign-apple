@@ -110,6 +110,9 @@ struct EventsColumn: View {
         .buttonStyle(TapOnlyButtonStyle())
         .accessibilityLabel("Today's calendar")
         .accessibilityHint("Shows all of today's events")
+        // The style fires from a tap gesture, so the default action
+        // (VoiceOver's double-tap) is given explicitly.
+        .accessibilityAction { action() }
         .placed(x: target.minX, y: target.minY)
     }
 
@@ -156,7 +159,8 @@ struct EventsColumn: View {
 /// A button that fires on a tap only: a touch that moves (the pull on
 /// Today) fails the tap, whatever the button's size, so a drag that starts
 /// and ends inside it does not fire it. It is still a `Button`, so
-/// VoiceOver lists it as one with its label.
+/// VoiceOver lists it as one with its label; give it an explicit
+/// `accessibilityAction` for the default action.
 struct TapOnlyButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

@@ -212,6 +212,10 @@ private final class Zone {
     /// The Google day answer for the primary calendar: an all-day event, one
     /// that has ended by noon and one to come.
     private func answerGoogleDay(failing: String? = nil) {
+        googleStub.answer(GoogleAPIStub.postEvents, googleDay(failing: failing))
+    }
+
+    private func googleDay(failing: String? = nil) -> GoogleAPIStub.Answer {
         let events: [[String: Any]] = [
             ["calendar": 0, "title": "Farmers' market", "start": "2026-11-19T06:00:00Z", "end": "2026-11-20T06:00:00Z", "allDay": true, "date": "2026-11-19"],
             ["calendar": 0, "title": "Breakfast", "start": "2026-11-19T14:00:00Z", "end": "2026-11-19T15:00:00Z", "allDay": false],
@@ -220,7 +224,18 @@ private final class Zone {
         var status: [String: Any] = ["index": 0, "ok": failing == nil, "partial": false]
         status["error"] = failing
         let data = try! JSONSerialization.data(withJSONObject: ["events": failing == nil ? events : [], "calendars": [status]])
-        googleStub.answer(GoogleAPIStub.postEvents, .init(status: .ok, json: String(decoding: data, as: UTF8.self)))
+        return .init(status: .ok, json: String(decoding: data, as: UTF8.self))
+    }
+
+    /// Our API's 429 on the Google events route, asking to wait `seconds`.
+    private func googleLimited(_ seconds: Int) -> GoogleAPIStub.Answer {
+        GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: String(seconds))
+    }
+
+    /// Whether `task` ends within `seconds` of real time; it is never awaited unbounded.
+    private func finishes(_ task: Task<Void, Never>, within seconds: Int = 5) async -> Bool {
+        let done = Task { await task.value; return true }
+        return await PushDeadline.race(done, deadline: .seconds(seconds), fallback: false)
     }
 
     private func titles(_ day: DayModel) -> [String] {
@@ -251,7 +266,8 @@ private final class Zone {
         #expect(day.problem(now: clock.now) == nil)
         #expect(!day.isWaiting(now: clock.now))
         // Both asked for the day in the events' zone.
-        #expect(linkStub.requests.last == CalendarStub.Request(links: [TestLinks.google], timezone: "America/Chicago", day: "2026-11-19"))
+        // A forced ask (the screen opened) has the links read again (`fresh`).
+        #expect(linkStub.requests.last == CalendarStub.Request(links: [TestLinks.google], timezone: "America/Chicago", fresh: true, day: "2026-11-19"))
         #expect(dayRequests().map(\.day) == ["2026-11-19"])
         #expect(dayRequests().first?.timezone == "America/Chicago")
         #expect(dayRequests().first?.token == FakeGoogle.access)
@@ -512,7 +528,7 @@ private final class Zone {
         }
         #expect(dayRequests().count >= 4)
         running.cancel()
-        await running.value
+        #expect(await finishes(running))
         let google0 = dayRequests().count
         let links0 = linkStub.requests.count
         try await Task.sleep(for: .milliseconds(100))
@@ -521,5 +537,308 @@ private final class Zone {
         // The links were asked when it started, not on each turn.
         #expect(links0 == 1)
         #expect(titles(day) == ["Farmers' market", "Breakfast", "Lunch", "Coffee"])
+    }
+
+    // MARK: Review fixes (M1, L1, L2, L3, L5)
+
+    /// M1: our API's 429 on the day request for the links is Today's hold
+    /// too, so neither a reopened day screen nor Today asks before Retry-After.
+    @Test func aLinks429OnTheDayHoldsTodayAndAReopenedDayScreen() async throws {
+        let context = try inMemoryContext()
+        linkStub.set(TestLinks.google, .events([lunch]))
+        let limiter = RateLimitTransport(linkStub)
+        let api = stubbedAPI(limiter)
+        let events = try eventsModel(context, links: [TestLinks.google], api: api)
+        let google = googleModel(context)
+        limiter.limit(["postCalendarEvents"], retryAfter: "30")
+        let first = dayModel(events: events, google: google, api: api)
+        await first.refreshLinks(force: true)
+        #expect(limiter.count("postCalendarEvents") == 1)
+        #expect(first.problem(now: clock.now) == .links)
+        #expect(events.retryNotBefore == clock.now.addingTimeInterval(30))
+        // From here on anything sent would be answered.
+        limiter.lift()
+
+        // The screen is closed and opened again inside the delay.
+        clock.advance(10)
+        let reopened = dayModel(events: events, google: google, api: api)
+        await reopened.refreshLinks(force: true)
+        #expect(limiter.count("postCalendarEvents") == 1)
+        // Today's own forced ask (a pull) is held back too.
+        await events.refresh(force: true)
+        #expect(limiter.count("postCalendarEvents") == 1)
+
+        // Once the delay has passed, the day screen asks.
+        clock.advance(20)
+        await reopened.refreshLinks(force: true)
+        #expect(limiter.count("postCalendarEvents") == 2)
+        #expect(titles(reopened) == ["Lunch"])
+    }
+
+    /// L1: Today's poll gets our 429 while a day request is out; the day's
+    /// later answer does not clear that hold.
+    @Test func aDayAnswerKeepsAHoldSetWhileItWasOut() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        let events = try eventsModel(context, links: [])
+        let day = dayModel(events: events, google: google)
+        // Answers go in the order requests are let through: Today's poll first.
+        googleStub.answer(GoogleAPIStub.postEvents, googleLimited(30), googleDay())
+        googleStub.hold(GoogleAPIStub.postEvents)
+        let poll = Task { await google.refresh(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 1)
+        let read = Task { await day.refreshGoogle(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 2)
+
+        googleStub.releaseOldest(GoogleAPIStub.postEvents)
+        #expect(await finishes(poll))
+        let hold = clock.now.addingTimeInterval(30)
+        #expect(google.retryNotBefore == hold)
+        googleStub.release(GoogleAPIStub.postEvents)
+        #expect(await finishes(read))
+
+        // The day's answer is shown, and the hold stands.
+        #expect(titles(day).contains("Breakfast"))
+        #expect(google.retryNotBefore == hold)
+        #expect(google.statusProblem == .rateLimited)
+        let sent = googleStub.count(GoogleAPIStub.postEvents)
+        clock.advance(5)
+        await day.refreshGoogle()
+        await google.refresh(force: true)
+        #expect(googleStub.count(GoogleAPIStub.postEvents) == sent)
+
+        // An answer to a request sent after the hold passed clears it.
+        clock.advance(26)
+        await day.refreshGoogle(force: true)
+        #expect(googleStub.count(GoogleAPIStub.postEvents) == sent + 1)
+        #expect(google.retryNotBefore == nil)
+        #expect(google.statusProblem == nil)
+    }
+
+    /// L1, the other way: the day request gets our 429 while Today's poll is
+    /// out; the poll's later answer does not clear that hold.
+    @Test func todaysAnswerKeepsAHoldTheDaySetWhileItWasOut() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        let events = try eventsModel(context, links: [])
+        let day = dayModel(events: events, google: google)
+        let todays = GoogleAPIStub.events([(0, "Coffee", "2026-11-19T19:00:00Z", "2026-11-19T19:30:00Z")], statuses: [nil])
+        // The day request goes first, so it gets the 429.
+        googleStub.answer(GoogleAPIStub.postEvents, googleLimited(30), todays)
+        googleStub.hold(GoogleAPIStub.postEvents)
+        let read = Task { await day.refreshGoogle(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 1)
+        let poll = Task { await google.refresh(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 2)
+
+        googleStub.releaseOldest(GoogleAPIStub.postEvents)
+        #expect(await finishes(read))
+        let hold = clock.now.addingTimeInterval(30)
+        #expect(google.retryNotBefore == hold)
+        googleStub.release(GoogleAPIStub.postEvents)
+        #expect(await finishes(poll))
+
+        #expect(google.retryNotBefore == hold)
+        let sent = googleStub.count(GoogleAPIStub.postEvents)
+        clock.advance(5)
+        await google.refresh(force: true)
+        await day.refreshGoogle(force: true)
+        #expect(googleStub.count(GoogleAPIStub.postEvents) == sent)
+    }
+
+    /// L2: opened while a hold is on, the screen does not sit on "Reading
+    /// your calendars…": it shows what it has and says when it will read.
+    @Test func openedDuringAHoldTheScreenSaysItWillReadAgainShortly() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        // Today's poll and Today's links request both got our 429.
+        googleStub.answer(GoogleAPIStub.postEvents, googleLimited(600))
+        await google.refresh(force: true)
+        #expect(google.retryNotBefore != nil)
+        linkStub.set(TestLinks.google, .events([lunch]))
+        let limiter = RateLimitTransport(linkStub)
+        let api = stubbedAPI(limiter)
+        let events = try eventsModel(context, links: [TestLinks.google], api: api)
+        limiter.limit(["postCalendarEvents"], retryAfter: "600")
+        await events.refresh(force: true)
+        #expect(events.retryNotBefore != nil)
+        limiter.lift()
+        answerGoogleDay()
+
+        let day = dayModel(events: events, google: google, api: api)
+        await day.refresh(force: true)
+        #expect(dayRequests().isEmpty)
+        #expect(limiter.count("postCalendarEvents") == 1)
+        #expect(!day.isWaiting(now: clock.now))
+        #expect(day.isHeld(now: clock.now))
+        #expect(day.problem(now: clock.now) == .bothHeld)
+
+        // Both holds pass: both are read and the line goes.
+        clock.advance(600)
+        await day.refresh()
+        #expect(day.problem(now: clock.now) == nil)
+        #expect(!day.isHeld(now: clock.now))
+        #expect(titles(day) == ["Farmers' market", "Breakfast", "Lunch", "Coffee"])
+
+        // Only Google held: the links' events show, with Google's line.
+        googleStub.answer(GoogleAPIStub.postEvents, googleLimited(60))
+        await google.refresh(force: true)
+        let reopened = dayModel(events: events, google: google, api: api)
+        await reopened.refresh(force: true)
+        #expect(titles(reopened) == ["Lunch"])
+        #expect(!reopened.isWaiting(now: clock.now))
+        #expect(reopened.problem(now: clock.now) == .googleHeld)
+        #expect(DayProblem.googleHeld.message.contains("again shortly"))
+    }
+
+    /// L3: the forced ask (the screen opened, the app came back) has the API
+    /// read the links again; the timer's asks may be answered from its cache.
+    @Test func onlyTheForcedLinksAskIsFresh() async throws {
+        let context = try inMemoryContext()
+        linkStub.set(TestLinks.google, .events([lunch]))
+        let events = try eventsModel(context, links: [TestLinks.google])
+        let day = dayModel(events: events, google: googleModel(context))
+        await day.refreshLinks(force: true)
+        #expect(linkStub.requests.map(\.fresh) == [true])
+        clock.advance(DayRefresh.linksInterval)
+        await day.refreshLinks()
+        #expect(linkStub.requests.map(\.fresh) == [true, nil])
+        // A new date asks unforced, so not fresh either.
+        clock.now = instant("2026-11-20T06:00:01Z")
+        await day.refreshLinks()
+        #expect(linkStub.requests.map(\.fresh) == [true, nil, nil])
+        #expect(linkStub.requests.last?.day == "2026-11-20")
+    }
+
+    /// L5: a links answer that arrives after the zone, the date or the links
+    /// changed is not kept (checked on what is stored, not on the rows,
+    /// which filter by day and zone anyway).
+    @Test func aLateLinksAnswerIsDropped() async throws {
+        linkStub.set(TestLinks.google, .events([lunch]))
+        linkStub.set(TestLinks.icloud, .events([lateShow]))
+        let start = clock.now
+        for change in ["zone", "date", "links"] {
+            clock.now = start
+            zone.value = TimeZone(identifier: "America/Chicago")!
+            let context = try inMemoryContext()
+            // Today's model asks the plain stub; only the day's request is held.
+            let events = try eventsModel(context, links: [TestLinks.google, TestLinks.icloud])
+            let held = HeldCalendarTransport(linkStub)
+            held.setHolding(true)
+            let day = dayModel(
+                events: events, google: googleModel(context),
+                api: SeasignAPI(serverURL: URL(string: "https://example.test")!, transport: held)
+            )
+            let read = Task { await day.refreshLinks(force: true) }
+            await held.waitUntilHeld(1)
+            switch change {
+            case "zone": zone.value = .gmt
+            case "date": clock.now = instant("2026-11-20T06:00:01Z")
+            default: await events.remove(try #require(events.links.last))
+            }
+            held.releaseAll()
+            #expect(await finishes(read), "\(change)")
+            #expect(day.links == nil, "\(change)")
+            #expect(day.problem(now: clock.now) == nil, "\(change)")
+        }
+    }
+
+    /// L5: the same for a Google answer after the zone or the date changed.
+    @Test func aLateGoogleAnswerIsDropped() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        let events = try eventsModel(context, links: [])
+        let start = clock.now
+        for change in ["zone", "date"] {
+            clock.now = start
+            zone.value = TimeZone(identifier: "America/Chicago")!
+            answerGoogleDay()
+            let day = dayModel(events: events, google: google)
+            googleStub.hold(GoogleAPIStub.postEvents)
+            let read = Task { await day.refreshGoogle(force: true) }
+            await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 1)
+            switch change {
+            case "zone": zone.value = .gmt
+            default: clock.now = instant("2026-11-20T06:00:01Z")
+            }
+            googleStub.release(GoogleAPIStub.postEvents)
+            #expect(await finishes(read), "\(change)")
+            #expect(day.google == nil, "\(change)")
+            #expect(day.problem(now: clock.now) == nil, "\(change)")
+        }
+    }
+
+    /// L5: a day request cancelled while out (the screen closed, the app
+    /// left) leaves no status line and no hold, and the next start asks.
+    @Test func aCancelledDayRequestLeavesNoStatusAndNoHold() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        linkStub.set(TestLinks.google, .events([lunch]))
+        let events = try eventsModel(context, links: [TestLinks.google])
+        answerGoogleDay()
+        let parking = CancelOnlyTransport(linkStub)
+        let day = dayModel(
+            events: events, google: google,
+            api: SeasignAPI(serverURL: URL(string: "https://example.test")!, transport: parking)
+        )
+        googleStub.hold(GoogleAPIStub.postEvents)
+        let read = Task { await day.refresh(force: true) }
+        await parking.waitUntilParked()
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 1)
+        read.cancel()
+        #expect(await finishes(read))
+
+        #expect(day.problem(now: clock.now) == nil)
+        #expect(!day.isHeld(now: clock.now))
+        #expect(events.retryNotBefore == nil)
+        #expect(google.retryNotBefore == nil)
+        #expect(google.statusProblem == nil)
+
+        // The next start asks both at once, unforced even.
+        googleStub.release(GoogleAPIStub.postEvents)
+        parking.stopParking()
+        let linksBefore = linkStub.requests.count
+        let googleBefore = dayRequests().count
+        await day.refresh()
+        #expect(linkStub.requests.count == linksBefore + 1)
+        #expect(dayRequests().count == googleBefore + 1)
+        #expect(titles(day) == ["Farmers' market", "Breakfast", "Lunch", "Coffee"])
+    }
+}
+
+/// While parking, keeps each request until its task is cancelled, then
+/// fails it as URLSession does; otherwise passes it to the stub.
+private final class CancelOnlyTransport: ClientTransport, @unchecked Sendable {
+    private let stub: CalendarStub
+    private let lock = NSLock()
+    private var parking = true
+    private var parked = 0
+
+    init(_ stub: CalendarStub) {
+        self.stub = stub
+    }
+
+    func stopParking() {
+        lock.withLock { parking = false }
+    }
+
+    /// Waits up to five seconds until a request is parked.
+    func waitUntilParked() async {
+        for _ in 0..<1000 {
+            if lock.withLock({ parked }) >= 1 { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        Issue.record("expected a parked calendar request")
+    }
+
+    func send(_ request: HTTPRequest, body: HTTPBody?, baseURL: URL, operationID: String) async throws -> (HTTPResponse, HTTPBody?) {
+        guard lock.withLock({ parking }) else {
+            return try await stub.send(request, body: body, baseURL: baseURL, operationID: operationID)
+        }
+        lock.withLock { parked += 1 }
+        // Bounded: a test that never cancels fails here after five seconds.
+        try? await Task.sleep(for: .seconds(5))
+        if !Task.isCancelled { Issue.record("a parked calendar request was never cancelled") }
+        throw URLError(.cancelled)
     }
 }
