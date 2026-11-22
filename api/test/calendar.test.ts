@@ -297,7 +297,7 @@ describe("POST /v1/calendar/events", () => {
   });
 
   describe("cache", () => {
-    it("stores each calendar for one minute under a hash of its link", async () => {
+    it("stores each calendar for five minutes under a hash of its link", async () => {
       mockCalendars(providers);
       await events({ links: [GOOGLE, ICLOUD] });
 
@@ -309,7 +309,7 @@ describe("POST /v1/calendar/events", () => {
       for (const key of keys) {
         expect(key.name).toMatch(/^cal:v1:[0-9a-f]{64}$/);
         // KV reports the expiry in Unix seconds, by the real clock, not the faked Date.
-        const expected = Math.floor(vi.getRealSystemTime() / 1000) + 60;
+        const expected = Math.floor(vi.getRealSystemTime() / 1000) + 300;
         expect(Math.abs((key.expiration ?? 0) - expected)).toBeLessThan(10);
       }
     });
@@ -357,6 +357,68 @@ describe("POST /v1/calendar/events", () => {
         "2026-11-23T12:30:00Z",
         "2026-11-24T12:30:00Z",
       ]);
+    });
+
+    it("reads every link again for fresh: true, caches the result, and serves later plain requests from it", async () => {
+      const spy = mockCalendars(providers);
+      await events({ links: [GOOGLE, OUTLOOK] });
+      expect(spy).toHaveBeenCalledTimes(2);
+
+      // The Outlook calendar gains an event after it was cached.
+      vi.restoreAllMocks();
+      const added = outlook.replace(
+        "END:VCALENDAR",
+        "BEGIN:VEVENT\r\nUID:fresh-1@example.org\r\nSUMMARY:Added later\r\nDTSTART:20261118T150000Z\r\nDTEND:20261118T160000Z\r\nEND:VEVENT\r\nEND:VCALENDAR",
+      );
+      const again = mockCalendars({ ...providers, [OUTLOOK]: ics(added) });
+      const stale = await events({ links: [GOOGLE, OUTLOOK], fresh: false });
+      expect(again).not.toHaveBeenCalled();
+      expect(stale.events.map((event) => event.title)).not.toContain("Added later");
+
+      const fresh = await events({ links: [GOOGLE, OUTLOOK, OUTLOOK], fresh: true });
+      // Each link once, however often it is sent.
+      expect(again.mock.calls.map(([input]) => String(input)).sort()).toEqual([GOOGLE, OUTLOOK].sort());
+      expect(fresh.events.filter((event) => event.title === "Added later").map((event) => event.calendar)).toEqual([1, 2]);
+      const { keys } = await env.CACHE.list({ prefix: "cal:" });
+      for (const key of keys) {
+        const expected = Math.floor(vi.getRealSystemTime() / 1000) + 300;
+        expect(Math.abs((key.expiration ?? 0) - expected)).toBeLessThan(10);
+      }
+
+      // The next plain request is answered from what the fresh one cached.
+      const later = await events({ links: [OUTLOOK] });
+      expect(again).toHaveBeenCalledTimes(2);
+      expect(later.events.map((event) => event.title)).toContain("Added later");
+    });
+
+    it("keeps the cached copy when a fresh read fails, and reports the failure", async () => {
+      mockCalendars(providers);
+      const first = await events({ links: [OUTLOOK] });
+
+      vi.restoreAllMocks();
+      const spy = mockCalendars({ [OUTLOOK]: () => new Response("oops", { status: 500 }) });
+      const fresh = await events({ links: [OUTLOOK], fresh: true });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(fresh).toEqual({ events: [], calendars: [{ index: 0, ok: false, partial: false, error: "fetch_failed" }] });
+
+      // Failures are never cached, so the entry read before still answers a plain request.
+      const plain = await events({ links: [OUTLOOK] });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(plain).toEqual(first);
+    });
+
+    it("keeps the size cap and the private-host check for fresh: true", async () => {
+      const big = () => new Response("BEGIN:VCALENDAR\r\n" + "X-PAD:".padEnd(1024, "x").concat("\r\n").repeat(MAX_CALENDAR_BYTES / 1024 + 1));
+      const spy = mockCalendars({ ...providers, [BROKEN]: big });
+
+      const body = await events({ links: [BROKEN, "https://10.0.0.5/calendar.ics", OUTLOOK], fresh: true });
+
+      expect(body.calendars).toEqual([
+        { index: 0, ok: false, partial: false, error: "too_large" },
+        { index: 1, ok: false, partial: false, error: "blocked_host" },
+        { index: 2, ok: true, partial: false },
+      ]);
+      expect(spy.mock.calls.map(([input]) => String(input)).sort()).toEqual([BROKEN, OUTLOOK].sort());
     });
 
     it("fetches a link once when it is sent twice", async () => {
@@ -515,6 +577,8 @@ describe("POST /v1/calendar/events", () => {
       ["an unknown time zone", { links: [OUTLOOK], timezone: "Mars/Olympus_Mons" }],
       ["a Windows time zone name", { links: [OUTLOOK], timezone: "Eastern Standard Time" }],
       ["a time zone that is not a string", { links: [OUTLOOK], timezone: 5 }],
+      ["fresh that is not a boolean", { links: [OUTLOOK], fresh: "yes" }],
+      ["fresh as a number", { links: [OUTLOOK], fresh: 1 }],
     ])("answers 400 to %s, with a fixed message and no outbound request", async (_name, body) => {
       const spy = mockCalendars(providers);
 

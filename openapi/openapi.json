@@ -363,6 +363,11 @@
             "type": "string",
             "description": "IANA time zone of the device. Decides when all-day events and events without a time zone start and end. Defaults to UTC",
             "example": "America/New_York"
+          },
+          "fresh": {
+            "type": "boolean",
+            "description": "True to read every link again now instead of answering from the 5-minute cache; the result is cached as usual. For a pull to refresh, adding a link and a return to the app; leave it out for scheduled checks. Still counts against the rate limit",
+            "example": true
           }
         },
         "required": [

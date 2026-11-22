@@ -284,6 +284,39 @@ describe.each(GROUPS)("%s, with a fake limiter", (group) => {
   });
 });
 
+describe("calendar with fresh: true", () => {
+  const fresh = { path: "/v1/calendar/events", init: () => json({ links: ["https://calendar.example.com/a.ics"], fresh: true }) };
+
+  it("is counted by the calendar limiter like any other request", async () => {
+    const fetchSpy = failFetch();
+    const { limiters, env: testEnv } = fakes();
+    const response = await app.fetch(request(fresh, { "cf-connecting-ip": "203.0.113.70" }), testEnv);
+    expect(response.status).toBe(200);
+    expect(limiters.calendar.keys).toEqual(["4:203.0.113.70"]);
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+
+  it("gets the fixed 429 over the limit, before the body is read, any fetch, or any KV use", async () => {
+    const fetchSpy = failFetch();
+    const kv = spyKv();
+    const { limiters, env: testEnv } = fakes();
+    limiters.calendar.max = 2;
+    const send = () => app.fetch(request(fresh, { "cf-connecting-ip": "203.0.113.71" }), testEnv);
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(200);
+    const fetchesBefore = fetchSpy.mock.calls.length;
+    const kvBefore = kv.map((spy) => spy.mock.calls.length);
+    const sent = request(fresh, { "cf-connecting-ip": "203.0.113.71" });
+    const response = await app.fetch(sent, testEnv);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual(RATE_LIMITED);
+    expect(sent.bodyUsed).toBe(false);
+    expect(fetchSpy.mock.calls.length).toBe(fetchesBefore);
+    expect(kv.map((spy) => spy.mock.calls.length)).toEqual(kvBefore);
+  });
+});
+
 describe("the other Google routes the app calls", () => {
   const DEVICE = "00fc13adff785122b4ad28809a3420982341241421348097878e577c991de8f0";
   const routes = [

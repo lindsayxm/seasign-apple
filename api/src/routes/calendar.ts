@@ -18,9 +18,12 @@ import { SafeFetchError, parseSafeUrl, safeFetch } from "../lib/safe-fetch.ts";
 // a response or an error message, and never stored. Calendars are named by
 // their position in the request, and the KV key is a hash of the link.
 
-// One minute, KV's shortest expirationTtl: an event added to a calendar shows
-// within about a minute. The app asks about once a minute while Today is open.
-const CALENDAR_TTL = 60;
+// Five minutes (user decision 2026-11-21: pasted links are the slow fallback,
+// Connect Google is the fast path). The app asks every 5 minutes while Today is
+// open, so an event added to a calendar shows within about 5 minutes, up to
+// about 10 when another phone keeps the same link's entry warm. A pull, adding
+// a link and a return to the foreground send `fresh`, which skips the read.
+const CALENDAR_TTL = 300;
 const MAX_LINKS = 10;
 const MAX_EVENTS = 50;
 const MAX_LINK_LENGTH = 2048;
@@ -57,6 +60,14 @@ const CalendarEventsRequestSchema = z
         description:
           "IANA time zone of the device. Decides when all-day events and events without a time zone start and end. Defaults to UTC",
         example: "America/New_York",
+      }),
+    fresh: z
+      .boolean()
+      .optional()
+      .openapi({
+        description:
+          "True to read every link again now instead of answering from the 5-minute cache; the result is cached as usual. For a pull to refresh, adding a link and a return to the app; leave it out for scheduled checks. Still counts against the rate limit",
+        example: true,
       }),
   })
   .openapi("CalendarEventsRequest");
@@ -209,9 +220,17 @@ async function fetchCalendar(link: string, now: Date): Promise<ParsedCalendar> {
   return parseCalendar(new TextDecoder().decode(response.body), now);
 }
 
-async function loadCalendar(link: string, key: string, cache: KVNamespace, now: Date): Promise<ParsedCalendar> {
-  const cached = await cache.get<CachedCalendar>(key, "json");
-  if (cached?.version === 1 && Array.isArray(cached.events)) return cached;
+/**
+ * The calendar from the cache, or fetched and cached. `fresh` skips only the
+ * cache read: the fetch keeps every safeFetch cap and the result is written as
+ * usual. A fresh fetch that fails is reported and leaves any cached entry in
+ * place (failures are never cached), so later plain requests still use it.
+ */
+async function loadCalendar(link: string, key: string, cache: KVNamespace, now: Date, fresh: boolean): Promise<ParsedCalendar> {
+  if (!fresh) {
+    const cached = await cache.get<CachedCalendar>(key, "json");
+    if (cached?.version === 1 && Array.isArray(cached.events)) return cached;
+  }
 
   const parsed = await fetchCalendar(link, now);
   const value: CachedCalendar = { version: 1, events: parsed.events, partial: parsed.partial };
@@ -232,6 +251,7 @@ calendar.openapi(postCalendarEvents, async (c) => {
   const body = c.req.valid("json") as Partial<z.infer<typeof CalendarEventsRequestSchema>> | undefined;
   if (!body || !Array.isArray(body.links)) return c.json(INVALID_REQUEST, 400);
   const { links, timezone } = body;
+  const fresh = body.fresh === true;
   const now = new Date();
   const timeZone = timezone ?? "UTC";
 
@@ -244,7 +264,7 @@ calendar.openapi(postCalendarEvents, async (c) => {
         if (link.length > MAX_LINK_LENGTH) throw new CalendarFailure("invalid_link");
         const key = await calendarCacheKey(link);
         let load = loads.get(key);
-        if (!load) loads.set(key, (load = loadCalendar(link, key, c.env.CACHE, now)));
+        if (!load) loads.set(key, (load = loadCalendar(link, key, c.env.CACHE, now, fresh)));
         const parsed = await load;
         return { index, partial: parsed.partial === true, events: upcomingEvents(parsed.events, now, timeZone) };
       } catch (error) {
