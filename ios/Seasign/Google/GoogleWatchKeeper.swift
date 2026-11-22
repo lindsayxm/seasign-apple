@@ -184,11 +184,13 @@ final class GoogleWatchKeeper {
         if let owed = owedUnwatch {
             owedUnwatch = nil
             // Connected again meanwhile: the next watch replaces the
-            // device's channels, so the unwatch is not needed.
+            // device's channels, or, with no calendar on, the unwatch is
+            // sent with the new connection's token.
             if host?.watchCalendars == nil {
                 want(.unwatch(device: token, token: owed))
                 return
             }
+            mayHaveChannels = true
         }
         sync(.token)
     }
@@ -297,7 +299,13 @@ final class GoogleWatchKeeper {
     /// device token is known (send now), or channels may be at the API (send
     /// when the token arrives).
     var mayNeedUnwatch: Bool {
-        deviceToken != nil || mayHaveChannels
+        deviceToken != nil || channelsMayBeLeft
+    }
+
+    /// Channels may be at the API for this device, counting an unwatch
+    /// still owed from an earlier Disconnect.
+    var channelsMayBeLeft: Bool {
+        mayHaveChannels || owedUnwatch != nil
     }
 
     /// Returns when no request is out or queued.

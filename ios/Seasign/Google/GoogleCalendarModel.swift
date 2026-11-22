@@ -413,7 +413,9 @@ final class GoogleCalendarModel {
     /// once (even while a Connect is still exchanging its code). Then, best
     /// effort and in this order: stops the push channels (after any watch
     /// already out), and asks Google to revoke the sign-in; revoking first
-    /// would leave the API no token to stop the channels with.
+    /// would leave the API no token to stop the channels with. When the
+    /// device token has not arrived yet, the watch keeper alone keeps one
+    /// access token in memory for the unwatch it owes (`GoogleWatchKeeper.stop`).
     func disconnect() async {
         guard !isFrozen else { return }
         generation += 1
@@ -423,7 +425,7 @@ final class GoogleCalendarModel {
         let valid = access?.validToken
         let last = access?.lastToken
         let mayNeedUnwatch = watch.mayNeedUnwatch
-        let channelsLeft = watch.mayHaveChannels
+        let channelsLeft = watch.channelsMayBeLeft
         watch.forget()
         try? tokens.delete()
         access?.forget()
@@ -639,7 +641,7 @@ final class GoogleCalendarModel {
         // With none in memory (the sign-in was found ended at launch), no
         // unwatch can be sent; the channels end by themselves.
         let last = access?.lastToken
-        let channelsLeft = watch.mayHaveChannels
+        let channelsLeft = watch.channelsMayBeLeft
         watch.forget()
         if let last {
             Task { [watch] in await watch.stop(using: last, channelsLeft: channelsLeft) }

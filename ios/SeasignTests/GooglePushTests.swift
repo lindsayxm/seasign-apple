@@ -865,6 +865,72 @@ final class FakeReceiver: RemotePushReceiver {
         #expect(relaunched.watch.isLive)
     }
 
+    @Test func connectingAgainWithNoCalendarOnStillUnwatchesWhenTheTokenArrives() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = InMemoryGoogleTokenStore()
+        _ = try await watching(context, store: store)
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.tokens(access: FakeGoogle.access2, refresh: nil))
+        let relaunched = model(context, store: store)
+        relaunched.launched()
+        try await bounded { await relaunched.disconnect() }
+        let signIn = redirect()
+        try await bounded { await relaunched.connect(signIn: signIn) }
+        let me = try #require(relaunched.calendars.first)
+        relaunched.setOn(me, false)
+        relaunched.registered(FakeDevice.token)
+        try await idle(relaunched)
+        // Nothing to watch, so the old channels are stopped with the new sign-in's token.
+        try #require(unwatches.count == 1)
+        #expect(unwatches[0].token == FakeGoogle.access)
+        #expect(unwatches[0].deviceToken == FakeDevice.hex)
+        #expect(watches.count == 1)
+    }
+
+    @Test func disconnectingTwiceBeforeTheDeviceTokenStillUnwatchesWhenItArrives() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = InMemoryGoogleTokenStore()
+        _ = try await watching(context, store: store)
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.tokens(access: FakeGoogle.access2, refresh: nil))
+        let relaunched = model(context, store: store)
+        relaunched.launched()
+        try await bounded { await relaunched.disconnect() }
+        let signIn = redirect()
+        try await bounded { await relaunched.connect(signIn: signIn) }
+        try await bounded { await relaunched.disconnect() }
+        #expect(unwatches.isEmpty)
+        relaunched.registered(FakeDevice.token)
+        try await idle(relaunched)
+        try #require(unwatches.count == 1)
+        #expect(unwatches[0].deviceToken == FakeDevice.hex)
+        #expect(watches.count == 1)
+    }
+
+    @Test func anEndedSignInBeforeTheDeviceTokenUnwatchesWhenItArrives() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = InMemoryGoogleTokenStore()
+        _ = try await watching(context, store: store)
+        // Next launch: a token is had for the events, then the sign-in ends,
+        // all before the system gives the device token.
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.tokens(access: FakeGoogle.access2, refresh: nil))
+        let relaunched = model(context, store: store)
+        relaunched.launched()
+        try await bounded { await relaunched.refresh(force: true) }
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        try await bounded { await relaunched.refresh(force: true) }
+        #expect(relaunched.connection == .expired)
+        #expect(unwatches.isEmpty)
+        relaunched.registered(FakeDevice.token)
+        try await waitUntil { unwatches.count == 1 }
+        try await idle(relaunched)
+        #expect(unwatches.count == 1)
+        #expect(unwatches.first?.token == FakeGoogle.access2)
+        #expect(unwatches.first?.deviceToken == FakeDevice.hex)
+    }
+
     @Test func anEndedSignInUnwatchesWithTheLastTokenHad() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let model = try await watching(context)
