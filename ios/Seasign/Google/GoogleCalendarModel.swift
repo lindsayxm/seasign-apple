@@ -704,6 +704,102 @@ final class GoogleCalendarModel {
         return .answer(answer, calendars: ids)
     }
 
+    // MARK: Adding an event (task 171)
+
+    /// What `createEvent` came to.
+    enum CreateOutcome: Equatable {
+        /// Google has the event; `created` false means it already had this
+        /// id (an earlier try that did succeed).
+        case added(created: Bool)
+        case failed(CreateProblem)
+    }
+
+    /// Why an event was not added, in the terms the confirm popup words.
+    enum CreateProblem: Equatable {
+        /// Not connected, or the sign-in has ended: connect in Settings.
+        case notConnected
+        /// The sign-in has no write access (`insufficient_scope`).
+        case needsWriteAccess
+        /// Google will not add events to this calendar (`forbidden`).
+        case calendarRefused
+        /// Google has no such calendar (`not_found`).
+        case calendarMissing
+        /// Google refused the event as sent (`rejected`); not retried.
+        case rejected
+        /// The API refused the request (400); not retried.
+        case invalid
+        /// Too many requests; the API's own limit holds until `until`.
+        case rateLimited(until: Date?)
+        /// Nothing certain: Google or the server could not be reached, or
+        /// timed out. The event may have been added; retry with the same id.
+        case unavailable
+        /// The sign-in could not be renewed or read just now; retry later.
+        case signInTrouble
+    }
+
+    /// Adds `event` through `POST /v1/google/events/create`, renewing the
+    /// token once on a 401 (`withToken`). Its failures are its own: they set
+    /// no status and no back-off for Today's poll, except our 429's
+    /// `Retry-After` (the same limit Today's requests share) and a sign-in
+    /// that has ended. On success the chosen calendars are read again at
+    /// once, so Today shows the event without waiting for its poll. The
+    /// DEBUG sample (`-debugGoogle YES`) sends nothing and answers success.
+    func createEvent(_ event: GoogleNewEvent) async -> CreateOutcome {
+        if isFrozen { return .added(created: true) }
+        guard connection == .connected, access != nil else { return .failed(.notConnected) }
+        let started = generation
+        do {
+            let answer = try await withToken { api, token in
+                do {
+                    return try await api.googleCreateEvent(token: token, event: event)
+                } catch SeasignAPI.GoogleCreateFailure.googleAuth {
+                    // As `withToken` expects, so it renews and asks once more.
+                    throw SeasignAPI.GoogleFailure.googleAuth
+                }
+            }
+            if started == generation {
+                Task { await self.refresh(force: true) }
+            }
+            return .added(created: answer.created)
+        } catch let failure as SeasignAPI.GoogleCreateFailure {
+            switch failure {
+            case .googleAuth: return .failed(.signInTrouble)
+            case .insufficientScope: return .failed(.needsWriteAccess)
+            case .forbidden: return .failed(.calendarRefused)
+            case .notFound: return .failed(.calendarMissing)
+            case .invalidRequest: return .failed(.invalid)
+            case .rejected: return .failed(.rejected)
+            case .unavailable: return .failed(.unavailable)
+            case .rateLimited(let seconds?):
+                if started == generation { holdAtLeast(TimeInterval(seconds), serverLimit: true) }
+                return .failed(.rateLimited(until: now().addingTimeInterval(TimeInterval(seconds))))
+            case .rateLimited(nil):
+                return .failed(.rateLimited(until: nil))
+            }
+        } catch let failure as GoogleAccess.Failure {
+            switch failure {
+            case .signInEnded:
+                if started == generation { endSignIn(.expired) }
+                return .failed(.notConnected)
+            case .unavailable:
+                return .failed(.unavailable)
+            case .keychainUnreadable, .rejected:
+                return .failed(.signInTrouble)
+            }
+        } catch is RepeatedAuthFailure {
+            return .failed(.signInTrouble)
+        } catch {
+            return .failed(.unavailable)
+        }
+    }
+
+    /// Our 429 on the add path: hold Today's requests too, never shortening
+    /// a longer hold that is already on.
+    private func holdAtLeast(_ seconds: TimeInterval, serverLimit: Bool) {
+        if let retryNotBefore, retryNotBefore >= now().addingTimeInterval(seconds) { return }
+        hold(seconds, serverLimit: serverLimit)
+    }
+
     // MARK: Push
 
     /// A background push from the Worker (`type` from its payload). For

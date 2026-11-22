@@ -5,25 +5,37 @@ import SwiftUI
 /// included and dimmed, all-day events first, times worded as on Today
 /// (`EventLabel`). The date as the header, the close mark at the top
 /// right, and under it the mic and + buttons, which add events (tasks 171
-/// and 172); each is shown only when its closure is set.
+/// and 172); the mic is shown only when its closure is set, the + only with
+/// an `AddEventModel`, whose one-line field and confirm popup open in a
+/// sheet. After an add, "Added · Sun 3:00 PM · Meeting with Rahaf" shows
+/// for a few seconds and an event for today joins the list at once.
 ///
 /// It reads through its own `DayModel`, which refreshes while the screen is
 /// open and the app is active (Today's Google poll stops under any cover).
 struct DayView: View {
     /// Adds an event by voice; the mic is hidden while nil.
     var speak: (() -> Void)?
-    /// Adds an event by typing; the + is hidden while nil.
-    var type: (() -> Void)?
-
     @State private var model: DayModel
+    /// Adds an event by typing; the + is hidden while nil.
+    @State private var adder: AddEventModel?
+    /// Settings opens once the popup has closed (Connect, Connect again,
+    /// New events go to).
+    @State private var settingsAfterSheet = false
+    @State private var showsSettings = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.clockStyle) private var clockStyle
 
-    init(model: DayModel, speak: (() -> Void)? = nil, type: (() -> Void)? = nil) {
+    init(model: DayModel, speak: (() -> Void)? = nil, adder: AddEventModel? = nil) {
         _model = State(initialValue: model)
+        _adder = State(initialValue: adder)
         self.speak = speak
-        self.type = type
+        // Kept by the first init only (`State`), as are the two models.
+        adder?.onAdded = { [weak model] event in
+            guard let model else { return }
+            model.showAdded(event)
+            Task { await model.refreshGoogle(force: true) }
+        }
     }
 
     var body: some View {
@@ -42,7 +54,56 @@ struct DayView: View {
             guard scenePhase == .active else { return }
             await model.run()
         }
+        .sheet(isPresented: sheetShown, onDismiss: {
+            if settingsAfterSheet {
+                settingsAfterSheet = false
+                showsSettings = true
+            }
+        }) {
+            if let adder {
+                AddEventSheet(model: adder) {
+                    settingsAfterSheet = true
+                    adder.cancel()
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showsSettings) {
+            SettingsView()
+        }
+        #if DEBUG
+        .onAppear(perform: openDebugEntry)
+        #endif
     }
+
+    /// The sheet is up while the popup has something to show.
+    private var sheetShown: Binding<Bool> {
+        Binding(
+            get: { adder?.isOpen ?? false },
+            // Swiped down: as Cancel (ignored while an event is being sent).
+            set: { shown in if !shown { adder?.cancel() } }
+        )
+    }
+
+    #if DEBUG
+    /// `-debugAddEventLine "lunch tomorrow at noon"` opens the field with
+    /// that line; `-debugAddEventSubmit YES` also shows the popup for it;
+    /// `-debugAddEventConfirm YES` also confirms it (with `-debugGoogle YES`
+    /// the sample adds nothing and answers success).
+    private func openDebugEntry() {
+        let defaults = UserDefaults.standard
+        guard let adder, let line = defaults.string(forKey: "debugAddEventLine"), !line.isEmpty, !adder.isOpen else { return }
+        adder.open(line: line)
+        if defaults.bool(forKey: "debugAddEventSubmit") || defaults.bool(forKey: "debugAddEventConfirm") { adder.submit() }
+        // After the sheet is up: a sheet closed while it is still being
+        // presented stays on screen.
+        if defaults.bool(forKey: "debugAddEventConfirm") {
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                adder.confirm()
+            }
+        }
+    }
+    #endif
 
     private func content(now: Date) -> some View {
         let rows = model.rows(now: now, clock: clockStyle)
@@ -61,12 +122,16 @@ struct DayView: View {
             HStack(alignment: .top, spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
+                        if let added = adder?.addedNote {
+                            addedNote(added)
+                                .padding(.top, 14)
+                        }
                         if let problem {
                             note(problem.message)
                                 .padding(.top, 14)
                         }
                         if rows.isEmpty {
-                            if let empty = emptyText(now: now) {
+                            if let empty = model.emptyLine(now: now) {
                                 note(empty)
                                     .padding(.top, 24)
                             }
@@ -91,7 +156,21 @@ struct DayView: View {
     }
 
     private var hasButtons: Bool {
-        speak != nil || type != nil
+        speak != nil || adder != nil
+    }
+
+    /// "Added · Sun 3:00 PM · Meeting with Rahaf", gone after a few seconds.
+    private func addedNote(_ added: AddEventModel.AddedNote) -> some View {
+        Text(caps: added.text)
+            .capsRelative(10, medium: true, tracking: 0.15)
+            .lineSpacing(4)
+            .foregroundStyle(Palette.white)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.updatesFrequently)
+            .task(id: added.id) {
+                try? await Task.sleep(for: .seconds(AddEventModel.addedNoteSeconds))
+                adder?.hideAddedNote(added.id)
+            }
     }
 
     private func header(_ date: HeaderDate) -> some View {
@@ -111,8 +190,8 @@ struct DayView: View {
             if let speak {
                 iconButton(.mic, label: "Add an event by voice", action: speak)
             }
-            if let type {
-                iconButton(.plus, label: "Type an event", action: type)
+            if let adder {
+                iconButton(.plus, label: "Type an event") { adder.open() }
             }
         }
     }
@@ -184,20 +263,5 @@ struct DayView: View {
             .lineSpacing(4)
             .foregroundStyle(Palette.dimText)
             .fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// Nil while a source is held back with nothing read: the status line
-    /// says it will be read again shortly, and the day may not be empty.
-    private func emptyText(now: Date) -> String? {
-        if !model.hasCalendars {
-            return "No calendars yet. Connect Google Calendar or paste a calendar link in Settings."
-        }
-        if model.isWaiting(now: now) {
-            return "Reading your calendars…"
-        }
-        if model.isHeld(now: now) {
-            return nil
-        }
-        return "Nothing on your calendar today."
     }
 }

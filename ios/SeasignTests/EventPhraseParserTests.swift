@@ -1,0 +1,411 @@
+import Foundation
+import Testing
+
+@testable import Seasign
+
+// Task 171: the line typed after + (and later spoken) becomes a draft, on the
+// phone. Every test uses a fixed "now" and zone; the date detector is a fake
+// except in the wiring tests, which run Apple's detector on explicit dates
+// whose meaning does not depend on today's date.
+
+/// Stands in for `NSDataDetector`: each listed piece of text, where it
+/// appears in the line, reads as the given day (at noon, as the real one
+/// reads a date with no time). Matching ignores case.
+struct FakeDateDetector: EventDateDetecting {
+    var dates: [(text: String, year: Int, month: Int, day: Int)] = []
+
+    func dates(in text: String) -> [DetectedDate] {
+        dates.compactMap { entry in
+            let range = (text as NSString).range(of: entry.text, options: .caseInsensitive)
+            guard range.location != NSNotFound else { return nil }
+            return DetectedDate(range: range, year: entry.year, month: entry.month, day: entry.day, hour: 12, minute: 0, duration: 0, timeZone: nil)
+        }
+    }
+}
+
+/// What a line should give: a timed event (local wall times in Chicago,
+/// "2026-11-22 15:00"), an all-day date, or a problem.
+enum Expected: CustomStringConvertible {
+    case timed(String, String, String)
+    case allDay(String, String)
+    case problem(EventDraftProblem)
+
+    var description: String {
+        switch self {
+        case .timed(let title, let start, let end): "\(title) \(start)–\(end)"
+        case .allDay(let title, let date): "\(title) all day \(date)"
+        case .problem(let problem): "problem \(problem)"
+        }
+    }
+}
+
+@Suite struct EventPhraseParserTests {
+    static let chicago = TimeZone(identifier: "America/Chicago")!
+    /// Sunday 22 November 2026, 1:30 PM in Chicago.
+    static let now = instant("2026-11-22T19:30:00Z")
+
+    /// The detector's readings of the explicit dates in the table, as the
+    /// real one gives them (see the wiring tests below and task 171's log).
+    static let detector = FakeDateDetector(dates: [
+        ("December 3, 2026", 2026, 12, 3), ("Dec 3rd", 2026, 12, 3), ("3rd of December", 2026, 12, 3),
+        ("12/3/2026", 2026, 12, 3), ("march 3", 2027, 3, 3), ("Dec 24", 2026, 12, 24), ("Dec 4", 2026, 12, 4),
+        // "Feb 30" is moved to March 2 by the real detector.
+        ("Feb 30", 2027, 3, 2), ("2026-11-25", 2026, 11, 25), ("Jan 5 2033", 2033, 1, 5), ("Nov 1 2025", 2025, 11, 1),
+    ])
+
+    static func wall(_ text: String, in zone: TimeZone = chicago) -> Date {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = zone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.date(from: text)!
+    }
+
+    static func parse(_ line: String, now: Date = now, zone: TimeZone = chicago) -> EventParse {
+        EventPhraseParser(detector: detector).parse(line, now: now, timeZone: zone)
+    }
+
+    static func check(_ line: String, _ expected: Expected, now: Date = now, zone: TimeZone = chicago) {
+        let result = parse(line, now: now, zone: zone)
+        switch expected {
+        case .timed(let title, let start, let end):
+            #expect(result == .draft(EventDraft(
+                title: title, timing: .timed(start: wall(start, in: zone), end: wall(end, in: zone)), timeZone: zone
+            )), "\(line) → \(expected)")
+        case .allDay(let title, let date):
+            #expect(result == .draft(EventDraft(title: title, timing: .allDay(date: date), timeZone: zone)), "\(line) → \(expected)")
+        case .problem(let problem):
+            #expect(result == .problem(problem), "\(line) → \(expected)")
+        }
+    }
+
+    // MARK: The table
+
+    static let table: [(String, Expected)] = [
+        // The user's own example: Sunday is today, so 3 pm today.
+        ("add a meeting to my calendar sunday at 3pm with Rahaf", .timed("Meeting with Rahaf", "2026-11-22 15:00", "2026-11-22 16:00")),
+        // Today and tomorrow.
+        ("lunch with Ann today at 2pm", .timed("Lunch with Ann", "2026-11-22 14:00", "2026-11-22 15:00")),
+        ("lunch with Ann tomorrow at noon", .timed("Lunch with Ann", "2026-11-23 12:00", "2026-11-23 13:00")),
+        ("dinner tomorrow", .allDay("Dinner", "2026-11-23")),
+        ("the day after tomorrow lunch", .allDay("Lunch", "2026-11-24")),
+        ("yoga tonight at 7", .timed("Yoga", "2026-11-22 19:00", "2026-11-22 20:00")),
+        // Weekday names: the next one, today included; "next" is the first after today.
+        ("dentist friday at 9am", .timed("Dentist", "2026-11-27 09:00", "2026-11-27 10:00")),
+        ("dentist on tuesday", .allDay("Dentist", "2026-11-24")),
+        ("dentist next friday", .allDay("Dentist", "2026-11-27")),
+        ("call Sam next sunday at 10am", .timed("Call Sam", "2026-11-29 10:00", "2026-11-29 11:00")),
+        ("this coming saturday brunch at 11", .timed("Brunch", "2026-11-28 11:00", "2026-11-28 12:00")),
+        ("meeting at 10 a.m. friday", .timed("Meeting", "2026-11-27 10:00", "2026-11-27 11:00")),
+        ("party on sat", .allDay("Party", "2026-11-28")),
+        // Next week: a week from today, or the weekday in the next calendar week (Sunday first).
+        ("party next week", .allDay("Party", "2026-11-29")),
+        ("friday next week lunch", .allDay("Lunch", "2026-12-04")),
+        ("next week on wednesday team review at 4pm", .timed("Team review", "2026-12-02 16:00", "2026-12-02 17:00")),
+        ("in 3 days dinner with Ann", .allDay("Dinner with Ann", "2026-11-25")),
+        ("in 2 weeks review", .allDay("Review", "2026-12-06")),
+        // No time: all-day. No date: today.
+        ("Farmers market saturday", .allDay("Farmers market", "2026-11-28")),
+        ("call mom at 5pm", .timed("Call mom", "2026-11-22 17:00", "2026-11-22 18:00")),
+        // A past time today stays today.
+        ("call at 9am", .timed("Call", "2026-11-22 09:00", "2026-11-22 10:00")),
+        // 24-hour phrasing, noon and midnight.
+        ("call mom at 15:00", .timed("Call mom", "2026-11-22 15:00", "2026-11-22 16:00")),
+        ("standup tomorrow 09:30", .timed("Standup", "2026-11-23 09:30", "2026-11-23 10:30")),
+        ("review at 18:45 friday", .timed("Review", "2026-11-27 18:45", "2026-11-27 19:45")),
+        ("doctor at noon", .timed("Doctor", "2026-11-22 12:00", "2026-11-22 13:00")),
+        ("flight at midnight", .timed("Flight", "2026-11-23 00:00", "2026-11-23 01:00")),
+        ("flight friday at midnight", .timed("Flight", "2026-11-28 00:00", "2026-11-28 01:00")),
+        // Bare hours: after "at" only; tonight, evening, dinner mean pm; morning am; else 1-6 pm, 7-11 am.
+        ("dinner at 8", .timed("Dinner", "2026-11-22 20:00", "2026-11-22 21:00")),
+        ("meeting sunday at 3", .timed("Meeting", "2026-11-22 15:00", "2026-11-22 16:00")),
+        ("coffee at 8", .timed("Coffee", "2026-11-22 08:00", "2026-11-22 09:00")),
+        ("call at 9 tomorrow morning", .timed("Call", "2026-11-23 09:00", "2026-11-23 10:00")),
+        ("Room 3 meeting at 4", .timed("Room 3 meeting", "2026-11-22 16:00", "2026-11-22 17:00")),
+        ("dinner for 2 at 7", .timed("Dinner for 2", "2026-11-22 19:00", "2026-11-22 20:00")),
+        ("lunch 3.30pm", .timed("Lunch", "2026-11-22 15:30", "2026-11-22 16:30")),
+        ("meeting at 2:30", .timed("Meeting", "2026-11-22 14:30", "2026-11-22 15:30")),
+        // Lengths and spans.
+        ("meeting at 3pm for 2 hours", .timed("Meeting", "2026-11-22 15:00", "2026-11-22 17:00")),
+        ("standup at 9:30am for 30 minutes", .timed("Standup", "2026-11-22 09:30", "2026-11-22 10:00")),
+        ("workshop tomorrow at 1pm for an hour and a half", .timed("Workshop", "2026-11-23 13:00", "2026-11-23 14:30")),
+        ("call at 4 for half an hour", .timed("Call", "2026-11-22 16:00", "2026-11-22 16:30")),
+        ("meeting 3pm to 5pm", .timed("Meeting", "2026-11-22 15:00", "2026-11-22 17:00")),
+        ("meeting from 3 to 5pm tomorrow", .timed("Meeting", "2026-11-23 15:00", "2026-11-23 17:00")),
+        ("party 3-5pm", .timed("Party", "2026-11-22 15:00", "2026-11-22 17:00")),
+        ("shift 9 to 5", .timed("Shift", "2026-11-22 09:00", "2026-11-22 17:00")),
+        ("brunch 11 to 1pm", .timed("Brunch", "2026-11-22 11:00", "2026-11-22 13:00")),
+        ("party 10pm to 1am", .timed("Party", "2026-11-22 22:00", "2026-11-23 01:00")),
+        ("meeting monday 3pm until 4:30pm", .timed("Meeting", "2026-11-23 15:00", "2026-11-23 16:30")),
+        // Explicit dates through the detector; no year means the next one.
+        ("December 3, 2026 at 4pm review", .timed("Review", "2026-12-03 16:00", "2026-12-03 17:00")),
+        ("Dec 3rd party", .allDay("Party", "2026-12-03")),
+        ("the 3rd of December party", .allDay("Party", "2026-12-03")),
+        ("12/3/2026 dentist", .allDay("Dentist", "2026-12-03")),
+        ("march 3 haircut", .allDay("Haircut", "2027-03-03")),
+        ("dinner on Dec 24", .allDay("Dinner", "2026-12-24")),
+        ("Friday, Dec 4 dinner at 7", .timed("Dinner", "2026-12-04 19:00", "2026-12-04 20:00")),
+        ("party on 2026-11-25", .allDay("Party", "2026-11-25")),
+        ("party on the 5th", .allDay("Party", "2026-12-05")),
+        ("rent due the 30th", .allDay("Rent due", "2026-11-30")),
+        // Titles.
+        ("please add an event called Dentist tomorrow", .allDay("Dentist", "2026-11-23")),
+        ("schedule a call with Rahaf on my calendar at 4pm", .timed("Call with Rahaf", "2026-11-22 16:00", "2026-11-22 17:00")),
+        ("put Game night tomorrow on the calendar", .allDay("Game night", "2026-11-23")),
+        ("create a new appointment with Dr. Lee friday at 2", .timed("Appointment with Dr. Lee", "2026-11-27 14:00", "2026-11-27 15:00")),
+        // Problems, never guesses.
+        ("", .problem(.empty)),
+        ("   ", .problem(.empty)),
+        ("tomorrow at 3pm", .problem(.noTitle)),
+        ("add to my calendar friday", .problem(.noTitle)),
+        ("this weekend hike", .problem(.unclearDay)),
+        ("dinner tomorrow night", .problem(.partOfDay)),
+        ("run sunday morning", .problem(.partOfDay)),
+        ("meeting at 25", .problem(.unclearTime)),
+        ("meeting at 3 pm or 4 pm", .problem(.unclearTime)),
+        ("call at pm", .problem(.unclearTime)),
+        ("hike tomorrow for 3 hours", .problem(.unclearTime)),
+        ("lunch tomorrow friday", .problem(.twoDays)),
+        ("Thursday, Dec 4 dinner", .problem(.twoDays)),
+        ("dentist on Feb 30", .problem(.noSuchDate)),
+        ("December third party", .problem(.unclearDay)),
+        ("party next month", .problem(.unclearDay)),
+        ("retreat at 9am for 30 hours", .problem(.badLength)),
+        ("reunion Jan 5 2033", .problem(.outOfRange)),
+        ("reunion Nov 1 2025", .problem(.outOfRange)),
+    ]
+
+    @Test(arguments: table.indices)
+    func readsTheTable(_ index: Int) {
+        let (line, expected) = Self.table[index]
+        Self.check(line, expected)
+    }
+
+    // MARK: The events' zone
+
+    @Test func timesAreReadInTheEventsZoneNotThePhones() {
+        // The same instant is Monday 23 November, 4:30 AM in Tokyo.
+        let tokyo = TimeZone(identifier: "Asia/Tokyo")!
+        Self.check("lunch tomorrow at noon", .timed("Lunch", "2026-11-24 12:00", "2026-11-24 13:00"), zone: tokyo)
+        Self.check("call sunday", .allDay("Call", "2026-11-29"), zone: tokyo)
+        Self.check("call monday at 3pm", .timed("Call", "2026-11-23 15:00", "2026-11-23 16:00"), zone: tokyo)
+    }
+
+    @Test func aZoneWrittenAfterTheTimeIsUsedForThatTime() {
+        // 3 pm in New York is 2 pm in Chicago; the event stays in the events' zone.
+        Self.check("meeting at 3pm EST", .timed("Meeting", "2026-11-22 14:00", "2026-11-22 15:00"))
+    }
+
+    @Test func aSpanFromTheDetectorSetsTheLengthWhenTheLineGivesNone() {
+        var detector = FakeDateDetector()
+        let line = "call at 2pm"
+        detector.dates = []
+        let base = EventPhraseParser(detector: detector).parse(line, now: Self.now, timeZone: Self.chicago)
+        #expect(base == .draft(EventDraft(title: "Call", timing: .timed(start: Self.wall("2026-11-22 14:00"), end: Self.wall("2026-11-22 15:00")), timeZone: Self.chicago)))
+        struct Spanning: EventDateDetecting {
+            func dates(in text: String) -> [DetectedDate] {
+                [DetectedDate(range: (text as NSString).range(of: "2pm"), year: 2026, month: 11, day: 22, hour: 14, minute: 0, duration: 5400, timeZone: nil)]
+            }
+        }
+        let spanned = EventPhraseParser(detector: Spanning()).parse(line, now: Self.now, timeZone: Self.chicago)
+        #expect(spanned == .draft(EventDraft(title: "Call", timing: .timed(start: Self.wall("2026-11-22 14:00"), end: Self.wall("2026-11-22 15:30")), timeZone: Self.chicago)))
+    }
+
+    @Test func relativeWordsIgnoreWhatTheDetectorSaysAboutThem() {
+        // The real detector reads "sunday" on a Sunday as next week, invents
+        // 19:00 for "dinner" and swallows the word into its match.
+        struct Wrong: EventDateDetecting {
+            func dates(in text: String) -> [DetectedDate] {
+                [DetectedDate(range: NSRange(location: 0, length: (text as NSString).length), year: 2026, month: 11, day: 29, hour: 19, minute: 0, duration: 0, timeZone: nil)]
+            }
+        }
+        let parser = EventPhraseParser(detector: Wrong())
+        #expect(parser.parse("dinner sunday", now: Self.now, timeZone: Self.chicago)
+            == .draft(EventDraft(title: "Dinner", timing: .allDay(date: "2026-11-22"), timeZone: Self.chicago)))
+    }
+
+    @Test func theRangeIsOneYearBackToFiveYearsAheadAsTheAPIs() {
+        let now = Self.now
+        let yearAgo = instant("2025-11-22T19:30:00Z")
+        let fiveYears = instant("2031-11-22T19:30:00Z")
+        #expect(EventPhraseParser.isInRange(.timed(start: yearAgo, end: yearAgo.addingTimeInterval(3600)), now: now))
+        #expect(!EventPhraseParser.isInRange(.timed(start: yearAgo.addingTimeInterval(-60), end: yearAgo.addingTimeInterval(3600)), now: now))
+        #expect(EventPhraseParser.isInRange(.timed(start: fiveYears.addingTimeInterval(-3600), end: fiveYears), now: now))
+        #expect(!EventPhraseParser.isInRange(.timed(start: fiveYears, end: fiveYears.addingTimeInterval(60)), now: now))
+        #expect(EventPhraseParser.isInRange(.allDay(date: "2025-11-22"), now: now))
+        #expect(!EventPhraseParser.isInRange(.allDay(date: "2025-11-21"), now: now))
+        #expect(EventPhraseParser.isInRange(.allDay(date: "2031-11-22"), now: now))
+        #expect(!EventPhraseParser.isInRange(.allDay(date: "2031-11-23"), now: now))
+    }
+
+    // MARK: The real detector
+
+    /// Apple's detector on explicit dates with a year: their meaning does
+    /// not depend on the day the test runs, so this proves the wiring.
+    @Test(arguments: [
+        ("review December 3, 2026 at 4pm", Expected.timed("Review", "2026-12-03 16:00", "2026-12-03 17:00")),
+        ("dentist 12/3/2026", .allDay("Dentist", "2026-12-03")),
+        ("party Dec 24, 2026", .allDay("Party", "2026-12-24")),
+        ("launch on 2026-12-03 at 9:30am", .timed("Launch", "2026-12-03 09:30", "2026-12-03 10:30")),
+        ("the 3rd of December 2026 party", .allDay("Party", "2026-12-03")),
+    ])
+    func theRealDetectorReadsExplicitDates(_ line: String, _ expected: Expected) {
+        let result = EventPhraseParser().parse(line, now: Self.now, timeZone: Self.chicago)
+        switch expected {
+        case .timed(let title, let start, let end):
+            #expect(result == .draft(EventDraft(title: title, timing: .timed(start: Self.wall(start), end: Self.wall(end)), timeZone: Self.chicago)), "\(line)")
+        case .allDay(let title, let date):
+            #expect(result == .draft(EventDraft(title: title, timing: .allDay(date: date), timeZone: Self.chicago)), "\(line)")
+        case .problem(let problem):
+            #expect(result == .problem(problem), "\(line)")
+        }
+    }
+
+    @Test func theRealDetectorsImpossibleDateIsAProblem() {
+        #expect(EventPhraseParser().parse("dentist Feb 30, 2027", now: Self.now, timeZone: Self.chicago) == .problem(.noSuchDate))
+    }
+
+    @Test func theRealDetectorsZoneAndSpanAreItsOwnWallClock() {
+        let found = SystemDateDetector().dates(in: "review December 3, 2026 from 3pm to 5pm")
+        #expect(found.count == 1)
+        #expect(found.first.map { [$0.year, $0.month, $0.day, $0.hour, $0.minute] } == [2026, 12, 3, 15, 0])
+        #expect(found.first?.duration == 7200)
+    }
+}
+
+// MARK: - Titles
+
+@Suite struct EventTitleTests {
+    /// The API's title rule (task 176, `isTitle` in the route), restated
+    /// here independently of `EventTitle`.
+    static func apiAccepts(_ title: String) -> Bool {
+        guard title == title.trimmingCharacters(in: .whitespacesAndNewlines), (1...200).contains(title.utf16.count) else { return false }
+        let scalars = Array(title.unicodeScalars)
+        var visible = false
+        for (index, scalar) in scalars.enumerated() {
+            let category = scalar.properties.generalCategory
+            if [.control, .lineSeparator, .paragraphSeparator, .surrogate].contains(category) { return false }
+            if category == .format {
+                let joiner = scalar.value == 0x200C || scalar.value == 0x200D
+                func text(_ other: Unicode.Scalar) -> Bool {
+                    ![.control, .format, .surrogate, .spaceSeparator, .lineSeparator, .paragraphSeparator].contains(other.properties.generalCategory)
+                        && !other.properties.isWhitespace
+                }
+                let between = index > 0 && index + 1 < scalars.count && text(scalars[index - 1]) && text(scalars[index + 1])
+                let tag = (0xE0020...0xE007F).contains(scalar.value) && scalars[..<index].contains { $0.value == 0x1F3F4 }
+                if !(joiner && between) && !tag { return false }
+            }
+            if !scalar.properties.isDefaultIgnorableCodePoint, scalar.value != 0x2800,
+               [.uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter, .decimalNumber,
+                .letterNumber, .otherNumber, .otherPunctuation, .dashPunctuation, .otherSymbol, .mathSymbol,
+                .currencySymbol, .modifierSymbol, .privateUse, .openPunctuation, .closePunctuation].contains(category) {
+                visible = true
+            }
+        }
+        return visible
+    }
+
+    /// The API's refused titles (task 176's cases) and what cleaning makes of them.
+    @Test(arguments: [
+        ("Meeting\nwith Rahaf", "Meeting with Rahaf"),
+        ("Meeting\u{85}with Rahaf", "Meeting with Rahaf"),
+        ("Meeting\u{2028}with Rahaf", "Meeting with Rahaf"),
+        ("Meeting\u{2029}with Rahaf", "Meeting with Rahaf"),
+        ("\u{200B}", ""),
+        ("\u{200B}\u{200D}\u{200C}\u{2060}", ""),
+        ("Meet\u{200B}ing", "Meeting"),
+        ("\u{200D}", ""),
+        ("\u{200D}Meeting", "Meeting"),
+        ("Meeting \u{200D} with Rahaf", "Meeting with Rahaf"),
+        ("\u{1F468}\u{200D}\u{200D}\u{1F469}", "\u{1F468}\u{1F469}"),
+        ("Meeting \u{202E}fahar\u{202C}", "Meeting fahar"),
+        ("Meeting \u{2067}Rahaf\u{2069}", "Meeting Rahaf"),
+        ("Meeting\u{200E} with Rahaf", "Meeting with Rahaf"),
+        ("Meet\u{AD}ing", "Meeting"),
+        ("Meet\u{FEFF}ing", "Meeting"),
+        ("Meeting\u{E0069}\u{E0067}\u{E006E}\u{E006F}\u{E0072}\u{E0065}", "Meeting"),
+        ("Match \u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}", "Match"),
+        ("\u{3164}", ""),
+        ("\u{2800}\u{2800}", ""),
+        ("\u{301}", ""),
+        ("\u{FE0F}", ""),
+        ("  Lunch \t with   Ann  ", "Lunch with Ann"),
+    ])
+    func cleansWhatTheAPIRefuses(_ raw: String, _ cleaned: String) {
+        let title = EventTitle.clean(raw)
+        #expect(title == cleaned)
+        if !title.isEmpty { #expect(Self.apiAccepts(title)) }
+    }
+
+    /// The API's accepted titles stay as they are.
+    @Test(arguments: [
+        "Réunion avec Rahaf à 15 h", "اجتماع مع رهف", "פגישה עם רהף", "می\u{200C}خواهم با رهف", "क्\u{200D}ष बैठक",
+        "与拉哈夫开会", "ラハフと会議", "라하프와 회의",
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466} dinner", "\u{1F1FA}\u{1F1F8} Independence Day",
+        "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F} match", "\u{2764}\u{FE0F}\u{200D}\u{1F525}",
+        "\u{1F44D}\u{1F3FD} lunch", "1\u{FE0F}\u{20E3} on 1", "\u{1F382}", "\u{F8FF} Store",
+    ])
+    func keepsWhatTheAPIAccepts(_ title: String) {
+        #expect(EventTitle.clean(title) == title)
+        #expect(Self.apiAccepts(title))
+    }
+
+    @Test func cutsAt200UTF16UnitsBetweenCharacters() {
+        #expect(EventTitle.clean(String(repeating: "y", count: 250)) == String(repeating: "y", count: 200))
+        // Each emoji is two UTF-16 units: 100 fit, never half of one.
+        let emoji = EventTitle.clean(String(repeating: "\u{1F382}", count: 150))
+        #expect(emoji.utf16.count == 200 && emoji.count == 100)
+        // A family emoji is one character of 11 units: it is left out whole.
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"
+        let cut = EventTitle.clean(String(repeating: "y", count: 195) + family)
+        #expect(cut == String(repeating: "y", count: 195))
+        // White space at the cut is trimmed.
+        let spaced = EventTitle.clean(String(repeating: "y", count: 199) + " and more")
+        #expect(spaced == String(repeating: "y", count: 199))
+        #expect(Self.apiAccepts(spaced))
+    }
+
+    @Test func aLineWithHiddenCharactersGivesATitleTheAPITakes() {
+        let result = EventPhraseParser(detector: FakeDateDetector()).parse(
+            "lunch\u{200B} with\u{2028}Ann\u{202E} tomorrow at noon", now: EventPhraseParserTests.now, timeZone: EventPhraseParserTests.chicago
+        )
+        guard case .draft(let draft) = result else {
+            Issue.record("expected a draft, got \(result)")
+            return
+        }
+        #expect(draft.title == "Lunch with Ann")
+        #expect(Self.apiAccepts(draft.title))
+    }
+
+    @Test func aLongLineIsCutTo200() {
+        let line = String(repeating: "word ", count: 60) + "tomorrow"
+        let result = EventPhraseParser(detector: FakeDateDetector()).parse(line, now: EventPhraseParserTests.now, timeZone: EventPhraseParserTests.chicago)
+        guard case .draft(let draft) = result else {
+            Issue.record("expected a draft, got \(result)")
+            return
+        }
+        #expect(draft.title.utf16.count <= 200)
+        #expect(Self.apiAccepts(draft.title))
+    }
+}
+
+// MARK: - What is sent
+
+@Suite struct GoogleNewEventTests {
+    @Test func idsAre32LowercaseHexAndNewEachTime() {
+        let first = GoogleNewEvent.makeID()
+        #expect(first.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil)
+        #expect(first != GoogleNewEvent.makeID())
+    }
+
+    @Test func timesAreSentToTheSecondInUTC() {
+        #expect(GoogleNewEvent.rfc3339(instant("2026-11-22T21:00:00Z")) == "2026-11-22T21:00:00Z")
+        #expect(GoogleNewEvent.rfc3339(instant("2026-11-22T21:00:00Z").addingTimeInterval(0.75)) == "2026-11-22T21:00:00Z")
+    }
+
+    @Test func aZoneWithoutAnIANANameIsSentAsUTC() {
+        #expect(GoogleNewEvent.zoneName(TimeZone(identifier: "America/Chicago")!) == "America/Chicago")
+        #expect(GoogleNewEvent.zoneName(TimeZone(secondsFromGMT: -5 * 3600)!) == "UTC")
+        #expect(GoogleNewEvent.zoneName(TimeZone(identifier: "GMT")!) == "UTC")
+    }
+}

@@ -44,9 +44,9 @@ struct TodayView: View {
     @AppStorage("debugOpenSettings") private var debugOpenSettings = false
     /// `-debugOpenDay YES`: the day screen opens over Today at launch.
     @AppStorage("debugOpenDay") private var debugOpenDay = false
-    /// `-debugDayButtons YES`: the day screen shows its mic and + buttons,
-    /// which do nothing yet. Until tasks 171 and 172 wire them, they are
-    /// hidden otherwise, so the app never shows a dead button.
+    /// `-debugDayButtons YES`: the day screen shows its mic button, which
+    /// does nothing yet. Until task 172 wires it, it is hidden otherwise, so
+    /// the app never shows a dead button.
     @AppStorage("debugDayButtons") private var debugDayButtons = false
     #endif
 
@@ -391,18 +391,20 @@ struct TodayView: View {
         )
     }
 
-    /// The day screen, reading in the same zone as Today's events. The mic
-    /// and + are wired by tasks 171 and 172; until then they are shown only
-    /// with `-debugDayButtons YES` (and do nothing).
+    /// The day screen, reading in the same zone as Today's events; its +
+    /// adds an event in that zone (task 171). The mic is wired by task 172;
+    /// until then it is shown only with `-debugDayButtons YES` (and does nothing).
     private var dayView: some View {
         let today = model
-        let day = DayModel(events: events, google: google) {
+        let zone: @MainActor () -> TimeZone = {
             EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent)
         }
+        let day = DayModel(events: events, google: google, timeZone: zone)
+        let adder = AddEventModel(google: google, timeZone: zone)
         #if DEBUG
-        return DayView(model: day, speak: debugDayButtons ? {} : nil, type: debugDayButtons ? {} : nil)
+        return DayView(model: day, speak: debugDayButtons ? {} : nil, adder: adder)
         #else
-        return DayView(model: day)
+        return DayView(model: day, adder: adder)
         #endif
     }
 

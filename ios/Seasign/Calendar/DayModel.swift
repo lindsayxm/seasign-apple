@@ -206,6 +206,17 @@ final class DayModel {
     private(set) var linksHeldUntil: Date?
     /// The same for Google.
     private(set) var googleHeldUntil: Date?
+    /// Events added from this screen (task 171), shown at once until a read
+    /// of Google that began after the add has answered.
+    private(set) var added: [AddedEvent] = []
+
+    /// One event added from the day screen, for the day and zone it was added in.
+    struct AddedEvent: Equatable {
+        var event: UpcomingEvent
+        var day: String
+        var timezone: String
+        var at: Date
+    }
 
     @ObservationIgnored private let api: SeasignAPI
     @ObservationIgnored private let events: EventsModel
@@ -256,7 +267,11 @@ final class DayModel {
         let (day, zone) = current(at: date)
         var merged: [UpcomingEvent] = []
         if let links = currentLinks(day: day, zone: zone) { merged += links.events }
-        if let google = currentGoogle(day: day, zone: zone) { merged += google.events }
+        let google = currentGoogle(day: day, zone: zone)
+        if let google { merged += google.events }
+        merged += currentAdded(day: day, zone: zone).filter { new in
+            !(google?.events.contains { Self.isSame($0, new) } ?? false)
+        }
         return DayOrder.ordered(merged).map {
             DayRow(
                 event: $0,
@@ -327,6 +342,32 @@ final class DayModel {
             || googleState(day: day, zone: zone, at: date) == .held
     }
 
+    /// Every source that should answer has answered for this day (its
+    /// events may still include calendars that failed): only then may the
+    /// screen say the day is empty. A source that failed or is still out
+    /// with nothing read leaves it unsaid.
+    func everySourceAnswered(now date: Date) -> Bool {
+        let (day, zone) = current(at: date)
+        return (!expectsLinks || currentLinks(day: day, zone: zone) != nil)
+            && (!expectsGoogle || currentGoogle(day: day, zone: zone) != nil)
+    }
+
+    /// The line shown when there are no rows; nil while a source is held
+    /// back, or failed, with nothing read for the day (the status line says
+    /// so, and the day may not be empty).
+    func emptyLine(now date: Date) -> String? {
+        if !hasCalendars {
+            return "No calendars yet. Connect Google Calendar or paste a calendar link in Settings."
+        }
+        if isWaiting(now: date) {
+            return "Reading your calendars…"
+        }
+        if isHeld(now: date) || !everySourceAnswered(now: date) {
+            return nil
+        }
+        return "Nothing on your calendar today."
+    }
+
     /// Whether there is any calendar to read at all.
     var hasCalendars: Bool {
         expectsLinks || expectsGoogle
@@ -352,6 +393,33 @@ final class DayModel {
         google.events.removeAll { !on.contains($0.link) }
         google.failed.formIntersection(on)
         return google
+    }
+
+    /// The added events for this day and zone, on calendars that are on.
+    private func currentAdded(day: String, zone: TimeZone) -> [UpcomingEvent] {
+        guard expectsGoogle else { return [] }
+        let on = Set(googleModel.chosen.map(\.id))
+        return added.filter { $0.day == day && $0.timezone == zone.identifier && on.contains($0.event.link) }.map(\.event)
+    }
+
+    /// The same event, whichever calendar list it came from.
+    private static func isSame(_ first: UpcomingEvent, _ second: UpcomingEvent) -> Bool {
+        first.link == second.link && first.title == second.title && first.start == second.start
+            && first.end == second.end && first.allDay == second.allDay
+    }
+
+    // MARK: Adding (task 171)
+
+    /// An event was just added: shown at once if it falls on the current
+    /// day (in the events' zone) and its calendar is on, until Google's
+    /// next answer, which should include it.
+    func showAdded(_ event: UpcomingEvent) {
+        let date = now()
+        let (day, zone) = current(at: date)
+        let eventDay = event.allDay ? event.date : SkySnapshot.localDateString(for: event.start, in: zone)
+        let endDay = SkySnapshot.localDateString(for: event.end.addingTimeInterval(-1), in: zone)
+        guard eventDay == day || (!event.allDay && eventDay ?? "" < day && endDay >= day) else { return }
+        added.append(AddedEvent(event: event, day: day, timezone: zone.identifier, at: date))
     }
 
     // MARK: Asking
@@ -490,7 +558,8 @@ final class DayModel {
         var askedDay = day
         var askedZone = zone
         for attempt in 0..<2 {
-            googleAskedAt = now()
+            let askedAt = now()
+            googleAskedAt = askedAt
             googleAskedFor = key(askedDay, askedZone)
             switch await googleModel.dayEvents(day: askedDay, timezone: askedZone.identifier) {
             case .off:
@@ -519,6 +588,8 @@ final class DayModel {
                 googleFailed = false
                 googleHold = nil
                 setIfChanged(\.googleHeldUntil, nil)
+                // Google's answer now speaks for events added before it was asked.
+                if added.contains(where: { $0.at <= askedAt }) { added.removeAll { $0.at <= askedAt } }
             }
             return
         }

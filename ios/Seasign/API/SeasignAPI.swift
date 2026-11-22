@@ -179,6 +179,84 @@ struct SeasignAPI: Sendable {
         }
     }
 
+    /// Why `googleCreateEvent` failed. Payload-free, like `GoogleFailure`:
+    /// the request carries the Google token, and the title and times.
+    enum GoogleCreateFailure: Error, Equatable {
+        /// 401 `google_auth`: renew the access token and ask once more.
+        case googleAuth
+        /// 403 `insufficient_scope`: the sign-in has no write access; the
+        /// user must connect again and allow adding events.
+        case insufficientScope
+        /// 403 `forbidden`: Google will not add events to this calendar.
+        case forbidden
+        /// 404 `not_found`: Google has no such calendar for this user.
+        case notFound
+        /// 400: the request was refused as sent. Not retried.
+        case invalidRequest
+        /// 502 `rejected`: Google refused the event as sent. Nothing was
+        /// added; the same request would be refused again.
+        case rejected
+        /// 429: `retryAfter` seconds when it is the API's own limit (with
+        /// `Retry-After`), nil when Google is limiting requests.
+        case rateLimited(retryAfter: Int?)
+        /// The server or Google could not be reached, timed out, failed or
+        /// answered in a way that could not be read (502 `fetch_failed` or
+        /// `timeout`, 500, no answer): the event may have been added, so
+        /// retry with the same id.
+        case unavailable
+    }
+
+    /// `POST /v1/google/events/create`: adds `event` to one of the user's
+    /// Google calendars with `token` (sent in `X-Google-Token` only). Not
+    /// sent over plain http when `keyNeedsHTTPS` is on. Throws a
+    /// `GoogleCreateFailure`; the error code in a failure's body tells the
+    /// 403s and 502s apart, and nothing else from it is kept.
+    func googleCreateEvent(token: GoogleSecret, event: GoogleNewEvent) async throws -> GoogleCreateAnswer {
+        guard secretMayBeSent else { throw GoogleCreateFailure.unavailable }
+        var body = Components.Schemas.GoogleCreateEventRequest(
+            calendar: event.calendarID, id: event.id, title: event.title, timezone: event.timezone
+        )
+        switch event.timing {
+        case .timed(let start, let end):
+            body.start = GoogleNewEvent.rfc3339(start)
+            body.end = GoogleNewEvent.rfc3339(end)
+        case .allDay(let date):
+            body.date = date
+        }
+        let output: Operations.postGoogleCreateEvent.Output
+        do {
+            output = try await client.postGoogleCreateEvent(
+                headers: .init(x_hyphen_google_hyphen_token: token.secret),
+                body: .json(body)
+            )
+        } catch {
+            // Dropped on purpose: its description includes the token header and the body.
+            if let delay = ServerRateLimit.delay(after: error) { throw GoogleCreateFailure.rateLimited(retryAfter: delay) }
+            throw GoogleCreateFailure.unavailable
+        }
+        switch output {
+        case .ok(let response):
+            guard let answer = try? response.body.json else { throw GoogleCreateFailure.unavailable }
+            return GoogleCreateAnswer(id: answer.id, created: answer.created)
+        case .badRequest:
+            throw GoogleCreateFailure.invalidRequest
+        case .unauthorized:
+            throw GoogleCreateFailure.googleAuth
+        case .forbidden(let response):
+            let code = try? response.body.json.error.rawValue
+            throw code == "insufficient_scope" ? GoogleCreateFailure.insufficientScope : GoogleCreateFailure.forbidden
+        case .notFound:
+            throw GoogleCreateFailure.notFound
+        case .tooManyRequests(let response):
+            throw GoogleCreateFailure.rateLimited(retryAfter: response.headers.Retry_hyphen_After.map { ServerRateLimit.delay($0) })
+        case .badGateway(let response):
+            let code = try? response.body.json.error.rawValue
+            throw code == "rejected" ? GoogleCreateFailure.rejected : GoogleCreateFailure.unavailable
+        default:
+            throw GoogleCreateFailure.unavailable
+        }
+    }
+
     /// Why `googleWatch` or `googleUnwatch` failed as a whole. Payload-free,
     /// like `GoogleFailure`: these requests carry the Google token in a
     /// header and the device token in the body.
@@ -710,6 +788,50 @@ extension GoogleEventsAnswer {
             )
         }
     }
+}
+
+/// One event to add with `POST /v1/google/events/create` (task 171).
+struct GoogleNewEvent: Sendable, Equatable {
+    /// Google's calendar id.
+    var calendarID: String
+    /// 32 lowercase hex digits, made once per confirmed event and sent
+    /// again on a retry of the same event (`GoogleNewEvent.makeID`).
+    var id: String
+    var title: String
+    /// `UTC` or an IANA Area/Location name (`GoogleNewEvent.zoneName`).
+    var timezone: String
+    var timing: EventDraft.Timing
+
+    /// A random UUID without its dashes, in lower case.
+    static func makeID() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
+
+    /// The name the API takes for `zone`: its IANA name, or `UTC` for a
+    /// zone that has none (`GMT-0500`). The times are sent as instants with
+    /// an offset, so they stay exact either way; only the zone Google keeps
+    /// with the event differs.
+    static func zoneName(_ zone: TimeZone) -> String {
+        SearchDay.ianaName(zone) ?? "UTC"
+    }
+
+    /// RFC 3339 to the second, in UTC (`2026-11-22T21:00:00Z`).
+    static func rfc3339(_ date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        return String(
+            format: "%04d-%02d-%02dT%02d:%02d:%02dZ",
+            parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0, parts.second ?? 0
+        )
+    }
+}
+
+/// A `POST /v1/google/events/create` answer: `created` false means Google
+/// already had this id (most likely an earlier try that did succeed).
+struct GoogleCreateAnswer: Sendable, Equatable {
+    var id: String
+    var created: Bool
 }
 
 /// A `POST /v1/google/watch` response in the app's own types. Calendars are

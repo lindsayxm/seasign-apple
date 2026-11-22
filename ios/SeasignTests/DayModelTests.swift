@@ -273,6 +273,88 @@ private final class Zone {
         #expect(dayRequests().first?.token == FakeGoogle.access)
     }
 
+    // MARK: The empty-day line (#170 review, done in task 171)
+
+    @Test func theDayIsCalledEmptyOnlyWhenEverySourceHasAnswered() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        let events = try eventsModel(context, links: [TestLinks.google])
+        let day = dayModel(events: events, google: google)
+        // Google answers an empty day; the links fail with nothing read.
+        googleStub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.events([], statuses: [nil]))
+        linkStub.setOffline(true)
+        await day.refresh(force: true)
+        #expect(titles(day).isEmpty)
+        #expect(day.problem(now: clock.now) == .links)
+        #expect(!day.everySourceAnswered(now: clock.now))
+        #expect(day.emptyLine(now: clock.now) == nil)
+
+        // Google fails too, with nothing read from the links either.
+        googleStub.setOffline(true)
+        let fresh = dayModel(events: events, google: google)
+        clock.advance(GooglePoll.backoff(failures: 1))
+        await fresh.refreshLinks(force: true)
+        await fresh.refreshGoogle(force: true)
+        #expect(fresh.problem(now: clock.now) == .both)
+        #expect(fresh.emptyLine(now: clock.now) == nil)
+
+        // Once both have answered, an empty day is said to be empty.
+        linkStub.setOffline(false)
+        googleStub.setOffline(false)
+        linkStub.set(TestLinks.google, .events([]))
+        clock.advance(GooglePoll.backoff(failures: 2))
+        await day.refresh(force: true)
+        #expect(day.problem(now: clock.now) == nil)
+        #expect(day.emptyLine(now: clock.now) == "Nothing on your calendar today.")
+    }
+
+    // MARK: An event added from the screen (task 171)
+
+    @Test func anAddedEventShowsAtOnceUntilGoogleAnswersForIt() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        let events = try eventsModel(context, links: [])
+        answerGoogleDay()
+        let day = dayModel(events: events, google: google)
+        await day.refreshGoogle(force: true)
+        #expect(titles(day) == ["Farmers' market", "Breakfast", "Coffee"])
+        let calendar = try #require(google.chosen.first)
+
+        // Added for 3 pm today: shown at once, in order.
+        let meeting = UpcomingEvent(
+            link: calendar.id, title: "Meeting with Rahaf",
+            start: instant("2026-11-19T21:00:00Z"), end: instant("2026-11-19T22:00:00Z"), allDay: false
+        )
+        day.showAdded(meeting)
+        #expect(titles(day) == ["Farmers' market", "Breakfast", "Coffee", "Meeting with Rahaf"])
+        // An event for tomorrow is not on today's screen.
+        day.showAdded(UpcomingEvent(
+            link: calendar.id, title: "Tomorrow's call",
+            start: instant("2026-11-20T21:00:00Z"), end: instant("2026-11-20T22:00:00Z"), allDay: false
+        ))
+        #expect(!titles(day).contains("Tomorrow's call"))
+
+        // Google's next answer has it: shown once.
+        var withMeeting = googleDay()
+        withMeeting.json = withMeeting.json.replacingOccurrences(
+            of: #""events":["#,
+            with: #""events":[{"calendar":0,"title":"Meeting with Rahaf","start":"2026-11-19T21:00:00Z","end":"2026-11-19T22:00:00Z","allDay":false},"#
+        )
+        googleStub.answer(GoogleAPIStub.postEvents, withMeeting)
+        clock.advance(10)
+        await day.refreshGoogle(force: true)
+        #expect(titles(day).filter { $0 == "Meeting with Rahaf" }.count == 1)
+        #expect(day.added.isEmpty)
+
+        // An answer asked for after an add speaks for it (the event was
+        // deleted elsewhere, say): it goes.
+        day.showAdded(meeting)
+        answerGoogleDay()
+        clock.advance(10)
+        await day.refreshGoogle(force: true)
+        #expect(!titles(day).contains("Meeting with Rahaf"))
+    }
+
     @Test func theDayIsTheEventsZonesDayAndAZoneChangeAsksAgain() async throws {
         // 21:00 on the 19th in Chicago, already the 20th in UTC.
         clock.now = instant("2026-11-20T03:00:00Z")

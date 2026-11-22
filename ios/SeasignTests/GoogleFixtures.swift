@@ -169,6 +169,9 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
         var environment: String? = nil
         /// The body's `day`; nil when it was left out.
         var day: String? = nil
+        /// The body's string fields (the create route's calendar, id,
+        /// title, timezone, start, end, date).
+        var body: [String: String] = [:]
     }
 
     private struct Gate {
@@ -275,6 +278,7 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
             entry.deviceToken = object?["deviceToken"] as? String
             entry.environment = object?["environment"] as? String
             entry.day = object?["day"] as? String
+            entry.body = object?.compactMapValues { $0 as? String } ?? [:]
         }
         let waits = lock.withLock { () -> Bool in
             recorded.append(entry)
@@ -388,6 +392,12 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
         Answer(status: .ok, json: #"{"removed":\#(removed)}"#)
     }
 
+    /// A create answer: Google added the event (`created`), or already had its id.
+    static func created(id: String, created: Bool = true) -> Answer {
+        Answer(status: .ok, json: #"{"id":"\#(id)","created":\#(created)}"#)
+    }
+
+    static let postCreate = "postGoogleCreateEvent"
     static let getCalendars = "getGoogleCalendars"
     static let postEvents = "postGoogleEvents"
     static let postWatch = "postGoogleWatch"
