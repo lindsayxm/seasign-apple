@@ -521,14 +521,17 @@ struct SceneRenderer: Sendable {
             context.stroke(path, with: .color(Self.white.color(0.4)), lineWidth: hairWidth)
         }
 
-        // Text: small mono type with a dark shadow.
+        // Text: mono type with a dark shadow, the size of the event times
+        // (task 165; it was 8.5). The context is already scaled, so the size
+        // is in mockup points.
         var text = context
         text.addFilter(.shadow(color: .black, radius: 2.2))
         text.addFilter(.shadow(color: .black.opacity(0.9), radius: 0.8))
+        let markSize = Double(TodayOverlayLayout.Fonts.timeSize)
         func mono(_ string: String, tracking: Double, color: Color) -> Text {
             Text(verbatim: string)
-                .font(.system(size: 8.5, design: .monospaced))
-                .tracking(8.5 * tracking)
+                .font(.system(size: markSize, design: .monospaced))
+                .tracking(markSize * tracking)
                 .foregroundStyle(color)
         }
         let markColor = SceneRGB(244, 246, 246).color(0.95)

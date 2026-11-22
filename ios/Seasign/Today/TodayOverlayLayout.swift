@@ -86,6 +86,10 @@ struct TodayOverlayLayout {
         var number: UIFont
         var title: UIFont
 
+        /// The size of the event times in mockup points. The scene's rise
+        /// and set times under the horizon use the same size (task 165).
+        static let timeSize: CGFloat = 10
+
         static let dateTracking: CGFloat = 0.26
         static let temperatureTracking: CGFloat = 0.2
         static let eventTracking: CGFloat = 0.13
@@ -99,7 +103,7 @@ struct TodayOverlayLayout {
             date = TodayType.jost(9 * s)
             temperature = TodayType.jost(10 * s)
             event = TodayType.jost(11 * s)
-            time = TodayType.mono(10 * s)
+            time = TodayType.mono(Self.timeSize * s)
             wind = TodayType.mono(8.5 * s)
             number = TodayType.mono(8 * s)
             title = TodayType.title(13.5 * s)
