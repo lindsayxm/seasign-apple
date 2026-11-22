@@ -229,7 +229,7 @@
             "items": {
               "$ref": "#/components/schemas/CalendarEvent"
             },
-            "description": "Events that have not ended and start within the next 7 days, soonest first, at most 50"
+            "description": "Events that have not ended and start within the next 7 days, soonest first, at most 50. With `day`: the events that overlap that day in `timezone`, ended ones included, in the same order and under the same cap"
           },
           "calendars": {
             "type": "array",
@@ -368,6 +368,12 @@
             "type": "boolean",
             "description": "True to read every link again now instead of answering from the 5-minute cache; the result is cached as usual. For a pull to refresh, adding a link and a return to the app; leave it out for scheduled checks. Still counts against the rate limit",
             "example": true
+          },
+          "day": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A date, YYYY-MM-DD, in `timezone`: today or one of the six days after it. With it the answer is every event that overlaps that day, ended ones included, instead of the upcoming ones; any other date is the 400",
+            "example": "2026-11-16"
           }
         },
         "required": [
@@ -820,6 +826,18 @@
             "type": "string",
             "description": "The calendar's colour in Google Calendar as #rrggbb, when Google gives one",
             "example": "#0088aa"
+          },
+          "accessRole": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "writer",
+              "writerWithoutPrivateAccess",
+              "reader",
+              "freeBusyReader"
+            ],
+            "description": "The user's access to the calendar, as Google's calendar list gives it: owner, writer and writerWithoutPrivateAccess can add events; reader sees the events; freeBusyReader sees only when the user is busy. Left out when Google gives none or another value",
+            "example": "owner"
           }
         },
         "required": [
@@ -862,7 +880,7 @@
             "items": {
               "$ref": "#/components/schemas/CalendarEvent"
             },
-            "description": "Events that have not ended and start within the next 7 days, soonest first, at most 50. Cancelled events are left out"
+            "description": "Events that have not ended and start within the next 7 days, soonest first, at most 50. With `day`: the events that overlap that day in `timezone`, ended ones included, in the same order and under the same cap. Cancelled events are left out"
           },
           "calendars": {
             "type": "array",
@@ -933,6 +951,12 @@
             "type": "string",
             "description": "IANA time zone of the device. Decides when all-day events start and end. Defaults to UTC",
             "example": "America/New_York"
+          },
+          "day": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "A date, YYYY-MM-DD, in `timezone`: today or one of the six days after it. With it the answer is every event that overlaps that day, ended ones included, instead of the upcoming ones; any other date is the 400",
+            "example": "2026-11-16"
           }
         },
         "required": [
@@ -1216,7 +1240,7 @@
             }
           },
           "400": {
-            "description": "The body is not JSON or is not sent as application/json, has no links or more than 10, or names an unknown time zone",
+            "description": "The body is not JSON or is not sent as application/json, has no links or more than 10, names an unknown time zone, or has a `day` that is not a date from today to six days on in the time zone",
             "content": {
               "application/json": {
                 "schema": {
@@ -1664,7 +1688,7 @@
             }
           },
           "400": {
-            "description": "invalid_request: no X-Google-Token header or one of the wrong shape, a body that is not JSON or not sent as application/json, no calendar ids or more than 10, an id of the wrong shape, or an unknown time zone",
+            "description": "invalid_request: no X-Google-Token header or one of the wrong shape, a body that is not JSON or not sent as application/json, no calendar ids or more than 10, an id of the wrong shape, an unknown time zone, or a `day` that is not a date from today to six days on in the time zone",
             "content": {
               "application/json": {
                 "schema": {

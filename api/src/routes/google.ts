@@ -1,7 +1,8 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import { UPCOMING_DAYS, isTimeZone, upcomingEvents, type StoredEvent, type UpcomingEvent } from "../lib/calendar.ts";
+import { UPCOMING_DAYS, dayBounds, dayEvents, dayInRange, isTimeZone, upcomingEvents, type StoredEvent, type UpcomingEvent } from "../lib/calendar.ts";
 import {
+  GOOGLE_ACCESS_ROLES,
   GOOGLE_EVENT_TYPES,
   GoogleFailure,
   calendarOf,
@@ -13,7 +14,7 @@ import {
 } from "../lib/google.ts";
 import { retryAfterHeader } from "../lib/rate-limit.ts";
 import { isJsonContentType } from "../lib/site-reader.ts";
-import { CalendarEventSchema } from "./calendar.ts";
+import { CalendarEventSchema, DaySchema } from "./calendar.ts";
 
 // Google Calendar read with the user's own OAuth access token (plan
 // plans/2026-11-19-google-calendar-push.md, task A). The token arrives in the
@@ -31,7 +32,7 @@ export const MAX_ID_LENGTH = 512;
 /** events.list page size (Google allows up to 2500) and pages read per calendar. */
 const PAGE_SIZE = 250;
 const MAX_PAGES = 4;
-/** Occurrences kept per calendar, as for a pasted link; more in nine days is not a personal calendar. */
+/** Occurrences kept per calendar, as for a pasted link; more in nine days (or one day) is not a personal calendar. */
 const MAX_KEPT = 500;
 /** calendarList.list page size (Google's maximum) and pages read. */
 const LIST_PAGE_SIZE = 250;
@@ -49,7 +50,7 @@ export const isCalendarId = (id: string) => ID_PATTERN.test(id) && id !== "." &&
 
 /** Only what is read, so that descriptions, attendees and the like never reach the Worker. */
 const EVENT_FIELDS = "items(status,summary,start,end,endTimeUnspecified),nextPageToken";
-const LIST_FIELDS = "items(id,summary,summaryOverride,primary,selected,backgroundColor,deleted),nextPageToken";
+const LIST_FIELDS = "items(id,summary,summaryOverride,primary,selected,backgroundColor,deleted,accessRole),nextPageToken";
 
 export const GoogleHeadersSchema = z.object({
   "x-google-token": z
@@ -71,6 +72,11 @@ const GoogleCalendarSchema = z
     primary: z.boolean().openapi({ description: "True for the user's primary calendar" }),
     selected: z.boolean().openapi({ description: "True when the calendar is shown in Google Calendar's own app" }),
     color: z.string().optional().openapi({ description: "The calendar's colour in Google Calendar as #rrggbb, when Google gives one", example: "#0088aa" }),
+    accessRole: z.enum(GOOGLE_ACCESS_ROLES).optional().openapi({
+      description:
+        "The user's access to the calendar, as Google's calendar list gives it: owner, writer and writerWithoutPrivateAccess can add events; reader sees the events; freeBusyReader sees only when the user is busy. Left out when Google gives none or another value",
+      example: "owner",
+    }),
   })
   .openapi("GoogleCalendar");
 
@@ -103,6 +109,7 @@ const GoogleEventsRequestSchema = z
         description: "IANA time zone of the device. Decides when all-day events start and end. Defaults to UTC",
         example: "America/New_York",
       }),
+    day: DaySchema.optional(),
   })
   .openapi("GoogleEventsRequest");
 
@@ -123,7 +130,8 @@ const GoogleCalendarStatusSchema = z
 const GoogleEventsSchema = z
   .object({
     events: z.array(CalendarEventSchema).openapi({
-      description: "Events that have not ended and start within the next 7 days, soonest first, at most 50. Cancelled events are left out",
+      description:
+        "Events that have not ended and start within the next 7 days, soonest first, at most 50. With `day`: the events that overlap that day in `timezone`, ended ones included, in the same order and under the same cap. Cancelled events are left out",
     }),
     calendars: z.array(GoogleCalendarStatusSchema).openapi({ description: "One entry per calendar id, in request order" }),
   })
@@ -180,7 +188,7 @@ const postGoogleEvents = createRoute({
       content: { "application/json": { schema: GoogleEventsSchema } },
     },
     400: errorResponse(
-      "invalid_request: no X-Google-Token header or one of the wrong shape, a body that is not JSON or not sent as application/json, no calendar ids or more than 10, an id of the wrong shape, or an unknown time zone",
+      "invalid_request: no X-Google-Token header or one of the wrong shape, a body that is not JSON or not sent as application/json, no calendar ids or more than 10, an id of the wrong shape, an unknown time zone, or a `day` that is not a date from today to six days on in the time zone",
     ),
     401: googleAuth,
     429: rateLimited,
@@ -220,13 +228,11 @@ const failureCode = (error: unknown): GoogleFailureCode =>
 const rfc3339 = (seconds: number) => new Date(seconds * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 
 /**
- * Every page of one calendar's events between a day before now and eight days
- * after (the exact seven-day rule is applied by `upcomingEvents`, once all-day
- * events are placed in the request's time zone, which may not be the
- * calendar's). Recurring events come expanded into their instances.
+ * Every page of one calendar's events that end after `from` and start before
+ * `to` (Unix seconds; Google's timeMin and timeMax). Recurring events come
+ * expanded into their instances.
  */
-async function readCalendar(id: string, token: string, now: Date): Promise<{ events: StoredEvent[]; partial: boolean }> {
-  const nowSeconds = Math.floor(now.getTime() / 1000);
+async function readCalendar(id: string, token: string, from: number, to: number): Promise<{ events: StoredEvent[]; partial: boolean }> {
   const path = `/calendar/v3/calendars/${encodeURIComponent(id)}/events`;
   return withGoogleDeadline(async (signal) => {
     const events: StoredEvent[] = [];
@@ -240,8 +246,8 @@ async function readCalendar(id: string, token: string, now: Date): Promise<{ eve
       const params = new URLSearchParams({
         singleEvents: "true",
         orderBy: "startTime",
-        timeMin: rfc3339(nowSeconds - DAY),
-        timeMax: rfc3339(nowSeconds + (UPCOMING_DAYS + 1) * DAY),
+        timeMin: rfc3339(from),
+        timeMax: rfc3339(to),
         maxResults: String(PAGE_SIZE),
         fields: EVENT_FIELDS,
       });
@@ -317,6 +323,22 @@ google.openapi(postGoogleEvents, async (c) => {
   if (!body || !Array.isArray(body.calendars)) return c.json(INVALID_REQUEST, 400);
   const now = new Date();
   const timeZone = body.timezone ?? "UTC";
+  const nowSeconds = Math.floor(now.getTime() / 1000);
+
+  // Without `day`: a day before now to eight days after (the exact seven-day
+  // rule is applied by `upcomingEvents`, once all-day events are placed in the
+  // request's time zone, which may not be the calendar's). With `day`: that
+  // day in the request's zone, midnight to midnight, and `dayEvents` keeps
+  // what overlaps it. Checked before Google is called.
+  let day: number | null = null;
+  let from = nowSeconds - DAY;
+  let to = nowSeconds + (UPCOMING_DAYS + 1) * DAY;
+  if (body.day !== undefined) {
+    day = dayInRange(body.day, now, timeZone);
+    if (day === null) return c.json(INVALID_REQUEST, 400);
+    ({ from, to } = dayBounds(day, timeZone));
+  }
+  const select = (events: StoredEvent[]) => (day === null ? upcomingEvents(events, now, timeZone) : dayEvents(events, day, timeZone));
 
   // An id sent twice is read once.
   const reads = new Map<string, Promise<{ events: StoredEvent[]; partial: boolean }>>();
@@ -324,9 +346,9 @@ google.openapi(postGoogleEvents, async (c) => {
     body.calendars.map(async (id, index) => {
       try {
         let read = reads.get(id);
-        if (!read) reads.set(id, (read = readCalendar(id, token, now)));
+        if (!read) reads.set(id, (read = readCalendar(id, token, from, to)));
         const { events, partial } = await read;
-        return { index, partial, events: upcomingEvents(events, now, timeZone) };
+        return { index, partial, events: select(events) };
       } catch (error) {
         // Only the index and the code: never the id, the token or Google's words.
         const code = failureCode(error);

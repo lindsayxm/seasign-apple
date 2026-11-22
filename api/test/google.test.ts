@@ -242,7 +242,7 @@ describe("GET /v1/google/calendars", () => {
       expect(request.url.origin).toBe(GOOGLE);
       expect(request.url.pathname).toBe("/calendar/v3/users/me/calendarList");
       expect(request.url.searchParams.get("maxResults")).toBe("250");
-      expect(request.url.searchParams.get("fields")).toBe("items(id,summary,summaryOverride,primary,selected,backgroundColor,deleted),nextPageToken");
+      expect(request.url.searchParams.get("fields")).toBe("items(id,summary,summaryOverride,primary,selected,backgroundColor,deleted,accessRole),nextPageToken");
       expect(request.authorization).toBe(`Bearer ${TOKEN}`);
       expect(request.redirect).toBe("manual");
       expect(request.method).toBe("GET");

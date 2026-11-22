@@ -5,7 +5,7 @@
 // RECURRENCE-ID overrides applied, cancelled events dropped. That list is what
 // gets cached. `upcomingEvents` then answers one request from it: it places
 // floating and all-day times in the caller's time zone and keeps the next
-// seven days.
+// seven days; `dayEvents` keeps one whole day instead, ended events included.
 //
 // The file comes from an arbitrary URL, so everything here is bounded, and
 // ical.js is used for two things only: turning the text into data
@@ -42,11 +42,21 @@ const DAY = 86400;
 export const UPCOMING_DAYS = 7;
 /**
  * What is kept at parse time, around the moment of parsing: everything that
- * ends after `now - 1 day` and starts before `now + 8 days`. The extra day on
- * each side covers the cache lifetime and any request time zone (floating and
- * all-day times are placed only when a request is answered).
+ * ends after `now - keepBefore` and starts before `now + 8 days`. The extra
+ * day ahead covers the cache lifetime and any request time zone (floating and
+ * all-day times are placed only when a request is answered). `parseCalendar`
+ * keeps one day back unless told otherwise, which is enough for events that
+ * have not ended.
  */
 const KEEP_BEFORE = DAY;
+/**
+ * What the route asks `parseCalendar` to keep back: two days, for a `day`
+ * request (task 167), which wants all of today, ended events included. The
+ * start of today is up to 25 hours back (a fall-back day), and a floating or
+ * all-day time is kept by its wall clock, which in UTC-12 reads 12 hours
+ * earlier than the instant it is placed at: 37 hours in all.
+ */
+export const CACHED_KEEP_BEFORE = 2 * DAY;
 const KEEP_AFTER = (UPCOMING_DAYS + 1) * DAY;
 
 /**
@@ -55,7 +65,7 @@ const KEEP_AFTER = (UPCOMING_DAYS + 1) * DAY;
  * placed, or one listed date read; each is at most a few microseconds.
  */
 const MAX_WORK_PER_FILE = 200_000;
-/** Occurrences kept per calendar; a nine-day window with more than this is not a personal calendar. */
+/** Occurrences kept per calendar; a nine- or ten-day window with more than this is not a personal calendar. */
 const MAX_KEPT = 500;
 const MAX_TITLE_LENGTH = 200;
 /** EXDATE and RDATE values one event may list; more and the event is skipped. */
@@ -1468,7 +1478,9 @@ function cleanEvent(vevent: JCal, budget: Budget): JCal {
 }
 
 /**
- * Parses the text of an .ics file and returns the occurrences near `now`.
+ * Parses the text of an .ics file and returns the occurrences near `now`:
+ * those that end after `now - keepBefore` (seconds; one day unless given)
+ * and start before `now + 8 days`.
  * Throws `CalendarParseError` when the text is not a calendar, and its
  * subclass `CalendarTooLargeError` when it is longer than MAX_CALENDAR_BYTES
  * characters or holds more than `readableLines` gives ical.js.
@@ -1494,7 +1506,7 @@ function cleanEvent(vevent: JCal, budget: Budget): JCal {
  * `RANGE=THISANDFUTURE` on a RECURRENCE-ID is not applied: such an override
  * changes only its own instance.
  */
-export function parseCalendar(text: string, now: Date): ParsedCalendar {
+export function parseCalendar(text: string, now: Date, keepBefore: number = KEEP_BEFORE): ParsedCalendar {
   if (text.length > MAX_CALENDAR_BYTES) throw new CalendarTooLargeError("too large");
   // Folded lines are joined first, so that everything after this sees whole
   // lines. ical.js is given what `readableLines` makes of this text and has
@@ -1562,7 +1574,7 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
   const wrap = (data: JCal) => new ICAL.Component(data);
 
   const nowSeconds = Math.floor(now.getTime() / 1000);
-  const window: Window = { keepFrom: nowSeconds - KEEP_BEFORE, keepUntil: nowSeconds + KEEP_AFTER };
+  const window: Window = { keepFrom: nowSeconds - keepBefore, keepUntil: nowSeconds + KEEP_AFTER };
 
   // A repeating event and the VEVENTs that override single instances of it
   // share a UID; the overrides carry a RECURRENCE-ID.
@@ -1595,7 +1607,7 @@ export function parseCalendar(text: string, now: Date): ParsedCalendar {
 
   const events: StoredEvent[] = [];
   const each = (data: JCal, single: boolean) => {
-    // Far more occurrences in nine days than will be kept: stop reading.
+    // Far more occurrences in the window than will be kept: stop reading.
     if (budget.work <= 0 || events.length >= 4 * MAX_KEPT) {
       budget.partial = true;
       return;
@@ -1655,4 +1667,74 @@ export function upcomingEvents(stored: StoredEvent[], now: Date, timeZone: strin
     });
   }
   return upcoming;
+}
+
+// ───────────────────────── one day ─────────────────────────
+
+/** Days a `day` request may name: today in the request's zone and the six after it, the seven days `upcomingEvents` looks at. */
+export const DAY_REQUEST_DAYS = UPCOMING_DAYS;
+
+const DAY_TEXT = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Wall-clock seconds of midnight at the start of a YYYY-MM-DD date, or null when it is not a real date. */
+export function dayWall(text: string): number | null {
+  const match = DAY_TEXT.exec(text);
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const ms = Date.UTC(year, month - 1, day);
+  const back = new Date(ms);
+  // 2026-02-30 is not a date.
+  if (year < 1000 || back.getUTCFullYear() !== year || back.getUTCMonth() !== month - 1 || back.getUTCDate() !== day) return null;
+  return ms / 1000;
+}
+
+/** True for text of the form YYYY-MM-DD that is a real date. For the request schemas. */
+export const isDayText = (text: string) => dayWall(text) !== null;
+
+/**
+ * The wall-clock midnight (seconds) of `day` when it is today in `timeZone`
+ * or one of the six days after, else null. `timeZone` must pass `isTimeZone`.
+ */
+export function dayInRange(day: string, now: Date, timeZone: string): number | null {
+  const wall = dayWall(day);
+  if (wall === null) return null;
+  const nowSeconds = Math.floor(now.getTime() / 1000);
+  const today = Math.floor((nowSeconds + offsetAt(nowSeconds, timeZone)) / DAY) * DAY;
+  return wall >= today && wall < today + DAY_REQUEST_DAYS * DAY ? wall : null;
+}
+
+/**
+ * The instants at which a day begins and ends in a zone: midnight to the next
+ * midnight on its clocks, so 23 or 25 hours on a day the clocks change.
+ */
+export function dayBounds(wall: number, timeZone: string): { from: number; to: number } {
+  return { from: wallToEpoch(wall, timeZone), to: wallToEpoch(wall + DAY, timeZone) };
+}
+
+/**
+ * The stored occurrences that overlap one day in `timeZone` (which must pass
+ * `isTimeZone`), ended ones included, placed as `upcomingEvents` places them.
+ * `wall` is the day's midnight as wall-clock seconds (`dayWall`). An event
+ * overlaps when it starts before the day ends and ends after it begins, so
+ * one that ends at the day's first midnight belongs to the day before; one
+ * without a length belongs to the day it starts on. Unsorted.
+ */
+export function dayEvents(stored: StoredEvent[], wall: number, timeZone: string): UpcomingEvent[] {
+  const { from, to } = dayBounds(wall, timeZone);
+  const found: UpcomingEvent[] = [];
+  for (const event of stored) {
+    const placed = event.kind !== "instant";
+    const start = placed ? wallToEpoch(event.start, timeZone) : event.start;
+    const end = placed ? wallToEpoch(event.end, timeZone) : event.end;
+    if (start >= to) continue;
+    if (end === start ? start < from : end <= from) continue;
+    found.push({
+      title: event.title,
+      start: instant(start),
+      end: instant(end),
+      allDay: event.kind === "allDay",
+      ...(event.kind === "allDay" ? { date: instant(event.start).slice(0, 10) } : {}),
+    });
+  }
+  return found;
 }

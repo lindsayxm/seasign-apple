@@ -303,13 +303,27 @@ export function storedEventOf(item: unknown): StoredEvent | "cancelled" | null {
 
 // ───────────────────────── calendar list ─────────────────────────
 
+/**
+ * calendarList's accessRole values, as its reference listed them on
+ * 2026-11-22 (https://developers.google.com/workspace/calendar/api/v3/reference/calendarList):
+ * owner and writer can add events and see private ones; writerWithoutPrivateAccess
+ * can add events but sees private ones without details; reader sees the events;
+ * freeBusyReader only when the user is busy.
+ */
+export const GOOGLE_ACCESS_ROLES = ["owner", "writer", "writerWithoutPrivateAccess", "reader", "freeBusyReader"] as const;
+export type GoogleAccessRole = (typeof GOOGLE_ACCESS_ROLES)[number];
+
 export type GoogleCalendar = {
   id: string;
   name: string;
   primary: boolean;
   selected: boolean;
   color?: string;
+  accessRole?: GoogleAccessRole;
 };
+
+const isAccessRole = (value: unknown): value is GoogleAccessRole =>
+  typeof value === "string" && (GOOGLE_ACCESS_ROLES as readonly string[]).includes(value);
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -325,5 +339,6 @@ export function calendarOf(item: unknown): GoogleCalendar | null {
     primary: item.primary === true,
     selected: item.selected === true,
     ...(typeof item.backgroundColor === "string" && HEX_COLOR.test(item.backgroundColor) ? { color: item.backgroundColor.toLowerCase() } : {}),
+    ...(isAccessRole(item.accessRole) ? { accessRole: item.accessRole } : {}),
   };
 }

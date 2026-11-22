@@ -1,9 +1,13 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import {
+  CACHED_KEEP_BEFORE,
   CalendarParseError,
   CalendarTooLargeError,
   MAX_CALENDAR_BYTES,
+  dayEvents,
+  dayInRange,
+  isDayText,
   isTimeZone,
   parseCalendar,
   upcomingEvents,
@@ -41,6 +45,17 @@ type CalendarErrorCode = (typeof CALENDAR_ERRORS)[number];
 const instant = (description: string) =>
   z.string().openapi({ format: "date-time", description, example: "2026-11-16T15:00:00Z" });
 
+/** The optional `day` of both event routes; shared with routes/google.ts. Whether it is in range is checked in the handler, against `timezone`. */
+export const DaySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(isDayText)
+  .openapi({
+    description:
+      "A date, YYYY-MM-DD, in `timezone`: today or one of the six days after it. With it the answer is every event that overlaps that day, ended ones included, instead of the upcoming ones; any other date is the 400",
+    example: "2026-11-16",
+  });
+
 const CalendarEventsRequestSchema = z
   .object({
     links: z
@@ -69,6 +84,7 @@ const CalendarEventsRequestSchema = z
           "True to read every link again now instead of answering from the 5-minute cache; the result is cached as usual. For a pull to refresh, adding a link and a return to the app; leave it out for scheduled checks. Still counts against the rate limit",
         example: true,
       }),
+    day: DaySchema.optional(),
   })
   .openapi("CalendarEventsRequest");
 
@@ -108,7 +124,8 @@ const CalendarStatusSchema = z
 const CalendarEventsSchema = z
   .object({
     events: z.array(CalendarEventSchema).openapi({
-      description: "Events that have not ended and start within the next 7 days, soonest first, at most 50",
+      description:
+        "Events that have not ended and start within the next 7 days, soonest first, at most 50. With `day`: the events that overlap that day in `timezone`, ended ones included, in the same order and under the same cap",
     }),
     calendars: z.array(CalendarStatusSchema).openapi({ description: "One entry per link, in request order" }),
   })
@@ -136,7 +153,7 @@ const postCalendarEvents = createRoute({
     },
     400: {
       description:
-        "The body is not JSON or is not sent as application/json, has no links or more than 10, or names an unknown time zone",
+        "The body is not JSON or is not sent as application/json, has no links or more than 10, names an unknown time zone, or has a `day` that is not a date from today to six days on in the time zone",
       content: { "application/json": { schema: ErrorSchema } },
     },
     429: {
@@ -204,7 +221,11 @@ function failureCode(error: unknown): CalendarErrorCode {
   return "fetch_failed";
 }
 
-/** What is cached: occurrences around the time of the fetch. Holds nothing of the link. */
+/**
+ * What is cached: occurrences around the time of the fetch, from two days
+ * before it to eight days after. Holds nothing of the link. One entry serves
+ * plain and `day` requests alike.
+ */
 type CachedCalendar = { version: 1 } & ParsedCalendar;
 
 /**
@@ -217,7 +238,9 @@ async function fetchCalendar(link: string, now: Date): Promise<ParsedCalendar> {
   // Decoding and parsing are one synchronous step, so however many links a
   // request fetches at once, one parse at a time is in memory; what adds up
   // is the fetched bodies, each at most MAX_CALENDAR_BYTES (memory/architecture.md).
-  return parseCalendar(new TextDecoder().decode(response.body), now);
+  // Two days back, not one: a `day` request answers ended events of today
+  // from the same entry (CACHED_KEEP_BEFORE).
+  return parseCalendar(new TextDecoder().decode(response.body), now, CACHED_KEEP_BEFORE);
 }
 
 /**
@@ -254,6 +277,16 @@ calendar.openapi(postCalendarEvents, async (c) => {
   const fresh = body.fresh === true;
   const now = new Date();
   const timeZone = timezone ?? "UTC";
+  // With `day`, that day's events, ended ones included, from the same cached
+  // occurrences (fetchCalendar asks for two days back, enough for the start of
+  // today in any zone). Checked before anything is read.
+  let day: number | null = null;
+  if (body.day !== undefined) {
+    day = dayInRange(body.day, now, timeZone);
+    if (day === null) return c.json(INVALID_REQUEST, 400);
+  }
+  const select = (parsed: ParsedCalendar) =>
+    day === null ? upcomingEvents(parsed.events, now, timeZone) : dayEvents(parsed.events, day, timeZone);
 
   // A link is loaded once per request however often and in whatever spelling
   // it is sent: `webcal://x` and `https://x` have the same cache key.
@@ -266,7 +299,7 @@ calendar.openapi(postCalendarEvents, async (c) => {
         let load = loads.get(key);
         if (!load) loads.set(key, (load = loadCalendar(link, key, c.env.CACHE, now, fresh)));
         const parsed = await load;
-        return { index, partial: parsed.partial === true, events: upcomingEvents(parsed.events, now, timeZone) };
+        return { index, partial: parsed.partial === true, events: select(parsed) };
       } catch (error) {
         // Only the code: an error's own text could hold a piece of the link or of the file.
         const code = failureCode(error);
