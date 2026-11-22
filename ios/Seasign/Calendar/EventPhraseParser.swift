@@ -160,7 +160,10 @@ enum EventParse: Equatable, Sendable {
 ///    marked (`EventDraft.startsAfterDayNamed`) so the popup says so. Times
 ///    in words, as speech gives them (task 172), follow the same rules:
 ///    "three pm", "three thirty pm", "three oh five", "half past three",
-///    "quarter to four" ("three" alone needs "at", as "3" does); lengths
+///    "quarter to four", "ten past three", "ten to four" ("three" alone
+///    needs "at", as "3" does; "three thirty" and "ten to four" need "at"
+///    or am or pm; "from ten to four" is a span, and typed "at 5 to 9" is a
+///    problem); lengths
 ///    take "for two hours", "for ninety minutes", "for forty five minutes".
 ///    A day of the month in words ("the third of December") is a problem.
 /// 4. One day: "today", "tonight", "tomorrow", "the day after tomorrow",
@@ -363,6 +366,10 @@ private struct PhraseScan {
         /// The am or pm is a single letter glued to the number ("3p", "12a"),
         /// which is also how rooms, seats and gates are named.
         var singleLetter = false
+        /// Two numbers in words ("four twelve") or "ten to four": a time only
+        /// after "at" or with am or pm, as they are also room numbers and
+        /// ranges ("room four twelve", "ages five to ten").
+        var needsAt = false
 
         /// A plain number with nothing to say what it is ("3", not "3pm", "15:00" or "noon").
         var isBare: Bool {
@@ -371,7 +378,7 @@ private struct PhraseScan {
 
         /// Read as a time only after "at" (or in a span after "at" or "from").
         var needsLead: Bool {
-            isBare || singleLetter
+            isBare || singleLetter || (needsAt && meridiem == nil)
         }
 
         /// Read as a 24-hour time whatever else the line says.
@@ -414,6 +421,8 @@ private struct PhraseScan {
     let detected: [DetectedDate]
     /// Where the date words were, to read a part of the day after them.
     private var dayTokens: [Int] = []
+    /// The index after the time's words.
+    private var timeEnd: Int?
 
     init(text: String, detected: [DetectedDate]) {
         tokens = Self.tokenize(text)
@@ -642,8 +651,10 @@ private struct PhraseScan {
         }
     }
 
-    /// A clock at `index`: the clock and the index after it.
-    private func clock(at index: Int) -> (Clock, Int)? {
+    /// A clock at `index`: the clock and the index after it. `minutesTo`:
+    /// "ten to four" may be read as 3:50 (not after "from", where it is a
+    /// span).
+    private func clock(at index: Int, minutesTo: Bool = false) -> (Clock, Int)? {
         guard let word = self.word(index) else { return nil }
         var next = index + 1
         var clock: Clock
@@ -653,7 +664,7 @@ private struct PhraseScan {
         case "midnight", "12midnight":
             clock = Clock(hour: 0, minute: 0, isMidnight: true)
         default:
-            if let spelled = spelledClock(at: index) { return spelled }
+            if let spelled = spelledClock(at: index, minutesTo: minutesTo) { return spelled }
             let pattern = "^(\\d{1,2})(?:([:.])(\\d{2}))?([ap]\\.?m?\\.?)?$"
             guard let expression = try? NSRegularExpression(pattern: pattern),
                   let match = expression.firstMatch(in: word, range: NSRange(location: 0, length: (word as NSString).length))
@@ -698,17 +709,25 @@ private struct PhraseScan {
 
     /// A time in words (task 172): "three pm", "three thirty pm", "three oh
     /// five", "three o'clock", "twelve noon", "half past three", "quarter
-    /// past three", "(a) quarter to four". An hour word alone ("three") is
-    /// a bare number, a time only after "at" as "3" is; one with minutes
-    /// reads as "3:30" does. With am or pm after it, that half of the day.
-    private func spelledClock(at index: Int) -> (Clock, Int)? {
+    /// past three", "(a) quarter to four", "ten past three", "twenty five
+    /// after four", "ten minutes past three", "10 past 3", and with
+    /// `minutesTo` "ten to four" (5, 10, 20, 25 or 13 to 59 minutes, in
+    /// words: other numbers, and digits, are the start of a span, "three to
+    /// four"). An hour word alone ("three") is a bare number, a time only
+    /// after "at" as "3" is; an hour and minutes in words ("three thirty"),
+    /// and "ten to four", are times only after "at" or with am or pm. With
+    /// am or pm after it, that half of the day.
+    private func spelledClock(at index: Int, minutesTo: Bool) -> (Clock, Int)? {
         guard let first = word(index) else { return nil }
         var clock: Clock
         var next: Int
         var start = index
         if first == "a", word(index + 1) == "quarter" { start += 1 }
         let lead = word(start)
-        if lead == "half" || lead == "quarter" {
+        if let past = minutesPastOrTo(at: index, minutesTo: minutesTo) {
+            clock = past.0
+            next = past.1
+        } else if lead == "half" || lead == "quarter" {
             // "half past three", "quarter past three", "quarter to four"
             guard let relation = word(start + 1), let hour = hour12(at: start + 2) else { return nil }
             let minutes = lead == "half" ? 30 : 15
@@ -730,6 +749,7 @@ private struct PhraseScan {
             if let (minutes, after) = spelledMinutes(at: next) {
                 clock.minute = minutes
                 clock.hasColon = true
+                clock.needsAt = true
                 next = after
             }
         }
@@ -741,6 +761,36 @@ private struct PhraseScan {
             next += 1
         }
         return (clock, next)
+    }
+
+    /// "ten past three", "10 past 3", "twenty five after four", "ten minutes
+    /// past three"; with `minutesTo`, "ten to four" and "twenty of four" in
+    /// words (see `spelledClock`). The clock (without am or pm yet) and the
+    /// index after the hour.
+    private func minutesPastOrTo(at index: Int, minutesTo: Bool) -> (Clock, Int)? {
+        guard let first = word(index) else { return nil }
+        var spelled = true
+        var minutes = 0
+        var at = index
+        if let (value, after) = spelledNumber(at: index) {
+            minutes = value
+            at = after
+        } else if first.range(of: "^\\d{1,2}$", options: .regularExpression) != nil, let value = Int(first) {
+            minutes = value
+            at = index + 1
+            spelled = false
+        } else {
+            return nil
+        }
+        guard (1...59).contains(minutes) else { return nil }
+        if let unit = word(at), Self.minuteUnits.contains(unit) { at += 1 }
+        guard let relation = word(at), let hour = hour12(at: at + 1) else { return nil }
+        if ["past", "after"].contains(relation) {
+            return (Clock(hour: hour, minute: minutes, hasColon: true), at + 2)
+        }
+        let toAmounts = minutes == 5 || minutes == 10 || minutes == 20 || minutes == 25 || minutes > 12
+        guard minutesTo, spelled, toAmounts, ["to", "of", "till", "til"].contains(relation) else { return nil }
+        return (Clock(hour: hour == 1 ? 12 : hour - 1, minute: 60 - minutes, hasColon: true, needsAt: true), at + 2)
     }
 
     /// Reads the one time in the line; nil when there is none.
@@ -760,6 +810,7 @@ private struct PhraseScan {
             if found != nil { throw EventDraftProblem.unclearTime }
             found = time
             use(index..<end)
+            timeEnd = end
             index = end
         }
         return found
@@ -770,11 +821,13 @@ private struct PhraseScan {
         var index = start
         let led = Self.timeLeads.contains(first)
         if led { index += 1 }
-        guard let (opening, afterOpening) = clock(at: index) else { return nil }
+        guard let (opening, afterOpening) = clock(at: index, minutesTo: first != "from") else { return nil }
         index = afterOpening
         var closing: Clock?
-        if let joiner = word(index), Self.spanWords.contains(joiner), let (value, after) = clock(at: index + 1) {
+        var joiner: String?
+        if let word = word(index), Self.spanWords.contains(word), let (value, after) = clock(at: index + 1) {
             closing = value
+            joiner = word
             index = after
         }
         // A plain number (or one with a single "a" or "p") is a time only
@@ -785,6 +838,12 @@ private struct PhraseScan {
         if opening.needsLead, closing == nil, !strong { return nil }
         if opening.needsLead, let closing, closing.needsLead, !(strong || first == "from") { return nil }
         if opening.isBare, !(1...23).contains(opening.hour) { throw EventDraftProblem.unclearTime }
+        // Typed "at 5 to 9", "at 10 to 4": five to nine, or five until nine?
+        // (In words, "at five to nine" is 8:55; "from 5 to 9" is a span.)
+        if strong, let closing, let joiner, ["to", "till", "til"].contains(joiner), opening.isBare, closing.isBare,
+           [5, 10, 20, 25].contains(opening.hour) {
+            throw EventDraftProblem.unclearTime
+        }
         var zone: TimeZone?
         if tokens.indices.contains(index), !used[index] {
             let raw = tokens[index].raw.trimmingCharacters(in: Self.outerPunctuation)
@@ -1106,6 +1165,13 @@ private struct PhraseScan {
             // Spoken times that were not read: "at twenty five", "quarter to thirteen".
             if word == "at" || word == "@", let next = self.word(index + 1),
                Self.spelledValue(next) != nil || ["half", "quarter"].contains(next) {
+                throw EventDraftProblem.unclearTime
+            }
+            // "ten past fifteen", "at 3 past 4 past 5": minutes past an
+            // hour that was not read; "at ten to thirteen": a relation word
+            // right after the time.
+            if let next = self.word(index + 1), Self.spelledValue(next) != nil || Int(next) != nil,
+               word == "past" || (index == timeEnd && ["past", "after", "to", "till", "til"].contains(word)) {
                 throw EventDraftProblem.unclearTime
             }
             if ["half", "quarter"].contains(word), let relation = self.word(index + 1),

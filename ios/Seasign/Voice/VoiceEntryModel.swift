@@ -63,8 +63,10 @@ final class VoiceEntryModel {
     private(set) var popupFromVoice = false
 
     @ObservationIgnored private let adder: AddEventModel
-    @ObservationIgnored private let listener: any SpeechListening
-    @ObservationIgnored private let speaker: any SpeechSpeaking
+    @ObservationIgnored private let makeListener: @MainActor () -> any SpeechListening
+    @ObservationIgnored private let makeSpeaker: @MainActor () -> any SpeechSpeaking
+    @ObservationIgnored private var madeListener: (any SpeechListening)?
+    @ObservationIgnored private var madeSpeaker: (any SpeechSpeaking)?
     @ObservationIgnored private let voiceIdentifier: @MainActor () -> String?
     @ObservationIgnored private let names: @MainActor () -> [String]
     @ObservationIgnored private let now: @Sendable () -> Date
@@ -78,8 +80,8 @@ final class VoiceEntryModel {
 
     init(
         adder: AddEventModel,
-        listener: any SpeechListening,
-        speaker: any SpeechSpeaking,
+        listener: @autoclosure @escaping @MainActor () -> any SpeechListening,
+        speaker: @autoclosure @escaping @MainActor () -> any SpeechSpeaking,
         voiceIdentifier: @escaping @MainActor () -> String?,
         names: @escaping @MainActor () -> [String] = { [] },
         now: @escaping @Sendable () -> Date = { Date() },
@@ -87,8 +89,10 @@ final class VoiceEntryModel {
         timing: Timing = Timing()
     ) {
         self.adder = adder
-        self.listener = listener
-        self.speaker = speaker
+        // Made when first needed (`listener`, `speaker`): the day screen
+        // builds this model again on every redraw and keeps only the first.
+        makeListener = listener
+        makeSpeaker = speaker
         self.voiceIdentifier = voiceIdentifier
         self.names = names
         self.now = now
@@ -177,8 +181,23 @@ final class VoiceEntryModel {
     }
 
     private func stopAudio() {
-        listener.stop()
-        speaker.stop()
+        madeListener?.stop()
+        madeSpeaker?.stop()
+    }
+
+    /// The recognizer and the speaker, made when first needed.
+    private var listener: any SpeechListening {
+        if let madeListener { return madeListener }
+        let made = makeListener()
+        madeListener = made
+        return made
+    }
+
+    private var speaker: any SpeechSpeaking {
+        if let madeSpeaker { return madeSpeaker }
+        let made = makeSpeaker()
+        madeSpeaker = made
+        return made
     }
 
     // MARK: The run
@@ -312,12 +331,20 @@ final class VoiceEntryModel {
         case cancelled
     }
 
+    /// Why the audio was ended.
+    private enum AudioEnd {
+        case pause, silence, tap, limit
+    }
+
     /// Reads `stream` until its final result. The audio is ended (and the
     /// final result asked for) on a pause after some words, on a second tap,
     /// with no words by `firstWords`, or at `limit`. A final result that
     /// does not come within `finalWait` after that counts as the last words
     /// heard, unless `needsFinal` (the answer), which takes only a real
-    /// final result.
+    /// final result, and only one that follows a pause: a final result that
+    /// came before the audio was ended (the recognizer decided by itself),
+    /// or one the limit cut off, may be the start of something longer
+    /// ("confirm, wait, it's at four") and counts as none.
     private func listen(
         _ stream: AsyncStream<SpeechEvent>, run: Int, limit: Duration, firstWords: Duration, needsFinal: Bool,
         partial: @escaping (String) -> Void
@@ -343,9 +370,13 @@ final class VoiceEntryModel {
         defer { reader.cancel() }
         let started = ContinuousClock.now
         var endedAudioAt: ContinuousClock.Instant?
+        var endedBy: AudioEnd?
         while true {
             guard run == generation, !Task.isCancelled else { return .cancelled }
-            if let final = box.final { return .final(final) }
+            if let final = box.final {
+                if needsFinal, endedBy != .pause { return .cancelled }
+                return .final(final)
+            }
             if let failure = box.failure {
                 // After the audio was ended, an error is how a phone often
                 // answers silence: as no final result (the event keeps the
@@ -366,12 +397,19 @@ final class VoiceEntryModel {
             } else if box.ended {
                 return needsFinal ? .cancelled : .final(box.latest)
             } else {
-                let paused = !box.latest.isEmpty && now - box.changedAt >= timing.pause
-                let silent = box.latest.isEmpty && now - started >= firstWords
-                if paused || silent || finishRequested || now - started >= limit {
+                // A pause comes first: when a late check finds the pause and
+                // the limit both passed, the words did end before the limit.
+                let end: AudioEnd? =
+                    if !box.latest.isEmpty && now - box.changedAt >= timing.pause { .pause }
+                    else if box.latest.isEmpty && now - started >= firstWords { .silence }
+                    else if finishRequested { .tap }
+                    else if now - started >= limit { .limit }
+                    else { nil }
+                if let end {
                     finishRequested = false
                     listener.finish()
                     endedAudioAt = now
+                    endedBy = end
                 }
             }
             try? await Task.sleep(for: timing.tick)

@@ -268,6 +268,36 @@ enum Expected: CustomStringConvertible {
         ("standup at nine am for fifteen minutes", .timed("Standup", "2026-11-22 09:00", "2026-11-22 09:15")),
         ("call at four pm for forty five minutes", .timed("Call", "2026-11-22 16:00", "2026-11-22 16:45")),
         ("workshop at one pm for two and a half hours", .timed("Workshop", "2026-11-22 13:00", "2026-11-22 15:30")),
+        // Minutes past and to the hour, as speech says them (task 172
+        // review): never a silent wrong time.
+        ("meeting at ten past three", .timed("Meeting", "2026-11-22 15:10", "2026-11-22 16:10")),
+        ("meeting at ten to four", .timed("Meeting", "2026-11-22 15:50", "2026-11-22 16:50")),
+        ("meeting at five to nine", .timed("Meeting", "2026-11-22 08:55", "2026-11-22 09:55")),
+        ("call at twenty to four", .timed("Call", "2026-11-22 15:40", "2026-11-22 16:40")),
+        ("call at twenty five past four pm", .timed("Call", "2026-11-22 16:25", "2026-11-22 17:25")),
+        ("standup at ten to nine am", .timed("Standup", "2026-11-22 08:50", "2026-11-22 09:50")),
+        ("tea ten after three tomorrow", .timed("Tea", "2026-11-23 15:10", "2026-11-23 16:10")),
+        ("meeting ten minutes past three friday", .timed("Meeting", "2026-11-27 15:10", "2026-11-27 16:10")),
+        ("lunch ten to one", .allDay("Lunch ten to one", "2026-11-22")),
+        ("lunch at ten to one", .timed("Lunch", "2026-11-22 12:50", "2026-11-22 13:50")),
+        ("call at 10 past 3", .timed("Call", "2026-11-22 15:10", "2026-11-22 16:10")),
+        ("call at 5 past 9 am", .timed("Call", "2026-11-22 09:05", "2026-11-22 10:05")),
+        // "from ... to" stays a span; "N to H" with no "at" stays title text,
+        // as "ages 3 to 5" does.
+        ("shift from ten to four", .timed("Shift", "2026-11-22 10:00", "2026-11-22 16:00")),
+        ("kids ages five to ten party saturday", .allDay("Kids ages five to ten party", "2026-11-28")),
+        ("lunch at twelve to one", .timed("Lunch", "2026-11-22 12:00", "2026-11-22 13:00")),
+        // Typed "at 5 to 9" could be either: a problem.
+        ("dinner at 5 to 9", .problem(.unclearTime)),
+        ("meeting at 10 to 4", .problem(.unclearTime)),
+        ("meeting at 10 to 4pm", .timed("Meeting", "2026-11-22 10:00", "2026-11-22 16:00")),
+        ("meeting at ten past thirteen", .problem(.unclearTime)),
+        ("meeting ten past fifteen", .problem(.unclearTime)),
+        ("meeting at 3 past 4 past 5", .problem(.unclearTime)),
+        // Two numbers in words are a time only after "at" or with am or pm.
+        ("room four twelve meeting tomorrow", .allDay("Room four twelve meeting", "2026-11-23")),
+        ("meeting around three thirty", .allDay("Meeting around three thirty", "2026-11-22")),
+        ("dentist friday three thirty", .problem(.unclearTime)),
         // Words that are not times stay title text.
         ("one on one with Sam friday at 2pm", .timed("One on one with Sam", "2026-11-27 14:00", "2026-11-27 15:00")),
         ("dinner for two at seven", .timed("Dinner for two", "2026-11-22 19:00", "2026-11-22 20:00")),

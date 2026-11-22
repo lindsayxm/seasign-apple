@@ -202,25 +202,67 @@ final class SystemSpeechListener: SpeechListening {
     }
 }
 
+/// The audio session as the speaker uses it (task 172), behind a protocol
+/// so the speaker's clean-up is tested without sound.
+@MainActor
+protocol SpeakerAudio: AnyObject {
+    /// The playback category (the ring switch does not silence it), other
+    /// audio ducked, and the session on.
+    func activatePlayback() throws
+    /// The session off, other audio told it can resume.
+    func deactivate()
+}
+
+/// What the speaker needs from `AVSpeechSynthesizer`, so tests can hold a
+/// reading and end it.
+@MainActor
+protocol SpeechSynthesizing: AnyObject {
+    var delegate: (any AVSpeechSynthesizerDelegate)? { get set }
+    var isSpeaking: Bool { get }
+    func speak(_ utterance: AVSpeechUtterance)
+    @discardableResult func stopSpeaking(at boundary: AVSpeechBoundary) -> Bool
+}
+
+extension AVSpeechSynthesizer: SpeechSynthesizing {}
+
+@MainActor
+final class SystemSpeakerAudio: SpeakerAudio {
+    func activatePlayback() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+        try session.setActive(true)
+    }
+
+    func deactivate() {
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+}
+
 /// Reads aloud with `AVSpeechSynthesizer`, in the playback category so
 /// the record session from listening never silences it, and gives the
 /// audio back when it ends.
 @MainActor
 final class SystemSpeechSpeaker: SpeechSpeaking {
-    private let synthesizer = AVSpeechSynthesizer()
+    private let synthesizer: any SpeechSynthesizing
+    private let audio: any SpeakerAudio
     private let delegate = SpeakerDelegate()
     private var sessionActive = false
+    /// Bumped by every reading and every `stop()`: a reading that is no
+    /// longer the current one leaves the audio session alone when it returns.
+    private var current = 0
 
-    init() {
+    init(audio: any SpeakerAudio = SystemSpeakerAudio(), synthesizer: any SpeechSynthesizing = AVSpeechSynthesizer()) {
+        self.audio = audio
+        self.synthesizer = synthesizer
         synthesizer.delegate = delegate
     }
 
     func speak(_ text: String, voiceIdentifier: String?) async -> SpeakOutcome {
         stop()
-        let session = AVAudioSession.sharedInstance()
+        current += 1
+        let reading = current
         do {
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try session.setActive(true)
+            try audio.activatePlayback()
             sessionActive = true
         } catch {
             release()
@@ -234,20 +276,28 @@ final class SystemSpeechSpeaker: SpeechSpeaking {
         let wait = delegate.expect(utterance)
         synthesizer.speak(utterance)
         let outcome = await PushDeadline.race(wait, deadline: limit, fallback: .failed)
+        // Stopped or replaced while it waited: `stop()` already gave the
+        // audio back, and a newer run (the microphone, another reading) may
+        // have the session now, which turning it off would cut.
+        guard reading == current else { return .stopped }
         if outcome == .failed { synthesizer.stopSpeaking(at: .immediate) }
         release()
         return outcome
     }
 
+    /// Stops the reading and gives the audio back at once, before anything
+    /// newer can start.
     func stop() {
+        current += 1
         delegate.cancelWaiting()
         if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
+        release()
     }
 
     private func release() {
         guard sessionActive else { return }
         sessionActive = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        audio.deactivate()
     }
 
     /// The synthesizer's callbacks, which may come on any thread.

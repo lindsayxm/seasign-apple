@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import SwiftData
 import Testing
@@ -151,7 +152,7 @@ final class FakeSpeaker: SpeechSpeaking {
 
     private static let timing = VoiceEntryModel.Timing(
         pause: .milliseconds(150), firstWords: .milliseconds(400), phraseLimit: .seconds(2),
-        finalWait: .milliseconds(200), answerWindow: .milliseconds(600), tick: .milliseconds(10)
+        finalWait: .milliseconds(200), answerWindow: .milliseconds(1000), tick: .milliseconds(10)
     )
 
     // MARK: Set-up
@@ -579,6 +580,49 @@ final class FakeSpeaker: SpeechSpeaking {
         #expect(creates() == 0)
     }
 
+    /// A "confirm" the window's limit cut off counts as nothing: the user
+    /// may have been going on ("confirm, wait, it's at four").
+    @Test func aConfirmCutOffByTheEndOfTheWindowDoesNothing() async throws {
+        let rig = try await rig()
+        var timing = Self.timing
+        timing.pause = .seconds(30)
+        let clock = clock
+        let voice = VoiceEntryModel(
+            adder: rig.adder, listener: rig.listener, speaker: rig.speaker,
+            voiceIdentifier: { nil }, now: { clock.now }, clock: { .twelveHour }, timing: timing
+        )
+        voice.micTapped()
+        #expect(await eventually { rig.listener.isListening })
+        rig.listener.hear(said)
+        #expect(await eventually { voice.heard == said })
+        // The second tap ends listening for the event (no pause comes).
+        voice.micTapped()
+        #expect(await eventually { rig.speaker.isSpeaking })
+        rig.speaker.end()
+        #expect(await eventually { voice.phase == .awaitingAnswer && rig.listener.isListening })
+        rig.listener.hear("confirm")
+        await settle(voice)
+        // The limit ended the audio, and the recognizer's final result was "confirm".
+        #expect(rig.listener.finishes == 2)
+        #expect(voice.phase == .idle)
+        #expect(rig.adder.stage == .reviewing(meeting))
+        #expect(creates() == 0)
+    }
+
+    /// A final result that comes before the audio was ended (the recognizer
+    /// decided by itself) counts as nothing.
+    @Test func aFinalConfirmBeforeTheAudioEndedDoesNothing() async throws {
+        let rig = try await rig()
+        await sayTheExample(rig)
+        await readingEnds(rig)
+        rig.listener.send(.final("confirm"))
+        await settle(rig.voice)
+        #expect(rig.listener.finishes == 1)
+        #expect(rig.voice.phase == .idle)
+        #expect(rig.adder.stage == .reviewing(meeting))
+        #expect(creates() == 0)
+    }
+
     @Test func theAnswerWindowClosesAfterAFewSeconds() async throws {
         let rig = try await rig()
         await sayTheExample(rig)
@@ -712,6 +756,48 @@ final class FakeSpeaker: SpeechSpeaking {
         #expect(rig.speaker.stops >= 1)
         #expect(rig.listener.starts.count == 1)
         #expect(!rig.voice.popupFromVoice)
+    }
+
+    /// The day screen builds its models again on every redraw and keeps
+    /// only the first: the recognizer and the speaker are made when the mic
+    /// is first used, once.
+    @Test func theRecognizerAndTheSpeakerAreMadeOnlyWhenFirstNeeded() async throws {
+        let rig = try await rig()
+        let made = VoiceLog()
+        func listener() -> any SpeechListening {
+            made.entries.append("listener")
+            return rig.listener
+        }
+        func speaker() -> any SpeechSpeaking {
+            made.entries.append("speaker")
+            return rig.speaker
+        }
+        let clock = clock
+        let voice = VoiceEntryModel(
+            adder: rig.adder, listener: listener(), speaker: speaker(),
+            voiceIdentifier: { nil }, now: { clock.now }, clock: { .twelveHour }, timing: Self.timing
+        )
+        // Building it, and everything that only stops the voice, makes nothing.
+        voice.sceneChanged(active: false)
+        voice.popupClosed()
+        voice.typingStarted()
+        voice.interrupt()
+        #expect(made.entries.isEmpty)
+
+        voice.micTapped()
+        #expect(await eventually { rig.listener.isListening })
+        #expect(made.entries == ["listener"])
+        rig.listener.hear(said)
+        #expect(await eventually { rig.speaker.isSpeaking })
+        #expect(made.entries == ["listener", "speaker"])
+
+        // A second run uses the same ones.
+        voice.interrupt()
+        rig.adder.cancel()
+        voice.micTapped()
+        #expect(await eventually { rig.listener.isListening && rig.listener.starts.count == 2 })
+        voice.interrupt()
+        #expect(made.entries == ["listener", "speaker"])
     }
 
     // MARK: Problems, blocks and typing
@@ -863,5 +949,112 @@ final class FakeSpeaker: SpeechSpeaking {
         let sample = AddEventModel(google: try GoogleCalendarModel.sample(), timeZone: { .current })
         #expect(sample.usesSample)
         #expect(VoiceDebug.fakes(adder: sample) != nil)
+    }
+}
+
+/// The audio session as `SystemSpeechSpeaker` turns it on and off.
+@MainActor
+final class FakeSpeakerAudio: SpeakerAudio {
+    var log: [String] = []
+
+    func activatePlayback() throws {
+        log.append("on")
+    }
+
+    func deactivate() {
+        log.append("off")
+    }
+}
+
+/// A synthesizer that holds each utterance until the test ends it.
+@MainActor
+final class FakeSynthesizer: SpeechSynthesizing {
+    weak var delegate: (any AVSpeechSynthesizerDelegate)?
+    private(set) var current: AVSpeechUtterance?
+
+    var isSpeaking: Bool {
+        current != nil
+    }
+
+    func speak(_ utterance: AVSpeechUtterance) {
+        current = utterance
+    }
+
+    func stopSpeaking(at boundary: AVSpeechBoundary) -> Bool {
+        defer { current = nil }
+        return current != nil
+    }
+
+    /// The utterance is spoken to the end.
+    func finish() {
+        guard let utterance = current else { return }
+        current = nil
+        delegate?.speechSynthesizer?(AVSpeechSynthesizer(), didFinish: utterance)
+    }
+}
+
+/// The real speaker's clean-up and Settings' Preview (task 172), with the
+/// audio session and the synthesizer replaced: nothing is spoken.
+@Suite @MainActor struct SpeakerCleanUpTests {
+    /// Waits up to five seconds for `condition`.
+    private func eventually(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<500 {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
+    private func outcome(_ task: Task<SpeakOutcome, Never>) async -> SpeakOutcome? {
+        await PushDeadline.race(Task { Optional(await task.value) }, deadline: .seconds(5), fallback: nil)
+    }
+
+    /// A stopped or replaced reading must not turn off the audio session a
+    /// newer run uses: `stop()` turns it off at once, and the old `speak`
+    /// leaves it alone when it returns.
+    @Test func aStoppedReadingLeavesTheNextRunsAudioSessionAlone() async throws {
+        let audio = FakeSpeakerAudio()
+        let synthesizer = FakeSynthesizer()
+        let speaker = SystemSpeechSpeaker(audio: audio, synthesizer: synthesizer)
+
+        // Stopped (a tap on the popup), then the microphone starts (Speak again).
+        let first = Task { await speaker.speak("Lunch with Ann", voiceIdentifier: nil) }
+        #expect(await eventually { synthesizer.isSpeaking })
+        speaker.stop()
+        audio.log.append("microphone")
+        #expect(await outcome(first) == .stopped)
+        #expect(audio.log == ["on", "off", "microphone"])
+
+        // Replaced by a newer reading (Preview, Stop, Preview).
+        audio.log = []
+        let second = Task { await speaker.speak("one", voiceIdentifier: nil) }
+        #expect(await eventually { synthesizer.isSpeaking })
+        let third = Task { await speaker.speak("two", voiceIdentifier: nil) }
+        #expect(await eventually { audio.log.filter { $0 == "on" }.count == 2 })
+        #expect(await outcome(second) == .stopped)
+        #expect(audio.log == ["on", "off", "on"])
+        synthesizer.finish()
+        #expect(await outcome(third) == .finished)
+        #expect(audio.log == ["on", "off", "on", "off"])
+    }
+
+    /// Preview, Stop, Preview: the first preview ending does not turn the
+    /// button back to Preview while the second one plays.
+    @Test func previewStopPreviewKeepsTheSecondPreviewPlaying() async throws {
+        let speaker = FakeSpeaker(log: VoiceLog())
+        let preview = VoicePreview(makeSpeaker: { speaker })
+        preview.toggle(voice: nil)
+        #expect(preview.isPlaying)
+        #expect(await eventually { speaker.isSpeaking })
+        preview.toggle(voice: nil)
+        #expect(!preview.isPlaying)
+        preview.toggle(voice: nil)
+        #expect(preview.isPlaying)
+        #expect(await eventually { speaker.spoken.count == 2 && speaker.isSpeaking })
+        // Well after the first preview's task has seen its reading stop.
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(preview.isPlaying)
+        speaker.end()
+        #expect(await eventually { !preview.isPlaying })
     }
 }

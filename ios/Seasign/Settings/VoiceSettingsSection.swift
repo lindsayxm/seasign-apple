@@ -27,8 +27,7 @@ struct VoiceSettingsSection: View {
     @State private var groups: [VoiceCatalog.Group] = []
     @State private var selected: String?
     @State private var choosing = false
-    @State private var speaker: SystemSpeechSpeaker?
-    @State private var previewing = false
+    @State private var preview = VoicePreview()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -50,8 +49,8 @@ struct VoiceSettingsSection: View {
                     }
                 }
                 Spacer()
-                pill(previewing ? "Stop" : "Preview") { preview() }
-                    .accessibilityLabel(previewing ? "Stop the preview" : "Preview the voice")
+                pill(preview.isPlaying ? "Stop" : "Preview") { preview.toggle(voice: selected) }
+                    .accessibilityLabel(preview.isPlaying ? "Stop the preview" : "Preview the voice")
             }
 
             textLink(choosing ? "Done" : "Change voice") { choosing.toggle() }
@@ -80,7 +79,7 @@ struct VoiceSettingsSection: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .onAppear(perform: load)
-        .onDisappear { stopPreview() }
+        .onDisappear { preview.stop() }
         .onReceive(NotificationCenter.default.publisher(for: AVSpeechSynthesizer.availableVoicesDidChangeNotification)) { _ in
             load()
         }
@@ -115,26 +114,6 @@ struct VoiceSettingsSection: View {
     private func choose(_ identifier: String?) {
         selected = identifier
         SkyStore(context: context).setVoiceIdentifier(identifier)
-    }
-
-    private func preview() {
-        if previewing {
-            stopPreview()
-            return
-        }
-        let speaker = speaker ?? SystemSpeechSpeaker()
-        self.speaker = speaker
-        previewing = true
-        let voice = selected
-        Task {
-            _ = await speaker.speak(VoiceWords.preview, voiceIdentifier: voice)
-            previewing = false
-        }
-    }
-
-    private func stopPreview() {
-        speaker?.stop()
-        previewing = false
     }
 
     private func row(name: String, detail: String?, identifier: String?) -> some View {
@@ -187,5 +166,46 @@ struct VoiceSettingsSection: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Settings' Preview button: plays the sample in the chosen voice; a second
+/// tap stops it.
+@MainActor
+@Observable
+final class VoicePreview {
+    private(set) var isPlaying = false
+
+    @ObservationIgnored private let makeSpeaker: @MainActor () -> any SpeechSpeaking
+    @ObservationIgnored private var speaker: (any SpeechSpeaking)?
+    /// Bumped by every Preview and Stop: an older preview that ends later
+    /// does not turn the button back while a newer one plays.
+    @ObservationIgnored private var run = 0
+
+    init(makeSpeaker: @escaping @MainActor () -> any SpeechSpeaking = { SystemSpeechSpeaker() }) {
+        self.makeSpeaker = makeSpeaker
+    }
+
+    func toggle(voice: String?) {
+        if isPlaying {
+            stop()
+            return
+        }
+        let speaker = speaker ?? makeSpeaker()
+        self.speaker = speaker
+        run += 1
+        let mine = run
+        isPlaying = true
+        Task {
+            _ = await speaker.speak(VoiceWords.preview, voiceIdentifier: voice)
+            guard mine == run else { return }
+            isPlaying = false
+        }
+    }
+
+    func stop() {
+        run += 1
+        speaker?.stop()
+        isPlaying = false
     }
 }

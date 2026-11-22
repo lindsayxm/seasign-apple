@@ -410,21 +410,24 @@ struct TodayView: View {
     /// the recognizer with names. In DEBUG, with the Google sample only, the
     /// `-debugVoice…` arguments swap in scripted ones (`VoiceDebug`).
     private static func voice(adder: AddEventModel, day: DayModel, context: ModelContext) -> VoiceEntryModel {
-        var listener: any SpeechListening = SystemSpeechListener()
-        var speaker: any SpeechSpeaking = SystemSpeechSpeaker()
-        var timing = VoiceEntryModel.Timing()
+        let voiceIdentifier: @MainActor () -> String? = { SkyStore(context: context).voiceIdentifier }
+        let names: @MainActor () -> [String] = { [weak day] in day?.rows(now: Date(), clock: .twelveHour).map(\.label.title) ?? [] }
         #if DEBUG
         if let fakes = VoiceDebug.fakes(adder: adder) {
-            (listener, speaker, timing) = fakes
+            return VoiceEntryModel(
+                adder: adder, listener: fakes.0, speaker: fakes.1,
+                voiceIdentifier: voiceIdentifier, names: names, timing: fakes.2
+            )
         }
         #endif
+        // Made only when the mic is first tapped (the day screen is built
+        // again on every redraw, and only its first models are kept).
         return VoiceEntryModel(
             adder: adder,
-            listener: listener,
-            speaker: speaker,
-            voiceIdentifier: { SkyStore(context: context).voiceIdentifier },
-            names: { [weak day] in day?.rows(now: Date(), clock: .twelveHour).map(\.label.title) ?? [] },
-            timing: timing
+            listener: SystemSpeechListener(),
+            speaker: SystemSpeechSpeaker(),
+            voiceIdentifier: voiceIdentifier,
+            names: names
         )
     }
 
