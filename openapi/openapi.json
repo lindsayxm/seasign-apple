@@ -1120,7 +1120,7 @@
           },
           "created": {
             "type": "boolean",
-            "description": "True when this request added the event. False when Google already had an event with this id in the calendar: an earlier try of the same request added it, and nothing was added now"
+            "description": "True when this request added the event. False when Google reports this id as already used in the calendar (409 duplicate): nothing was added now. Usually an earlier try of the same request added the event, but Google may also report the id of an event that was since deleted, so the event is not certain to be in the calendar"
           },
           "event": {
             "$ref": "#/components/schemas/CalendarEvent"
@@ -1130,7 +1130,7 @@
           "id",
           "created"
         ],
-        "description": "The event is in the calendar. `event` is the event as Google stored it, in the shape /v1/google/events answers (`calendar` is 0); it is left out when `created` is false, since Google's answer then does not include the event, and when Google's answer could not be read. The event exists in both cases: show the draft that was sent"
+        "description": "Google added the event (`created` true) or reports its id as already used (`created` false). `event` is the event as Google stored it, in the shape /v1/google/events answers (`calendar` is 0); it is left out when `created` is false, since Google's answer then does not include the event, and when Google's answer could not be read: show the draft that was sent"
       },
       "GoogleCreateError": {
         "type": "object",
@@ -1144,6 +1144,7 @@
               "forbidden",
               "not_found",
               "rate_limited",
+              "rejected",
               "fetch_failed",
               "timeout",
               "internal_error"
@@ -1181,7 +1182,7 @@
             "minLength": 1,
             "maxLength": 200,
             "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*$",
-            "description": "The event's title, 1 to 200 characters once white space at either end is removed; no control characters such as line breaks",
+            "description": "The event's title, 1 to 200 characters once white space at either end is removed, with at least one visible character. Refused: control characters such as line breaks, U+2028 and U+2029, lone surrogates, and invisible format characters (zero-width space, bidi marks and overrides, soft hyphen and the like), except a zero-width joiner or non-joiner between two characters (emoji sequences, Persian) and the tags of a subdivision flag",
             "example": "Meeting with Rahaf"
           },
           "timezone": {
@@ -1191,17 +1192,17 @@
           },
           "start": {
             "type": "string",
-            "description": "For a timed event: when it starts, RFC 3339 to the second with Z or an offset. Send `end` with it and leave out `date`",
+            "description": "For a timed event: when it starts, RFC 3339 to the second with Z or an offset, no earlier than one year before the request. Send `end` with it and leave out `date`",
             "example": "2026-11-22T15:00:00-05:00"
           },
           "end": {
             "type": "string",
-            "description": "For a timed event: when it ends, after `start` and at most 24 hours after it",
+            "description": "For a timed event: when it ends, after `start`, at most 24 hours after it, and no later than five years after the request",
             "example": "2026-11-22T16:00:00-05:00"
           },
           "date": {
             "type": "string",
-            "description": "For an all-day event: its date, YYYY-MM-DD. The event covers that one day. Leave out `start` and `end`",
+            "description": "For an all-day event: its date, YYYY-MM-DD, from the UTC date one year before the request to the UTC date five years after it. The event covers that one day. Leave out `start` and `end`",
             "example": "2026-11-22"
           }
         },
@@ -2037,7 +2038,7 @@
       "post": {
         "operationId": "postGoogleCreateEvent",
         "summary": "Add one event to a Google calendar the user can write to, with their own access token",
-        "description": "The event has the title and times sent and nothing else: no guests, no invitations, no location, description, repetition, reminders or conferencing. After a timeout or fetch_failed the event may or may not have been added: retry with the same `id`, and an event already added is answered as success with `created: false`",
+        "description": "The event has the title and times sent and nothing else: no guests, no invitations, no location, description, repetition, reminders or conferencing. After a timeout or fetch_failed (not rejected) the event may or may not have been added: retry with the same `id`; when Google reports that id as already used, the answer is success with `created: false`",
         "parameters": [
           {
             "schema": {
@@ -2066,7 +2067,7 @@
         },
         "responses": {
           "200": {
-            "description": "The event is in the calendar",
+            "description": "Google added the event, or reports its id as already used (`created: false`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2076,7 +2077,7 @@
             }
           },
           "400": {
-            "description": "invalid_request: no X-Google-Token header or one of the wrong shape, a body that is not JSON or not sent as application/json, a field of the wrong shape or one not listed, both or neither of start/end and date, an end not after the start or more than 24 hours after it",
+            "description": "invalid_request: no X-Google-Token header or one of the wrong shape, a body that is not JSON or not sent as application/json, a field of the wrong shape or one not listed, a title that breaks the title rule, both or neither of start/end and date, an end not after the start or more than 24 hours after it, a time or date more than one year before the request or more than five years after it",
             "content": {
               "application/json": {
                 "schema": {
@@ -2146,7 +2147,7 @@
             }
           },
           "502": {
-            "description": "fetch_failed: Google could not be reached, failed, or answered in a way that could not be read. timeout: Google did not answer within 8 seconds. In both cases the event may have been added: retry with the same id",
+            "description": "rejected: Google refused the event as sent (its 400); nothing was added, and the same request will be refused again, so do not retry it. fetch_failed: Google could not be reached, failed, or answered in a way that could not be read. timeout: Google did not answer within 8 seconds. In those two cases the event may have been added: retry with the same id",
             "content": {
               "application/json": {
                 "schema": {

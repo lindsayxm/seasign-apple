@@ -76,7 +76,12 @@ export type GoogleFailureReason =
   /** 403: the token was granted without a scope this call needs (here: no write scope). */
   | "insufficient_scope"
   /** 409: an event with the client-made id already exists in the calendar. */
-  | "duplicate";
+  | "duplicate"
+  /**
+   * 400, whatever the body says: Google refused the request as sent, so the
+   * same request will be refused again (task 176). Not a reason to retry.
+   */
+  | "rejected";
 
 export class GoogleFailure extends Error {
   readonly code: GoogleFailureCode;
@@ -139,9 +144,15 @@ function classify(status: number, body: unknown): GoogleFailureCode {
  *   or unreadable 403 stay plain `forbidden`. That is the conservative side:
  *   `insufficient_scope` sends the user through Connect again, which cannot
  *   help with a calendar they may not write to.
+ * - A 400 (task 176) is `rejected` whatever its body says, an empty or
+ *   unreadable one included (`reasons: "any"`), and so is a 400 whose reason
+ *   is `push.*` (its code stays `webhook_refused` for the watch route). The
+ *   errors guide lists 400s as problems with the request (invalid field,
+ *   missing field, bad time range): sending it again cannot succeed.
  * Rate-limit 403s are `rate_limited` before this table is looked at.
  */
-const FAILURE_REASONS: readonly { status: number; reasons: readonly string[]; reason: GoogleFailureReason }[] = [
+const FAILURE_REASONS: readonly { status: number; reasons: readonly string[] | "any"; reason: GoogleFailureReason }[] = [
+  { status: 400, reasons: "any", reason: "rejected" },
   { status: 403, reasons: ["insufficientPermissions", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"], reason: "insufficient_scope" },
   { status: 409, reasons: ["duplicate"], reason: "duplicate" },
 ];
@@ -164,7 +175,7 @@ function reasonOf(status: number, code: GoogleFailureCode, body: unknown, wwwAut
   if (status === 403 && code !== "forbidden") return undefined;
   if (status === 403 && wwwAuthenticate !== null && INSUFFICIENT_SCOPE_HEADER.test(wwwAuthenticate)) return "insufficient_scope";
   const found = reasonsIn(body);
-  return FAILURE_REASONS.find((row) => row.status === status && row.reasons.some((reason) => found.includes(reason)))?.reason;
+  return FAILURE_REASONS.find((row) => row.status === status && (row.reasons === "any" || row.reasons.some((reason) => found.includes(reason))))?.reason;
 }
 
 /**
