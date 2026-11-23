@@ -1,11 +1,11 @@
 ---
 id: 181
 title: iOS: day screen as a full-day timeline with event boxes
-status: review
+status: done
 owner: implementer-2
 depends_on: []
 created: 2026-11-23T02:04:39Z
-updated: 2026-11-23T03:50:04Z
+updated: 2026-11-23T04:02:06Z
 ---
 
 ## Goal
@@ -14,10 +14,10 @@ The user asked on 2026-11-22: on the full-screen day view show how long each eve
 
 ## Acceptance criteria
 
-- [ ] Layout is a pure function (events, day bounds, height, width -> boxes with frames and columns) with tests: start and end map to y, overlaps get columns, minimum height, cut at midnight, a 23- and 25-hour day (clock change), an all-day event goes to the strip, no length
-- [ ] VoiceOver: each box reads title, start, end and length; order by start; the grid does not hide events from VoiceOver
-- [ ] Screenshots on the iPhone 17 with the Google sample (-debugGoogle YES -debugOpenDay): a normal day, overlapping events, many all-day events, a very short event, an empty day; and one on the smallest supported screen (iPhone SE 3rd generation, iOS 18.3) to show the day still fits and reads
-- [ ] Suite passes on both runtimes (one xcodebuild at a time); never touch the iPhone 16 Pro Max
+- [x] Layout is a pure function (events, day bounds, height, width -> boxes with frames and columns) with tests: start and end map to y, overlaps get columns, minimum height, cut at midnight, a 23- and 25-hour day (clock change), an all-day event goes to the strip, no length
+- [x] VoiceOver: each box reads title, start, end and length; order by start; the grid does not hide events from VoiceOver
+- [x] Screenshots on the iPhone 17 with the Google sample (-debugGoogle YES -debugOpenDay): a normal day, overlapping events, many all-day events, a very short event, an empty day; and one on the smallest supported screen (iPhone SE 3rd generation, iOS 18.3) to show the day still fits and reads
+- [x] Suite passes on both runtimes (one xcodebuild at a time); never touch the iPhone 16 Pro Max
 
 ## Relevant files
 
@@ -37,3 +37,9 @@ The user asked on 2026-11-22: on the full-screen day view show how long each eve
 - 2026-11-23T03:50:03Z [implementer-2] tried: Installing the app built for the iPhone 17 (iOS 27.2) destination on the iPhone SE (iOS 18.3) crashes at launch: dyld 'Library missing' (library name not read). Use the app built by the iPhone 16 / OS=18.3.1 test run for the SE instead.
 - 2026-11-23T03:50:04Z [implementer-2] Verified. iPhone 16 OS=18.3.1: '✔ Test run with 755 tests in 89 suites passed after 872.001 seconds.' and '** TEST SUCCEEDED **'. iPhone 17 OS=27.2: '✔ Test run with 755 tests in 89 suites passed after 157.674 seconds.' and '** TEST SUCCEEDED **'. Screenshots (sample Google, -debugDayNow 14:20) in the scratchpad t181/shots: iPhone 17 normal, overlap, allday, allday-24h, short, empty; SE normal, listening, added. snapshot_ui on the iPhone 17 shows one element per box with the full spoken label (title, start, end, length, ended; yesterday/tomorrow for cut events) and the +3 chip listing the folded all-day events; VoiceOver order is set by accessibilitySortPriority by start but was not observed with VoiceOver itself. Commit 2fe6ea3.
 - 2026-11-23T03:50:04Z [implementer-2] status: in-progress → review
+- 2026-11-23T04:02:05Z [implementer-2] criterion 1 met: Layout is a pure function (events, day bounds, height, width -> boxes with frames and columns) with tests: start and end map to y, overlaps get columns, minimum height, cut at midnight, a 23- and 25-hour day (clock change), an all-day event goes to the strip, no length
+- 2026-11-23T04:02:06Z [implementer-2] criterion 2 met: VoiceOver: each box reads title, start, end and length; order by start; the grid does not hide events from VoiceOver
+- 2026-11-23T04:02:06Z [implementer-2] criterion 3 met: Screenshots on the iPhone 17 with the Google sample (-debugGoogle YES -debugOpenDay): a normal day, overlapping events, many all-day events, a very short event, an empty day; and one on the smallest supported screen (iPhone SE 3rd generation, iOS 18.3) to show the day still fits and reads
+- 2026-11-23T04:02:06Z [implementer-2] criterion 4 met: Suite passes on both runtimes (one xcodebuild at a time); never touch the iPhone 16 Pro Max
+- 2026-11-23T04:02:06Z [implementer-2] Lead: own run at 2fe6ea3, own DerivedData: iPhone 16 / iOS 18.3.1 'Test run with 755 tests in 89 suites passed', TEST SUCCEEDED; iPhone 17 / iOS 27.2 the same. Screenshots 17-normal, 17-overlap and se-normal viewed by the lead. Closed by the lead without a separate code reviewer. Differs from the user's first wording: mic and + are in the header row, not stacked at the top right (the user has been told and can reverse it). Not verified: VoiceOver reading order with VoiceOver itself; a long date or large text beside three header buttons; grid text does not follow Dynamic Type; the app built for the iPhone 17 destination crashed at launch on the SE simulator (dyld, library not read) while the iPhone 16 build ran there.
+- 2026-11-23T04:02:06Z [implementer-2] status: review → done
