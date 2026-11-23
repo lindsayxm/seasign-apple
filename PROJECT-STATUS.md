@@ -177,3 +177,10 @@ Entry format:
   - A `wrangler dev` started this session on port 8787 may still be running; the app in the Simulator needs it.
   - The app built for the iPhone 17 destination crashed at launch on the iPhone SE simulator (dyld, library not read); the iPhone 16 build ran there. Not looked into.
   - Still to correct: the `npx -y npm@11 install` row in the `AGENTS.md` CLI table.
+
+## 2026-11-22 (later) — design round v12-imago started
+
+- Done: #182: `design-ideas/v12-imago/` (look only, nothing in `ios/` or `api/`): v11's scene with the buttons and text redrawn after the user's reference `design-ideas/v12-imago/nasa.png`; `index.html`, twelve stills, `README.md` with every choice made without being asked; the v0 landing page and `design-ideas/README.md` list it. The lead viewed stills 01, 02, 03 and 08.
+- In flight: nothing claimed. The user has been shown the first round and has not yet answered.
+- Next: the user's reactions to v12 (accent colour: the reference's orange-red or v11's per-screen ink with `&ink=v11`; the four top tiles; events as leader rows; the fading titles; the bottom tiles Day, Do & get, Saved, History; the rim line), then iterate in `design-ideas/v12-imago/`. Nothing from v12 goes into the app until the user picks it.
+- Notes: the user also asked how much a shipped voice clone would add to the app: roughly 120–160 MB by the published sizes of community Pocket-TTS ports (not measured; #173 would measure it). `memory/notes/2026-11-16-design-ideas.md` has the v12 row.
