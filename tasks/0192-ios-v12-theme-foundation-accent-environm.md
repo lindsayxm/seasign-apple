@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-1
 depends_on: []
 created: 2026-11-23T20:25:09Z
-updated: 2026-11-23T20:25:09Z
+updated: 2026-11-23T20:46:04Z
 ---
 
 ## Goal
@@ -32,3 +32,5 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 
 - 2026-11-23T20:25:09Z [li] created (todo)
 - 2026-11-23T20:25:09Z [implementer-1] status: todo → in-progress — claimed by implementer-1
+- 2026-11-23T20:33:43Z [implementer-1] Added Design/HUDAccent.swift: SRGB (WCAG luminance/contrast, HSV), HUDAccent.rgb(hue:) (nil or non-finite = rgb(235,78,39) exactly; hue mod 360; every hue set to the default's luminance 0.2326 at the default's HSV saturation 0.834: darkened when too bright, mixed toward white when too dark; 8-bit rounded), EnvironmentValues.hudAccent (@Entry, default orange-red), HUDAccentRoot (@Query Settings.first?.hudHue, never creates the row) wrapping TodayView inside .modelContainer. Band: floor L >= 0.1898 (max of 4.5:1 on plate rgb(8,9,12) = 0.1873 and 4.5:1 for on-fill rgb(14,10,8) = 0.1898; both are lower bounds), ceiling L <= 0.2630 (3:1 vs date tile rgb(244,242,238), covers pure white too). Default: 5.36 plate, 5.30 on-fill, 3.32 date tile. Palette gains hudAccent, hudPlate(RGB), onAccent(RGB), dateTile(RGB). Typography gains MonoStyle + HUDType tokens (12/.24 place, 12/.12 tile, 11 foot, 13/.39 tab, 12 frame label, 11.3 events, 10.5/0.5pt titles), CSS em spacing converted to points where set. Settings.hudHue: Double? + Task191Schema old-store test.
+- 2026-11-23T20:46:04Z [implementer-1] Verified: xcodebuild test passed on iPhone 17 / iOS 27.2 (767 tests in 90 suites, TEST SUCCEEDED) and iPhone 16 / iOS 18.3.1 (767 tests in 90 suites, TEST SUCCEEDED). App launched on iPhone 17 with -debugEvents -debugFeed: Today looks as v11 did (nothing reads hudAccent yet). Sky clause measured on the v12 stills, not tested: sky in the frame-label rows (y 186-218, between the labels) has 99th-percentile luminance <= 0.029 in all 12 states, so the accent (L 0.233, any hue) is >= 3.6:1 there; the brightest pixels (sun/moon glow, L up to 0.33) are near-equal luminance, so visibility there rests on the labels' black shadow. Hue-on-hue (e.g. a blue accent on blue sky) is not covered by a luminance check.

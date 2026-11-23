@@ -510,6 +510,69 @@ import Testing
         #expect(try ModelContext(userOnly).fetch(FetchDescriptor<Settings>()).first?.zip == "10001")
     }
 
+    /// Task 192 added the optional `Settings.hudHue`. Stores written with
+    /// the schema just before it (`Settings` declared again, as it was, in
+    /// `Task191Schema`; every other model as it is) open with nothing lost
+    /// and neither file thrown away; the hue reads as the default until one
+    /// is chosen, and a chosen one is kept.
+    @Test func storesFromBeforeTheHUDHueOpenAndKeepEverything() throws {
+        defer { cleanUp() }
+        do {
+            let user: [any PersistentModel.Type] = [
+                Task191Schema.Settings.self, ListItem.self, CalendarLink.self, Site.self, SavedItem.self, SearchCount.self,
+                GoogleAccount.self, GoogleCalendarChoice.self,
+            ]
+            let old = try ModelContainer(
+                for: Schema(user + SeasignSchema.cacheModels),
+                configurations: [
+                    ModelConfiguration("user", schema: Schema(user), url: files.user),
+                    ModelConfiguration("cache", schema: Schema(SeasignSchema.cacheModels), url: files.cache),
+                ]
+            )
+            let context = ModelContext(old)
+            context.insert(ListItem(kind: .get, title: "Oat milk", createdAt: instant("2026-11-15T12:00:00Z")))
+            let settings = Task191Schema.Settings(zip: "10001")
+            settings.aiInterestsText = "tide pools"
+            settings.aiDailyCap = 3
+            settings.voiceIdentifier = "com.apple.voice.compact.en-US.Samantha"
+            context.insert(settings)
+            context.insert(GoogleAccount(stateRaw: "connected"))
+            context.insert(CachedSky(zip: "10001", payload: Data("{}".utf8), fetchedAt: instant("2026-11-15T12:00:00Z")))
+            try context.save()
+        }
+
+        do {
+            let opened = try LocalStore.open(files)
+            #expect(opened.cache == .kept)
+            let context = ModelContext(opened.container)
+            #expect(try titles(opened.container) == ["Oat milk"])
+            let settings = try #require(try context.fetch(FetchDescriptor<Settings>()).first)
+            #expect(settings.zip == "10001")
+            #expect(settings.aiInterestsText == "tide pools")
+            #expect(settings.aiDailyCap == 3)
+            #expect(settings.voiceIdentifier == "com.apple.voice.compact.en-US.Samantha")
+            #expect(settings.hudHue == nil)
+            #expect(HUDAccent.rgb(hue: settings.hudHue) == HUDAccent.defaultRGB)
+            #expect(try context.fetch(FetchDescriptor<GoogleAccount>()).map(\.stateRaw) == ["connected"])
+            #expect(try context.fetch(FetchDescriptor<CachedSky>()).map(\.zip) == ["10001"])
+            settings.hudHue = 210
+            try context.save()
+        }
+
+        let again = try LocalStore.open(files)
+        #expect(again.cache == .kept)
+        let context = ModelContext(again.container)
+        let settings = try #require(try context.fetch(FetchDescriptor<Settings>()).first)
+        #expect(settings.hudHue == 210)
+        #expect(settings.voiceIdentifier == "com.apple.voice.compact.en-US.Samantha")
+        #expect(try titles(again.container) == ["Oat milk"])
+        let userOnly = try ModelContainer(
+            for: Schema(SeasignSchema.userModels),
+            configurations: [ModelConfiguration("user", schema: Schema(SeasignSchema.userModels), url: files.user)]
+        )
+        #expect(try ModelContext(userOnly).fetch(FetchDescriptor<Settings>()).first?.hudHue == 210)
+    }
+
     /// A saved article and its notes are the user's: they survive the loss
     /// of the cache, where its feed item was.
     @Test func savedItemsSurviveABrokenCache() throws {
@@ -940,6 +1003,28 @@ enum Task171Schema {
         var aiLastSentAt: Date?
         var aiKeyRefused: Bool?
         var aiLastProblemRaw: String?
+
+        init(zip: String? = nil) {
+            self.zip = zip
+        }
+    }
+}
+
+/// `Settings` exactly as it was before task 192 added `hudHue`, for
+/// `storesFromBeforeTheHUDHueOpenAndKeepEverything`. Same class name, so
+/// SwiftData gives it the same entity name as the current model.
+enum Task191Schema {
+    @Model
+    final class Settings {
+        var zip: String?
+        var aiModeRaw: String?
+        var aiProviderRaw: String?
+        var aiInterestsText: String?
+        var aiDailyCap: Int?
+        var aiLastSentAt: Date?
+        var aiKeyRefused: Bool?
+        var aiLastProblemRaw: String?
+        var voiceIdentifier: String?
 
         init(zip: String? = nil) {
             self.zip = zip

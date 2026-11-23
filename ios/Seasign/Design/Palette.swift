@@ -38,6 +38,21 @@ enum Palette {
     static let todayHairline = Color.white.opacity(0.34)
     /// The ground of Today's events box: black at 55 %.
     static let todayEventsBox = Color.black.opacity(0.55)
+
+    // Design v12 (`design-ideas/v12-imago/`). The accent itself is the user's
+    // choice: views read `\.hudAccent`; `hudAccent` here is its default.
+
+    /// The default HUD accent, the orange-red `rgb(235, 78, 39)`.
+    static let hudAccent = HUDAccent.defaultRGB.color
+    /// The dark plate under the titles and the bottom tiles, `rgb(8, 9, 12)`.
+    static let hudPlateRGB = SRGB(8, 9, 12)
+    static let hudPlate = hudPlateRGB.color
+    /// The dark text on a tile filled with the accent, `rgb(14, 10, 8)`.
+    static let onAccentRGB = SRGB(14, 10, 8)
+    static let onAccent = onAccentRGB.color
+    /// The white date tile, `rgb(244, 242, 238)`.
+    static let dateTileRGB = SRGB(244, 242, 238)
+    static let dateTile = dateTileRGB.color
 }
 
 extension Color {

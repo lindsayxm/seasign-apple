@@ -64,7 +64,56 @@ enum TodayType {
     }
 }
 
+/// One size of the HUD's type (design v12): the system monospaced face (SF
+/// Mono) at a fixed size, with its letter-spacing and line height from
+/// `design-ideas/v12-imago/index.html`. Nothing is bundled for it.
+struct MonoStyle: Equatable, Sendable {
+    /// Point size.
+    var size: CGFloat
+    /// Extra space after each letter, in points (CSS `letter-spacing`).
+    var kern: CGFloat
+    /// The line box, in points (CSS `line-height`).
+    var lineHeight: CGFloat
+
+    /// `kern` as a fraction of the size, as `TodayType.width` and
+    /// `Text(today:font:tracking:)` take it.
+    var tracking: CGFloat { kern / size }
+
+    /// The font that is both measured and drawn.
+    var uiFont: UIFont { TodayType.mono(size) }
+
+    var font: Font { Font(uiFont as CTFont) }
+}
+
+/// The HUD's type sizes (design v12). CSS `em` spacing is turned into points
+/// on the element that sets it; children inherit the points, not the `em`.
+enum HUDType {
+    /// The place name in the top row: 12, `.02em`, in a 24-point row.
+    static let place = MonoStyle(size: 12, kern: 0.24, lineHeight: 24)
+    /// A tile's label at the top left: 12, `.01em`.
+    static let tileLabel = MonoStyle(size: 12, kern: 0.12, lineHeight: 15)
+    /// The slash and value at the foot of a tile: 11, the tile's spacing.
+    static let tileFoot = MonoStyle(size: 11, kern: 0.12, lineHeight: 14)
+    /// A bottom (tab) tile's label: 13, `.03em`.
+    static let tabLabel = MonoStyle(size: 13, kern: 0.39, lineHeight: 15)
+    /// The slash at the foot of a bottom tile: 11, the tab label's spacing.
+    static let tabFoot = MonoStyle(size: 11, kern: 0.39, lineHeight: 14)
+    /// The labels inside the frame's top corners (`55°F`, `Daylight`): 12.
+    static let frameLabel = MonoStyle(size: 12, kern: 0, lineHeight: 15)
+    /// The event rows in the events box: 11.3.
+    static let eventRow = MonoStyle(size: 11.3, kern: 0, lineHeight: 17)
+    /// The article titles and their numbers: 10.5, 0.5 points apart.
+    static let title = MonoStyle(size: 10.5, kern: 0.5, lineHeight: 17)
+
+    static let all = [place, tileLabel, tileFoot, tabLabel, tabFoot, frameLabel, eventRow, title]
+}
+
 extension Text {
+    /// A verbatim string in one of the HUD's mono sizes.
+    init(hud string: String, style: MonoStyle) {
+        self = Text(verbatim: string).font(style.font).tracking(style.kern)
+    }
+
     /// A verbatim string in one of `TodayType`'s fonts with `tracking` (a
     /// fraction of the size).
     init(today string: String, font: UIFont, tracking: CGFloat) {
