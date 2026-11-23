@@ -18,7 +18,7 @@ The content is v11's too: Nov 16, Mon, 55°F, the wind for each state, the three
 Everything that is a button or a word is redrawn:
 
 - **One mono face** (`ui-monospace`, which is SF Mono on Apple systems, then Menlo) for every word, in mixed case. v11's spaced capitals, Jost, the condensed day name and the serif titles are gone, and no font is bundled. The phone's status-bar clock stays in the system face, because it is the phone's, not the app's.
-- **Top row:** at the left, the mark (28 points, white): a square frame holding an S, cut out as two round-ended blocks and two crescents. It is redrawn as an inline SVG after the user's `logo-upper-left.png` in this folder (2026-11-23); until then an upside-down A stood here. At the right, one round white line button: settings, which is the app's settings symbol in a ring.
+- **Top row:** at the left, the mark (28 points, white): a square frame holding an S, cut out as two round-ended blocks and two crescents. The frame's upper-left and lower-right corners are rounded (radius 24 of 100, which follows the crescents); the other two are square. It is redrawn as an inline SVG after the user's `logo-upper-left.png` in this folder (2026-11-23); until then an upside-down A stood here. At the right, one round white line button: settings, which is the app's settings symbol in a ring.
 - **Four square tiles** (y 92 to 170, 6 points apart, as the reference's top row): each has a label at the top left, and a slash at the bottom left with the value at the bottom right.
   1. White, filled: `Mon` / `Nov 16`.
   2. Outlined: `55°F` / `wind 8`. The wind follows the state.
