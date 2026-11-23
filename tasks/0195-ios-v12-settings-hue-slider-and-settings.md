@@ -1,11 +1,11 @@
 ---
 id: 195
 title: iOS v12: Settings hue slider and Settings restyle
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [194]
 created: 2026-11-23T20:25:09Z
-updated: 2026-11-23T20:25:09Z
+updated: 2026-11-23T23:21:54Z
 ---
 
 ## Goal
@@ -27,3 +27,4 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 ## Log
 
 - 2026-11-23T20:25:09Z [li] created (todo)
+- 2026-11-23T23:21:54Z [implementer-1] status: todo → in-progress — claimed by implementer-1
