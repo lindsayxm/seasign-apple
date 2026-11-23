@@ -60,7 +60,18 @@ import UIKit
                     #expect(target.minY >= layout.markRect.maxY + 10)
                     #expect(target.maxY <= layout.frame.minY - 10)
                 }
+                // The targets are the same whatever is in the box: no
+                // events, one, four, with or without the zip prompt.
                 #expect(layout.eventsBox == CGRect(x: 116.75, y: 91, width: 242.25, height: 78))
+                #expect(layout.dateTile == CGRect(x: 34, y: 91, width: 76.75, height: 78))
+                // What is in it changes, and every row stays inside the box.
+                let expected = min(labels.count, prompt ? 3 : 4) + (prompt ? 1 : 0)
+                #expect(layout.eventRows.count == expected, "\(labels.count) events, prompt \(prompt)")
+                #expect(layout.promptIndex == (prompt ? expected - 1 : nil))
+                for row in layout.eventRows {
+                    let rect = CGRect(x: row.origin.x, y: row.origin.y, width: row.width, height: 17)
+                    #expect(layout.eventsBox.insetBy(dx: 1.4, dy: 1.4).contains(rect), "\(row.text)")
+                }
             }
         }
     }
@@ -108,6 +119,11 @@ import UIKit
             #expect(abs(left - right) < 0.01)
             #expect(left > 1.4 + 2 && left < 1.4 + 6, "\(left)")
         }
+        // Every row starts at the same x, also when one holds wide
+        // characters that measure differently from the mono cells.
+        let wide = self.layout(labels(["会議資料", "Night Workout", "🎉🎂"]))
+        #expect(Set(wide.eventRows.map { $0.origin.x }).count == 1)
+        #expect(wide.eventRows[0].origin.x == layout.eventRows[0].origin.x)
         // Four rows fill the box: the last ends inside the border.
         let last = layout.eventRows[3].origin.y + style.lineHeight
         #expect(last <= layout.eventsBox.maxY - 1.4)
@@ -125,7 +141,7 @@ import UIKit
     }
 
     /// No events: the box stays (empty), so the grid keeps its shape.
-    @Test func noEventsMeansNoBoxAndTheHairlineUnderTheTemperature() {
+    @Test func noEventsLeavesTheBoxEmpty() {
         let layout = layout([])
         #expect(layout.eventRows.isEmpty)
         #expect(layout.promptIndex == nil)
@@ -133,7 +149,7 @@ import UIKit
     }
 
     /// One event takes the first row only; the box does not change size.
-    @Test func oneEventStretchesTheBoxToTheHairline() {
+    @Test func oneEventTakesTheFirstRowAndTheBoxKeepsItsSize() {
         let one = layout(Array(sample.prefix(1)))
         #expect(one.eventRows.count == 1)
         #expect(one.eventRows[0].origin.y == 96)
@@ -141,7 +157,7 @@ import UIKit
     }
 
     /// Never more than four rows, however many events.
-    @Test func theBoxNeverOutgrowsFiveLines() {
+    @Test func theBoxNeverShowsMoreThanFourRows() {
         let many = labels(Array(repeating: "A very long event title that will be cut", count: 7))
         let layout = layout(many)
         #expect(layout.eventRows.count == 4)
@@ -195,7 +211,7 @@ import UIKit
     }
 
     /// A 24-hour phone: the time in five, no letter, the dashes still line up.
-    @Test func aTwentyFourHourPhoneHasOneTimeColumn() {
+    @Test func aTwentyFourHourPhoneShowsNoLetter() {
         let layout = layout(labels(["Hanna\u{2019}s Show", "Night Workout"], hours: [9, 20.25], clock: .twentyFourHour))
         #expect(layout.eventRows.map(\.text) == [
             "09:00   " + String(repeating: "-", count: 11) + " Hanna\u{2019}s Show /",
@@ -225,7 +241,7 @@ import UIKit
 
     /// Type does not scale: every screen uses the mockup's sizes, and the
     /// date tile's text fits its tile on each.
-    @Test func theDayNameSizeIsClamped() {
+    @Test func typeDoesNotScaleAndTheWeekdayFitsTheDateTile() {
         #expect(HUDType.tileLabel.size == 12 && HUDType.tileFoot.size == 11 && HUDType.eventRow.size == 11.3)
         for size in [se, iPhone16, iPhone17, proMax] {
             let tile = layout(size: size).dateTile
@@ -238,7 +254,7 @@ import UIKit
 
     /// Every screen size: the rows' character count is the most that fits
     /// with half a character free each side, and the rows stay in the box.
-    @Test func everyDayNameFitsBetweenTheDateAndTheTemperature() {
+    @Test func everyScreenGetsTheMostColumnsThatFit() {
         let expected: [(CGSize, Int)] = [(se, 32), (iPhone16, 34), (iPhone17, 35), (proMax, 39)]
         for (size, columns) in expected {
             let layout = layout(sample, size: size)
@@ -264,7 +280,7 @@ import UIKit
 
     /// An event on a later day shows its weekday in the time column and no
     /// letter; the columns still line up with today's rows.
-    @Test func aWiderTimeWidensTheColumnsForEveryRow() {
+    @Test func aLaterDayShowsItsWeekdayAndTheColumnsAlign() {
         let later = UpcomingEvent(
             link: UUID(), title: "Dentist", start: now.addingTimeInterval(2 * 86_400),
             end: now.addingTimeInterval(2 * 86_400 + 1800), allDay: false

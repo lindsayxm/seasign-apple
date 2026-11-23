@@ -44,3 +44,37 @@ enum StarDrop {
         return isSaved(index) ? .alreadySaved(index) : .save(index)
     }
 }
+
+/// The star while it is out of the SAVE tile: where it is, and every way the
+/// drag can end. Today keeps one of these; a drag that is cancelled (an
+/// alert, the app leaving the foreground, a cover opening, the system taking
+/// the touch) puts the star back, so it and the row outline never stay up.
+struct StarFlight: Equatable {
+    /// Where the star is drawn; nil when it is in its tile.
+    private(set) var star: CGPoint?
+
+    var isFlying: Bool { star != nil }
+
+    /// The finger moved to `finger`.
+    mutating func move(finger: CGPoint) {
+        star = StarDrop.star(finger: finger)
+    }
+
+    /// The finger lifted at `finger`: the star goes back, and the outcome
+    /// says what the drop does. It does not depend on `star`, so the order
+    /// in which the system reports the end and the reset does not matter.
+    mutating func land(finger: CGPoint, bands: [CGRect], isSaved: (Int) -> Bool) -> StarDrop.Outcome {
+        star = nil
+        return StarDrop.outcome(at: StarDrop.star(finger: finger), bands: bands, isSaved: isSaved)
+    }
+
+    /// The drag ended without a drop: the star goes back.
+    mutating func cancel() {
+        star = nil
+    }
+
+    /// The row the star is over, for the outline.
+    func row(bands: [CGRect]) -> Int? {
+        star.flatMap { StarDrop.row(at: $0, bands: bands) }
+    }
+}

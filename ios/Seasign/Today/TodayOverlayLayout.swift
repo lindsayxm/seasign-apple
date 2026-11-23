@@ -135,8 +135,8 @@ struct TodayOverlayLayout {
         var text: String
         /// What VoiceOver says; nil for the zip prompt (its button speaks).
         var spoken: String?
-        /// The left of the text (each row centred in the box, as CSS does)
-        /// and the top of its 17-point line box.
+        /// The left of the text (the same for every row: a full row centred
+        /// in the box, as CSS centres it) and the top of its 17-point line box.
         var origin: CGPoint
         var width: CGFloat
     }
@@ -182,25 +182,28 @@ struct TodayOverlayLayout {
         let columns = EventRowText.columns(width: inner - style.cell, cell: style.cell)
         eventColumns = columns
         let measure: (String) -> CGFloat = { style.width($0) }
+        // Every row starts at one x: a full row of mono cells centred in
+        // the box, so the time columns line up even when a row of wide
+        // characters measures differently. A row may run to the border.
+        let rowLeft = eventsBox.midX - measure(String(repeating: "0", count: columns)) / 2
+        let maxWidth = eventsBox.maxX - M.tileBorder - rowLeft
         let shown = Array(labels.prefix(showsZipPrompt ? M.eventRows - 1 : M.eventRows))
         var texts: [(String, String?)] = shown.map {
-            (EventRowText.row($0, columns: columns, maxWidth: inner, measure: measure), $0.spoken)
+            (EventRowText.row($0, columns: columns, maxWidth: maxWidth, measure: measure), $0.spoken)
         }
         if showsZipPrompt {
             promptIndex = texts.count
-            texts.append((EventRowText.message(Self.zipPromptText, columns: columns, maxWidth: inner, measure: measure), nil))
+            texts.append((EventRowText.message(Self.zipPromptText, columns: columns, maxWidth: maxWidth, measure: measure), nil))
         } else {
             promptIndex = nil
         }
         let firstLine = eventsBox.minY + M.tileBorder + M.eventsPaddingTop
-        let box = eventsBox
         eventRows = texts.enumerated().map { index, entry in
-            let textWidth = measure(entry.0)
-            return EventRow(
+            EventRow(
                 text: entry.0,
                 spoken: entry.1,
-                origin: CGPoint(x: box.midX - textWidth / 2, y: firstLine + CGFloat(index) * style.lineHeight),
-                width: textWidth
+                origin: CGPoint(x: rowLeft, y: firstLine + CGFloat(index) * style.lineHeight),
+                width: measure(entry.0)
             )
         }
 

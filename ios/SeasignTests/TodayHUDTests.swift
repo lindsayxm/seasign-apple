@@ -74,19 +74,36 @@ import Testing
         #expect(EventRowText.message("Set your zip code in Settings", columns: 32) == "- Set your zip code in Settings/")
     }
 
+    /// Each CJK character or emoji two cells wide, as a fallback font draws it.
+    private let cells: (String) -> CGFloat = { text in
+        CGFloat(text.reduce(0) { $0 + ($1.unicodeScalars.first!.value > 0x2E80 ? 2 : 1) })
+    }
+
     @Test func wideCharactersAreCutToTheMeasuredWidth() {
-        // Each CJK character two cells wide, as a fallback font draws it.
-        let measure: (String) -> CGFloat = { text in
-            CGFloat(text.reduce(0) { $0 + ($1.unicodeScalars.first!.value > 0x2E80 ? 2 : 1) })
-        }
-        let label = "東京都の天気予報と週間予報のお知らせ会議"
-        let row = EventRowText.fit(
-            EventRowText.row(time: "9:00", letter: "A", title: label, columns: 34), maxWidth: 34, measure: measure
-        )
-        #expect(measure(row) <= 34)
-        #expect(row.hasPrefix(" 9:00 A -"))
-        #expect(row.count < 34)
-        #expect(row.hasSuffix("/"))
+        let title = "東京都の天気予報と週間予報のお知らせ会議"
+        let row = EventRowText.row(time: "9:00", letter: "A", title: title, columns: 34, maxWidth: 34, measure: cells)
+        #expect(cells(row) <= 34)
+        #expect(row == " 9:00 A -- 東京都の天気予報と週間/")
+    }
+
+    /// A short title in wide characters is never cut while dashes remain:
+    /// the dashes give way first.
+    @Test func aShortWideTitleGivesUpDashesNotCharacters() {
+        let cjk = EventRowText.row(time: "9:00", letter: "A", title: "会議資料", columns: 34, maxWidth: 34, measure: cells)
+        #expect(cjk == " 9:00 A " + dashes(15) + " 会議資料 /")
+        #expect(cells(cjk) == 34)
+        let emoji = EventRowText.row(time: "9:00", letter: "A", title: "🎉🎂", columns: 34, maxWidth: 34, measure: cells)
+        #expect(emoji == " 9:00 A " + dashes(19) + " 🎉🎂 /")
+        // One wide character among narrow ones: one dash fewer.
+        let mixed = EventRowText.row(time: "9:00", letter: "A", title: "Café 🍵", columns: 34, maxWidth: 34, measure: cells)
+        #expect(mixed == " 9:00 A " + dashes(16) + " Café 🍵 /")
+        // A wide title that fits whole only with one dash keeps it whole.
+        let exact = String(repeating: "会", count: 11)
+        let one = EventRowText.row(time: "9:00", letter: "A", title: exact, columns: 34, maxWidth: 34, measure: cells)
+        #expect(one == " 9:00 A - " + exact + " /")
+        // The zip prompt in a wide language gives up dashes the same way.
+        #expect(EventRowText.message("郵便番号を設定", columns: 34, maxWidth: 34, measure: cells)
+            == dashes(17) + " 郵便番号を設定 /")
     }
 
     @Test func columnsFromWidth() {
@@ -146,6 +163,28 @@ import Testing
         let finger = CGPoint(x: 240, y: 760)
         #expect(StarDrop.star(finger: finger) == CGPoint(x: 240, y: 760 - StarDrop.lift))
         #expect(StarDrop.lift > 20)
+    }
+
+    /// However the drag ends, the star goes back; only a lift over a title
+    /// saves it.
+    @Test func theStarNeverStaysOut() {
+        var flight = StarFlight()
+        #expect(!flight.isFlying)
+        let over = CGPoint(x: 120, y: layout.titleRowTop(1) + 8 + StarDrop.lift)
+        flight.move(finger: over)
+        #expect(flight.isFlying)
+        #expect(flight.row(bands: bands) == 1)
+        // Cancelled (an alert, the app leaving, a cover opening).
+        flight.cancel()
+        #expect(!flight.isFlying && flight.row(bands: bands) == nil)
+        // Lifted over a title: saved, and the star is back.
+        flight.move(finger: over)
+        #expect(flight.land(finger: over, bands: bands) { _ in false } == .save(1))
+        #expect(!flight.isFlying)
+        // Lifted elsewhere: nothing, and the star is back.
+        flight.move(finger: CGPoint(x: 200, y: 300))
+        #expect(flight.land(finger: CGPoint(x: 200, y: 300), bands: bands) { _ in false } == StarDrop.Outcome.none)
+        #expect(!flight.isFlying)
     }
 
     /// A tap on the tile is not a drag, and the drag starts before Today's

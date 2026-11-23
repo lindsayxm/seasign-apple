@@ -69,11 +69,23 @@ enum TodayType {
 /// `design-ideas/v12-imago/index.html`. Nothing is bundled for it.
 struct MonoStyle: Equatable, Sendable {
     /// Point size.
-    var size: CGFloat
+    let size: CGFloat
     /// Extra space after each letter, in points (CSS `letter-spacing`).
-    var kern: CGFloat
+    let kern: CGFloat
     /// The line box, in points (CSS `line-height`).
-    var lineHeight: CGFloat
+    let lineHeight: CGFloat
+    /// The spacing the app draws with: the system mono face's own advance
+    /// brought to `cell`. A fraction of a point less than `kern`. Measured
+    /// once, when the style is made.
+    let drawnKern: CGFloat
+
+    init(size: CGFloat, kern: CGFloat, lineHeight: CGFloat) {
+        self.size = size
+        self.kern = kern
+        self.lineHeight = lineHeight
+        let own = NSAttributedString(string: "0", attributes: [.font: TodayType.mono(size)]).size().width
+        drawnKern = Self.mockupAdvance * size + kern - own
+    }
 
     /// `kern` as a fraction of the size, as `TodayType.width` and
     /// `Text(today:font:tracking:)` take it.
@@ -94,13 +106,6 @@ struct MonoStyle: Equatable, Sendable {
     /// CSS letter-spacing. Rows of the events box and the title lines are
     /// laid out on this cell, so they break where the stills break.
     var cell: CGFloat { Self.mockupAdvance * size + kern }
-
-    /// The spacing the app draws with: the system mono face's own advance
-    /// brought to `cell`. A fraction of a point less than `kern`.
-    var drawnKern: CGFloat {
-        let own = NSAttributedString(string: "0", attributes: [.font: uiFont]).size().width
-        return cell - own
-    }
 
     /// Width of `text` as drawn, without the spacing after the last
     /// character. Characters outside the mono face (CJK, emoji) come from
@@ -136,6 +141,11 @@ enum HUDType {
 extension Text {
     /// A verbatim string in one of the HUD's mono sizes, on the mockup's
     /// character cell (`MonoStyle.drawnKern`).
+    ///
+    /// Fixed size: it does not follow Dynamic Type. Use it for the HUD's
+    /// short labels, rows and titles on fixed compositions only, never for
+    /// body text on a screen that scrolls (an article's text, notes, long
+    /// explanations), which must scale with the reader's text size.
     init(hud string: String, style: MonoStyle) {
         self = Text(verbatim: string).font(style.font).kerning(style.drawnKern)
     }

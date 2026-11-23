@@ -50,6 +50,9 @@ struct HUDTileBar: View {
         var changed: (CGPoint) -> Void
         /// The finger lifted there.
         var ended: (CGPoint) -> Void
+        /// The drag stopped without the finger lifting (the system took
+        /// the touch): put the star back. Also called after `ended`.
+        var cancelled: () -> Void
     }
 
     /// The page showing.
@@ -57,7 +60,9 @@ struct HUDTileBar: View {
     var action: (Tile) -> Void
     var starDrag: StarDrag?
 
-    @Environment(\.hudAccent) private var accent
+    /// True while the star's drag is under way; it goes back to false
+    /// however the drag ends, cancelled included.
+    @GestureState private var isDraggingStar = false
 
     var body: some View {
         HStack(spacing: TodayOverlayLayout.Mockup.tileGap) {
@@ -66,6 +71,9 @@ struct HUDTileBar: View {
             }
         }
         .frame(height: TodayOverlayLayout.Mockup.tileHeight)
+        .onChange(of: isDraggingStar) { _, dragging in
+            if !dragging { starDrag?.cancelled() }
+        }
     }
 
     @ViewBuilder
@@ -92,6 +100,7 @@ struct HUDTileBar: View {
                 .accessibilityHint("Opens Saved. Each title also has a Save action.")
                 .gesture(
                     DragGesture(minimumDistance: StarDrop.minimumDistance, coordinateSpace: .named(starDrag.space))
+                        .updating($isDraggingStar) { _, state, _ in state = true }
                         .onChanged { starDrag.changed($0.location) }
                         .onEnded { starDrag.ended($0.location) }
                 )

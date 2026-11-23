@@ -35,8 +35,8 @@ struct TodayView: View {
     /// The day screen's confirmed draft and its event id, kept while the app
     /// runs so a Try again from a reopened day screen sends the same id.
     @State private var addPending = AddEventPending()
-    /// Where the star dragged from the SAVE tile is; nil when it is not out.
-    @State private var starPoint: CGPoint?
+    /// The star dragged from the SAVE tile, while it is out.
+    @State private var starFlight = StarFlight()
     /// Counts titles saved from the star, for the success haptic.
     @State private var starSaves = 0
 
@@ -115,7 +115,12 @@ struct TodayView: View {
                 try? await Task.sleep(for: interval)
             }
         }
+        // A star left out by a drag the system cancelled goes back when the
+        // app leaves the foreground or a cover opens.
+        .onChange(of: destination) { _, opened in if opened != nil { starFlight.cancel() } }
+        .onChange(of: reading) { _, opened in if opened != nil { starFlight.cancel() } }
         .onChange(of: scenePhase) { _, phase in
+            if phase != .active { starFlight.cancel() }
             // Notes typed in Saved are written before the app leaves the
             // foreground (Saved does this too; this covers it from the root).
             if phase != .active {
@@ -283,7 +288,7 @@ struct TodayView: View {
                     candidates: candidates,
                     layout: layout,
                     followsNoSites: feed.sites.isEmpty,
-                    starTarget: starPoint.flatMap { StarDrop.row(at: $0, bands: bands(shown, layout: layout)) },
+                    starTarget: starFlight.row(bands: bands(shown, layout: layout)),
                     open: { reading = $0 },
                     openSettings: { destination = .settings },
                     save: { saveFromStar($0) },
@@ -295,10 +300,9 @@ struct TodayView: View {
                     action: { tileTapped($0) },
                     starDrag: HUDTileBar.StarDrag(
                         space: Self.space,
-                        changed: { starPoint = StarDrop.star(finger: $0) },
-                        ended: { finger in
-                            starDropped(at: StarDrop.star(finger: finger), shown: shown, layout: layout)
-                        }
+                        changed: { starFlight.move(finger: $0) },
+                        ended: { finger in starDropped(finger: finger, shown: shown, layout: layout) },
+                        cancelled: { starFlight.cancel() }
                     )
                 )
                 .frame(width: max(0, proxy.size.width - 2 * TodayOverlayLayout.Mockup.margin))
@@ -311,7 +315,7 @@ struct TodayView: View {
                     .accessibilityHidden(true)
 
                 // The star on its way from the SAVE tile to a title.
-                if let starPoint {
+                if let starPoint = starFlight.star {
                     HUDGlyphView(glyph: .save, color: accent)
                         .scaleEffect(1.3)
                         .shadow(color: .black, radius: 3)
@@ -383,11 +387,10 @@ struct TodayView: View {
         shown.indices.map { layout.titleBand($0) }
     }
 
-    /// The star let go at `point`: saves the title under it, unless it is
-    /// saved already.
-    private func starDropped(at point: CGPoint, shown: [FeedEntry], layout: TodayOverlayLayout) {
-        starPoint = nil
-        let outcome = StarDrop.outcome(at: point, bands: bands(shown, layout: layout)) { saved.isSaved(shown[$0].link) }
+    /// The finger lifted at `finger`: saves the title under the star,
+    /// unless it is saved already.
+    private func starDropped(finger: CGPoint, shown: [FeedEntry], layout: TodayOverlayLayout) {
+        let outcome = starFlight.land(finger: finger, bands: bands(shown, layout: layout)) { saved.isSaved(shown[$0].link) }
         if case .save(let index) = outcome {
             saveFromStar(shown[index])
         }

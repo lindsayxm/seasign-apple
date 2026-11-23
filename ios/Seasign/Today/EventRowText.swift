@@ -30,49 +30,36 @@ enum EventRowText {
 
     /// The row in `columns` characters (at least `minimumColumns`).
     static func row(time: String, letter: Character?, title: String, columns: Int) -> String {
-        let columns = max(columns, minimumColumns)
-        let head = pad(String(time.prefix(5)), to: 5) + " " + String(letter ?? " ") + " "
-        let room = columns - headCount
-        let title = Array(plain(title))
-        // Whole: a dash or more, a space each side of the title, " /".
-        if title.count + 4 <= room {
-            return head + String(repeating: "-", count: room - title.count - 3) + " " + String(title) + " /"
-        }
-        // Cut: "- ", as much of the title as fits, "/".
-        return head + cut(title, room: room)
+        row(time: time, letter: letter, title: title, columns: columns, maxWidth: .infinity) { _ in 0 }
     }
 
-    /// `text` cut to `room` characters as "- ", the text, "/". A cut that
-    /// would end in a space (so read as a whole title) ends at the word
-    /// before it instead, the spare room going to the dashes in front.
-    private static func cut(_ text: [Character], room: Int) -> String {
-        var kept = Array(text.prefix(room - 3))
-        while kept.last?.isWhitespace == true { kept.removeLast() }
-        let dashes = room - 2 - kept.count
-        return String(repeating: "-", count: dashes) + " " + String(kept) + "/"
+    /// The row in `columns` characters, held to `maxWidth` as measured.
+    /// Characters outside the mono face (CJK, emoji) are wider than a cell,
+    /// so a row of them gives up dashes first (down to one) and only then
+    /// cuts the title, still ending in the slash.
+    static func row(
+        time: String, letter: Character?, title: String, columns: Int,
+        maxWidth: CGFloat, measure: (String) -> CGFloat
+    ) -> String {
+        let columns = max(columns, minimumColumns)
+        let head = pad(String(time.prefix(5)), to: 5) + " " + String(letter ?? " ") + " "
+        return head + body(Array(plain(title)), room: columns - headCount, maxWidth: maxWidth) { measure(head + $0) }
     }
 
     /// A message in the row's form, for the zip prompt: dashes, a space,
     /// the text, a space and a slash, right-aligned in `columns`; cut like a
     /// title when it does not fit.
     static func message(_ text: String, columns: Int) -> String {
-        let columns = max(columns, minimumColumns)
-        let text = Array(plain(text))
-        if text.count + 4 <= columns {
-            return String(repeating: "-", count: columns - text.count - 3) + " " + String(text) + " /"
-        }
-        return cut(text, room: columns)
-    }
-
-    /// `row` held to `maxWidth` as measured: characters outside the mono
-    /// face (CJK, emoji) are wider than a cell, so a row of them is cut
-    /// further, one character at a time, still ending in the slash.
-    static func row(_ label: EventLabel, columns: Int, maxWidth: CGFloat, measure: (String) -> CGFloat) -> String {
-        fit(row(label, columns: columns), maxWidth: maxWidth, measure: measure)
+        message(text, columns: columns, maxWidth: .infinity) { _ in 0 }
     }
 
     static func message(_ text: String, columns: Int, maxWidth: CGFloat, measure: (String) -> CGFloat) -> String {
-        fit(message(text, columns: columns), maxWidth: maxWidth, measure: measure)
+        body(Array(plain(text)), room: max(columns, minimumColumns), maxWidth: maxWidth, measure: measure)
+    }
+
+    /// The row for `label`, held to `maxWidth` as measured.
+    static func row(_ label: EventLabel, columns: Int, maxWidth: CGFloat, measure: (String) -> CGFloat) -> String {
+        row(time: label.rowTime, letter: label.rowLetter, title: label.title, columns: columns, maxWidth: maxWidth, measure: measure)
     }
 
     /// How many characters of `cell` points fit in `width`.
@@ -82,15 +69,36 @@ enum EventRowText {
         return max(minimumColumns, Int(((width + 0.01) / cell).rounded(.down)))
     }
 
-    /// Cuts the text before the final slash, one character at a time,
-    /// until the row fits; the slash stays.
-    static func fit(_ row: String, maxWidth: CGFloat, measure: (String) -> CGFloat) -> String {
-        var characters = Array(row)
-        while characters.count > headCount + 2, measure(String(characters)) > maxWidth + 0.5 {
-            characters.removeLast(2)
-            characters.append("/")
+    /// The part after the head in `room` characters: whole
+    /// (`---- title /`) when the title fits with a dash, otherwise cut
+    /// (`- titl/`). `fits` is checked as well: dashes go first, down to
+    /// one, then the title is cut a character at a time. A cut never ends in
+    /// a space (it would read as a whole title); the room it leaves goes to
+    /// the dashes.
+    private static func body(_ text: [Character], room: Int, maxWidth: CGFloat, measure: (String) -> CGFloat) -> String {
+        func fits(_ candidate: String) -> Bool { maxWidth.isInfinite || measure(candidate) <= maxWidth + 0.5 }
+        func dashes(_ count: Int) -> String { String(repeating: "-", count: max(1, count)) }
+        // Whole.
+        if text.count + 4 <= room {
+            for count in stride(from: room - text.count - 3, through: 1, by: -1) {
+                let candidate = dashes(count) + " " + String(text) + " /"
+                if fits(candidate) { return candidate }
+            }
         }
-        return String(characters)
+        // Cut, the longest that fits.
+        var longest = min(text.count - 1, room - 3)
+        if text.count + 4 > room { longest = min(text.count, room - 3) }
+        var last = dashes(1) + " /"
+        for length in stride(from: max(longest, 0), through: 0, by: -1) {
+            var kept = Array(text.prefix(length))
+            while kept.last?.isWhitespace == true { kept.removeLast() }
+            for count in stride(from: room - 2 - kept.count, through: 1, by: -1) {
+                let candidate = dashes(count) + " " + String(kept) + "/"
+                last = candidate
+                if fits(candidate) { return candidate }
+            }
+        }
+        return last
     }
 
     /// Runs of white space (tabs, line breaks) as one space, trimmed.
