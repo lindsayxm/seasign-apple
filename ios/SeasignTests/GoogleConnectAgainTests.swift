@@ -282,4 +282,60 @@ final class RevokedAtSave: @unchecked Sendable {
         #expect(model.newEventsCalendarID == "family-id")
         #expect(endpoint.revoked.isEmpty)
     }
+
+    /// After the sign-in ended, a Connect again whose list cannot be read
+    /// keeps nothing: the account cannot be told, so it stays expired and the
+    /// new grant is handed back (the old one is dead already). Before task
+    /// 175 this connected and read the list later.
+    @Test func anEndedSignInWhoseNewListCannotBeReadStaysEndedAndHandsTheGrantBack() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+        let ids = model.calendars.map(\.id)
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        await model.refresh()
+        try await idle(model)
+        try #require(model.connection == .expired)
+
+        answerAccountB()
+        stub.setOffline(true)
+        let signIn = signIn
+        try await bounded { await model.connect(signIn: signIn) }
+        stub.setOffline(false)
+
+        #expect(model.connection == .expired)
+        #expect(model.connectProblem == .unavailable)
+        #expect(!model.isConnecting)
+        #expect(store.stored == nil)
+        #expect(model.calendars.map(\.id) == ids)
+        #expect(model.newEventsCalendarID == "family-id")
+        #expect(await endpoint.waitForRevoked(count: 1) == [Self.refreshB])
+    }
+
+    /// Disconnect tapped while the new sign-in's list is being read: nothing
+    /// of the new sign-in is kept and it is handed back; the old one is
+    /// revoked by the Disconnect itself.
+    @Test func aDisconnectWhileTheNewListIsReadKeepsNothing() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+
+        answerAccountB()
+        stub.hold(GoogleAPIStub.getCalendars)
+        let signIn = signIn
+        let connecting = Task { await model.connect(signIn: signIn) }
+        await stub.waitUntilParked(GoogleAPIStub.getCalendars, count: 1)
+        try await bounded { await model.disconnect() }
+        stub.release(GoogleAPIStub.getCalendars)
+        try await bounded { await connecting.value }
+
+        #expect(model.connection == .notConnected)
+        #expect(model.connectProblem == nil)
+        #expect(!model.isConnecting)
+        #expect(store.stored == nil)
+        #expect(model.calendars.isEmpty)
+        #expect(try context.fetch(FetchDescriptor<GoogleAccount>()).isEmpty)
+        #expect(Set(await endpoint.waitForRevoked(count: 2)) == [FakeGoogle.refresh, Self.refreshB])
+    }
 }
