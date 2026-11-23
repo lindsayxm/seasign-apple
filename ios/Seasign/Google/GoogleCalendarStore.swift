@@ -300,6 +300,24 @@ struct GoogleCalendarStore {
         save()
     }
 
+    /// A new grant: connected with exactly `scopes` (nil: unknown, read-only),
+    /// in one save, so the stored state can never be connected with the
+    /// scopes of an earlier grant (task 175). The calendar for new events is
+    /// left as it is.
+    func setConnected(grantedScopes scopes: Set<String>?) {
+        var rows = (try? context.fetch(FetchDescriptor<GoogleAccount>())) ?? []
+        let text = scopes.map(GoogleOAuthConfig.joined)
+        if rows.isEmpty {
+            context.insert(GoogleAccount(stateRaw: GoogleConnection.connected.rawValue, grantedScopes: text))
+        } else {
+            let first = rows.removeFirst()
+            for row in rows { context.delete(row) }
+            first.stateRaw = GoogleConnection.connected.rawValue
+            first.grantedScopes = text
+        }
+        save()
+    }
+
     /// The calendars in Google's order.
     func choices() -> [GoogleCalendarChoice] {
         let all = (try? context.fetch(FetchDescriptor<GoogleCalendarChoice>())) ?? []

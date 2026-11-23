@@ -567,8 +567,7 @@ private final class SeenRequest: @unchecked Sendable {
         #expect(model.connectProblem == .missingScope)
         #expect(model.connection == .notConnected)
         #expect(store.stored == nil)
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(endpoint.revoked == [FakeGoogle.refresh])
+        #expect(await endpoint.waitForRevoked(count: 1) == [FakeGoogle.refresh])
     }
 
     @Test func aRefusedExchangeShowsGooglesCode() async throws {
@@ -746,7 +745,7 @@ private final class SeenRequest: @unchecked Sendable {
         stub.hold()
         clock.advance(5)
         let inFlight = Task { await model.refresh() }
-        try await Task.sleep(for: .milliseconds(100))
+        await stub.waitUntilParked(GoogleAPIStub.postEvents, count: 1)
         await model.disconnect()
         stub.release()
         await inFlight.value

@@ -203,8 +203,7 @@ import Testing
         #expect(model.connection == .notConnected)
         #expect(!model.canAddEvents)
         #expect(store.stored == nil)
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(endpoint.revoked == [FakeGoogle.refresh])
+        #expect(await endpoint.waitForRevoked(count: 1) == [FakeGoogle.refresh])
     }
 
     @Test func anExchangeThatDoesNotNameTheScopesConnectsWithoutWriteAccess() async throws {
@@ -248,8 +247,11 @@ import Testing
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let store = InMemoryGoogleTokenStore()
         let model = await connected(context, store: store, scope: FakeGoogle.readOnlyScopes)
+        model.setNewEventsCalendar(try #require(model.calendars.first { $0.calendarID == "family-id" }))
         let ids = model.calendars.map(\.id)
         let on = model.calendars.map(\.isOn)
+        let readOnly = GoogleOAuthConfig.joined(Set(GoogleOAuthConfig.readScopes))
+        #expect(try storedScopes(context) == readOnly)
 
         func expectUnchanged(_ comment: Comment) {
             #expect(model.connection == .connected, comment)
@@ -260,6 +262,9 @@ import Testing
             #expect(model.canPoll, comment)
             #expect(!model.canAddEvents, comment)
             #expect(model.grantedScopes == Set(GoogleOAuthConfig.readScopes), comment)
+            #expect((try? storedScopes(context)) == readOnly, comment)
+            #expect(model.newEventsCalendarID == "family-id", comment)
+            #expect((try? context.fetch(FetchDescriptor<GoogleAccount>()).first?.newEventsCalendarID) == "family-id", comment)
         }
 
         await model.connect(signIn: { _, _ in throw GoogleSignInCancelled() })
@@ -293,7 +298,103 @@ import Testing
         #expect(model.connectProblem == .notSaved)
         expectUnchanged("keychain failed")
 
+        // Task 175: the new sign-in's calendar list (which tells the account)
+        // could not be read: nothing is kept, so nothing can mix.
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(refresh: "fake-refresh-two"))
+        stub.setOffline(true)
+        await model.connect(signIn: goodRedirect)
+        stub.setOffline(false)
+        #expect(model.connectProblem == .unavailable)
+        expectUnchanged("the list unreachable")
+
+        stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: "30"))
+        await model.connect(signIn: goodRedirect)
+        #expect(model.connectProblem == .unavailable)
+        expectUnchanged("the list rate limited")
+
+        stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.error(.forbidden, "google_forbidden"))
+        await model.connect(signIn: goodRedirect)
+        #expect(model.connectProblem == .unavailable)
+        expectUnchanged("the list refused")
+
+        // Nothing is revoked: Google's revoke would end the working grant too.
         try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// Task 175: connection state and scopes are one save. An expired
+    /// connection that had write access, connected again with an exchange
+    /// that does not name the scopes, is read-only; and no save on the way
+    /// stored "connected" with the old grant's write access (a crash between
+    /// two saves would have left it so).
+    @Test func anExpiredWriteConnectionReconnectedWithoutScopesIsReadOnlyAtEverySave() async throws {
+        let container = try SeasignSchema.inMemoryContainer()
+        let context = ModelContext(container)
+        let store = InMemoryGoogleTokenStore()
+        let model = await connected(context, store: store)
+        #expect(model.canAddEvents)
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        await model.refresh()
+        #expect(model.connection == .expired)
+        // The ended connection's row keeps the old grant's scopes.
+        #expect(try storedScopes(context) == GoogleOAuthConfig.joined(Set(GoogleOAuthConfig.scopes)))
+
+        let saves = SavedAccountStates()
+        let observer = NotificationCenter.default.addObserver(forName: ModelContext.didSave, object: context, queue: nil) { _ in
+            MainActor.assumeIsolated {
+                let row = try? ModelContext(container).fetch(FetchDescriptor<GoogleAccount>()).first
+                saves.append(state: row?.stateRaw, scopes: row?.grantedScopes)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        answerAccount(scope: nil)
+        await model.connect(signIn: goodRedirect)
+        NotificationCenter.default.removeObserver(observer)
+
+        #expect(model.connection == .connected)
+        #expect(model.grantedScopes == nil)
+        #expect(!model.canAddEvents)
+        #expect(try storedScopes(context) == nil)
+        #expect(!self.model(context, store: store).canAddEvents)
+        let connectedSaves = saves.all.filter { $0.state == GoogleConnection.connected.rawValue }
+        #expect(!connectedSaves.isEmpty)
+        #expect(connectedSaves.allSatisfy { $0.scopes == nil }, "\(connectedSaves.map { $0.scopes ?? "nil" })")
+    }
+
+    /// Task 175: a poll's renewal finds the sign-in ended (`invalid_grant`)
+    /// while the Connect again sheet is up. The outcome, as it stands: the
+    /// connection is expired, and the sign-in made in the sheet is dropped
+    /// without a message (its code is never exchanged), so Settings shows
+    /// Connect again. The choices and the calendar for new events stay, as
+    /// for any ended sign-in.
+    @Test func aSignInThatEndsWhileTheConnectAgainSheetIsUpDropsTheSheetsSignIn() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = InMemoryGoogleTokenStore()
+        let model = await connected(context, store: store)
+        model.setNewEventsCalendar(try #require(model.calendars.first { $0.calendarID == "family-id" }))
+        let ids = model.calendars.map(\.id)
+        let clock = clock
+        let endpoint = endpoint
+        let sheet = goodRedirect
+
+        await model.connect(signIn: { url, scheme in
+            clock.advance(3600)
+            endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+            await model.refresh()
+            #expect(model.connection == .expired)
+            return try await sheet(url, scheme)
+        })
+
+        #expect(model.connection == .expired)
+        #expect(model.connectProblem == nil)
+        #expect(!model.isConnecting)
+        #expect(store.stored == nil)
+        #expect(endpoint.sent(grant: "authorization_code").count == 1)
+        #expect(!model.canAddEvents)
+        #expect(!model.canPoll)
+        #expect(model.calendars.map(\.id) == ids)
+        #expect(model.newEventsCalendarID == "family-id")
         #expect(endpoint.revoked.isEmpty)
     }
 
@@ -464,5 +565,15 @@ import Testing
         #expect(model.chosen.map(\.id) == [me])
         #expect(model.calendars.first?.accessRole == .owner)
         #expect(!model.canAddEvents)
+    }
+}
+
+/// What the account row held at each save (task 175).
+@MainActor
+final class SavedAccountStates {
+    private(set) var all: [(state: String?, scopes: String?)] = []
+
+    func append(state: String?, scopes: String?) {
+        all.append((state, scopes))
     }
 }

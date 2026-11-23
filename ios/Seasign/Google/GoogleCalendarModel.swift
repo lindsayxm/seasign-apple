@@ -305,7 +305,7 @@ final class GoogleCalendarModel {
         defer { if attempt == connectAttempt { isConnecting = false } }
         // A Disconnect tapped while this runs (the expired state shows one)
         // moves the generation; this sign-in then keeps nothing.
-        let started = generation
+        var started = generation
 
         let pkce = GooglePKCE()
         let callback: URL
@@ -360,9 +360,10 @@ final class GoogleCalendarModel {
         }
         // Connect again from a working connection (to add write access): a
         // failure leaves that connection exactly as it was. Nothing is
-        // revoked then, since Google's docs do not say whether revoking the
-        // new token would also end the grant the connection runs on.
-        let wasConnected = connection == .connected
+        // revoked then: Google's revoke "removes all OAuth 2.0 scopes
+        // previously granted", so revoking the new token would also end the
+        // grant the connection runs on (the same account's).
+        var wasConnected = connection == .connected
         guard fresh.grantsNeededScopes, let refreshToken = fresh.refresh else {
             // Nothing is kept; the partial grant is handed back to Google.
             if !wasConnected {
@@ -372,6 +373,48 @@ final class GoogleCalendarModel {
             connectProblem = .missingScope
             return
         }
+
+        // Connect again (from a working connection, or after the sign-in
+        // ended) may come back as another Google account: the sheet is
+        // ephemeral and Google's login_hint is only a hint. The account is
+        // told apart by its primary calendar's id, read with the new token
+        // before anything is kept (task 175).
+        var list: [GoogleCalendarEntry]?
+        if connection != .notConnected, let known = calendars.first(where: \.isPrimary)?.calendarID {
+            let fetched: [GoogleCalendarEntry]
+            do {
+                fetched = try await api.googleCalendars(token: fresh.access)
+            } catch {
+                // The account cannot be told, so nothing is kept (a working
+                // connection stays exactly as it was).
+                if started != generation || !wasConnected { Task { await client.revoke(refreshToken) } }
+                if started == generation { connectProblem = .unavailable }
+                return
+            }
+            guard started == generation else {
+                // Disconnected meanwhile: handed back, nothing kept.
+                Task { await client.revoke(refreshToken) }
+                return
+            }
+            list = fetched
+            if fetched.first(where: \.primary)?.id != known {
+                // Another account: Disconnect the old one first (its channels
+                // stopped with its own token, its refresh token revoked
+                // before the new one is saved, its choices, events, calendar
+                // for new events and watch state gone), then a fresh Connect.
+                let ended = forgetAccount()
+                let afterForget = generation
+                await stopAndRevoke(ended)
+                guard afterForget == generation else {
+                    // Disconnected meanwhile: nothing of the new one is kept.
+                    Task { await client.revoke(refreshToken) }
+                    return
+                }
+                started = generation
+                wasConnected = false
+            }
+        }
+
         do {
             try tokens.save(refreshToken)
         } catch {
@@ -384,13 +427,18 @@ final class GoogleCalendarModel {
         retryNotBefore = nil
         failures = 0
         statusProblem = nil
-        setConnection(.connected)
         // A new grant: exactly what this answer says (nil when it says
-        // nothing, which reads as no write access).
+        // nothing, which reads as no write access), in the same save as the
+        // connection state.
+        connection = .connected
         grantedScopes = fresh.scopes
-        store.setGrantedScopes(fresh.scopes)
+        store.setConnected(grantedScopes: fresh.scopes)
         if wasConnected, !fresh.grantsWriteScope { connectProblem = .addingNotAllowed }
-        await loadCalendars()
+        if let list {
+            applyCalendarList(list)
+        } else {
+            await loadCalendars()
+        }
         await refresh(force: true)
     }
 
@@ -424,6 +472,12 @@ final class GoogleCalendarModel {
             return max(1, retryNotBefore.timeIntervalSince(now()))
         }
         guard started == generation else { return nil }
+        applyCalendarList(list)
+        return nil
+    }
+
+    /// Folds a calendar list just read into the choices.
+    private func applyCalendarList(_ list: [GoogleCalendarEntry]) {
         listLoadedAt = now()
         statusProblem = nil
         let existing = calendars.map { (id: $0.id, calendarID: $0.calendarID, isOn: $0.isOn) }
@@ -431,7 +485,6 @@ final class GoogleCalendarModel {
         calendars = store.choices()
         if let snapshot { setSnapshot(snapshot.keeping(Set(chosen.map(\.id)))) }
         watch.sync(.calendars)
-        return nil
     }
 
     /// While Settings is open: reads the calendar list, and again each time
@@ -492,14 +545,38 @@ final class GoogleCalendarModel {
     /// access token in memory for the unwatch it owes (`GoogleWatchKeeper.stop`).
     func disconnect() async {
         guard !isFrozen else { return }
-        generation += 1
         connectAttempt += 1
         isConnecting = false
-        let token = try? tokens.read()
-        let valid = access?.validToken
-        let last = access?.lastToken
-        let mayNeedUnwatch = watch.mayNeedUnwatch
-        let channelsLeft = watch.channelsMayBeLeft
+        let ended = forgetAccount()
+        await stopAndRevoke(ended)
+    }
+
+    /// What `forgetAccount` keeps of the account it forgot, for stopping its
+    /// channels and revoking its sign-in afterwards.
+    private struct EndedAccount {
+        var refreshToken: GoogleSecret?
+        var validToken: GoogleSecret?
+        var lastToken: GoogleSecret?
+        var mayNeedUnwatch: Bool
+        var channelsLeft: Bool
+        var generation: Int
+    }
+
+    /// Disconnect's first half: forgets the account here at once (the token
+    /// in memory and in the Keychain, the calendars, the cached events, the
+    /// scopes and the calendar for new events, the watch state) and shows
+    /// the not-connected state. Moves the generation. The isConnecting state
+    /// is the caller's.
+    private func forgetAccount() -> EndedAccount {
+        generation += 1
+        let ended = EndedAccount(
+            refreshToken: try? tokens.read(),
+            validToken: access?.validToken,
+            lastToken: access?.lastToken,
+            mayNeedUnwatch: watch.mayNeedUnwatch,
+            channelsLeft: watch.channelsMayBeLeft,
+            generation: generation
+        )
         watch.forget()
         try? tokens.delete()
         access?.forget()
@@ -516,21 +593,27 @@ final class GoogleCalendarModel {
         setConnection(.notConnected)
         grantedScopes = nil
         newEventsCalendarID = nil
-        if mayNeedUnwatch {
-            let disconnected = generation
+        return ended
+    }
+
+    /// Disconnect's second half, best effort and in this order: stops the
+    /// forgotten account's push channels (after any watch already out),
+    /// waiting at most `unwatchWait`, then asks Google to revoke its sign-in.
+    private func stopAndRevoke(_ ended: EndedAccount) async {
+        if ended.mayNeedUnwatch {
             let stopping = Task { [weak self, watch, client] in
-                var unwatchToken = valid
-                if unwatchToken == nil, let token, let client {
+                var unwatchToken = ended.validToken
+                if unwatchToken == nil, let token = ended.refreshToken, let client {
                     // One fresh token for the unwatch alone; it is not kept.
                     unwatchToken = try? await client.refresh(token).access
                 }
                 // A Connect finished meanwhile: its keeper state is not
                 // wiped, and its own watch replaces this device's channels.
-                guard let self, self.generation == disconnected else { return }
+                guard let self, self.generation == ended.generation else { return }
                 // Without a device token yet, the keeper keeps this token for an
                 // unwatch sent when the device token arrives (after the revoke
                 // below: the API forgets the channels whatever Google says).
-                await watch.stop(using: unwatchToken ?? last, channelsLeft: channelsLeft)
+                await watch.stop(using: unwatchToken ?? ended.lastToken, channelsLeft: ended.channelsLeft)
             }
             // The revoke waits for this at most `unwatchWait`, so it is never
             // left undone for long (the app could be closed meanwhile). The
@@ -538,7 +621,7 @@ final class GoogleCalendarModel {
             // and the API forgets the channels whatever Google says of the token.
             await PushDeadline.race(stopping, deadline: unwatchWait, fallback: ())
         }
-        if let token, let client { await client.revoke(token) }
+        if let token = ended.refreshToken, let client { await client.revoke(token) }
     }
 
     // MARK: Events

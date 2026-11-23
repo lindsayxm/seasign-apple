@@ -99,6 +99,16 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
         sent.filter { $0.url == GoogleOAuthConfig.revokeEndpoint }.compactMap { $0.form["token"] }
     }
 
+    /// The revoked tokens once at least `count` have arrived (a revoke sent
+    /// from a detached task), or what has arrived when `limit` passes.
+    func waitForRevoked(count: Int, limit: Duration = .seconds(5)) async -> [String] {
+        let deadline = ContinuousClock.now + limit
+        while revoked.count < count, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return revoked
+    }
+
     var http: GoogleHTTP {
         { [self] request in try await self.handle(request) }
     }

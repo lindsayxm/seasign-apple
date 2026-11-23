@@ -150,8 +150,10 @@ final class FakeSpeaker: SpeechSpeaking {
     /// The user's example, as speech gives it.
     private let said = "add a meeting to my calendar Sunday at 3 PM with Rahaf"
 
+    /// `firstWords` leaves a stalled run time to deliver the first words
+    /// after listening starts (at 400 ms a busy Mac could end it as silence).
     private static let timing = VoiceEntryModel.Timing(
-        pause: .milliseconds(150), firstWords: .milliseconds(400), phraseLimit: .seconds(2),
+        pause: .milliseconds(150), firstWords: .milliseconds(1500), phraseLimit: .seconds(2),
         finalWait: .milliseconds(200), answerWindow: .seconds(2), tick: .milliseconds(10)
     )
 
@@ -586,8 +588,13 @@ final class FakeSpeaker: SpeechSpeaking {
     /// may have been going on ("confirm, wait, it's at four").
     @Test func aConfirmCutOffByTheEndOfTheWindowDoesNothing() async throws {
         let rig = try await rig()
+        // No pause, silence or limit can end listening for the event however
+        // slow the run: only the second tap does. The answer window's limit
+        // is the one thing timed.
         var timing = Self.timing
         timing.pause = .seconds(30)
+        timing.firstWords = .seconds(30)
+        timing.phraseLimit = .seconds(30)
         let clock = clock
         let voice = VoiceEntryModel(
             adder: rig.adder, listener: rig.listener, speaker: rig.speaker,
@@ -600,9 +607,14 @@ final class FakeSpeaker: SpeechSpeaking {
         // The second tap ends listening for the event (no pause comes).
         voice.micTapped()
         #expect(await eventually { rig.speaker.isSpeaking })
+        #expect(rig.listener.finishes == 1)
         rig.speaker.end()
         #expect(await eventually { voice.phase == .awaitingAnswer && rig.listener.isListening })
         rig.listener.hear("confirm")
+        // Heard while the window was still open (the limit had not ended it).
+        #expect(rig.listener.finishes == 1)
+        // The signal: the window's limit ends the audio.
+        #expect(await eventually { rig.listener.finishes == 2 })
         await settle(voice)
         // The limit ended the audio, and the recognizer's final result was "confirm".
         #expect(rig.listener.finishes == 2)
