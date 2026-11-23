@@ -226,12 +226,16 @@ final class AddEventModel {
             request = out.task
         } else {
             let google = google
-            request = Task { await Self.send(event, google: google) }
-            pending.request = (id, request)
-            Task { [pending] in
-                _ = await request.value
-                if pending.request?.task == request { pending.request = nil }
+            // The send gives up its place itself, on the main actor, before
+            // anything waiting on it is resumed: a Try again the moment its
+            // failure shows sends again, never waits on the finished send.
+            // (Only one send per id is out, so the place with this id is its own.)
+            request = Task { [pending] in
+                let outcome = await Self.send(event, google: google)
+                if pending.request?.id == id { pending.request = nil }
+                return outcome
             }
+            pending.request = (id, request)
         }
         let deadline = sendDeadline
         sending = Task { [weak self] in
@@ -426,6 +430,11 @@ final class AddEventPending {
     /// A send is out (it may have run past the popup's deadline).
     var isRequestOut: Bool {
         request != nil
+    }
+
+    /// The send that is out, for tests to wait on.
+    var requestTask: Task<GoogleCalendarModel.CreateOutcome?, Never>? {
+        request?.task
     }
 }
 

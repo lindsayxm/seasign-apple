@@ -290,7 +290,13 @@ enum Expected: CustomStringConvertible {
         // Typed "at 5 to 9" could be either: a problem.
         ("dinner at 5 to 9", .problem(.unclearTime)),
         ("meeting at 10 to 4", .problem(.unclearTime)),
-        ("meeting at 10 to 4pm", .timed("Meeting", "2026-11-22 10:00", "2026-11-22 16:00")),
+        // Third pass (F): with am or pm on the end it is still either (it was
+        // a 10 AM-4 PM span), glued or not.
+        ("meeting at 10 to 4pm", .problem(.unclearTime)),
+        ("meeting at 10 to 4 PM", .problem(.unclearTime)),
+        ("dinner at 5 to 9pm", .problem(.unclearTime)),
+        ("meeting at 10 to noon", .problem(.unclearTime)),
+        ("meeting at 10 to 4:30pm", .timed("Meeting", "2026-11-22 10:00", "2026-11-22 16:30")),
         ("meeting at ten past thirteen", .problem(.unclearTime)),
         ("meeting ten past fifteen", .problem(.unclearTime)),
         ("meeting at 3 past 4 past 5", .problem(.unclearTime)),
@@ -299,10 +305,51 @@ enum Expected: CustomStringConvertible {
         ("party Dec 4 after 5", .allDay("Party after 5", "2026-12-04")),
         ("party Dec 4 past 5", .problem(.unclearTime)),
         ("room 4 after 5pm", .timed("Room 4 after", "2026-11-22 17:00", "2026-11-22 18:00")),
-        // Two numbers in words are a time only after "at" or with am or pm.
+        // Two numbers in words are a time only after "at" or with am or pm,
+        // unless the minutes are "oh N" or a multiple of five (third pass,
+        // (E): the two rows below were all day and a problem before).
         ("room four twelve meeting tomorrow", .allDay("Room four twelve meeting", "2026-11-23")),
-        ("meeting around three thirty", .allDay("Meeting around three thirty", "2026-11-22")),
-        ("dentist friday three thirty", .problem(.unclearTime)),
+        ("meeting around three thirty", .timed("Meeting", "2026-11-22 15:30", "2026-11-22 16:30")),
+        ("dentist friday three thirty", .timed("Dentist", "2026-11-27 15:30", "2026-11-27 16:30")),
+        ("meeting three thirty friday", .timed("Meeting", "2026-11-27 15:30", "2026-11-27 16:30")),
+        ("lunch twelve thirty tomorrow", .timed("Lunch", "2026-11-23 12:30", "2026-11-23 13:30")),
+        ("call three oh five", .timed("Call", "2026-11-22 15:05", "2026-11-22 16:05")),
+        ("meeting four fifteen friday", .timed("Meeting", "2026-11-27 16:15", "2026-11-27 17:15")),
+        ("flight seven forty seven tomorrow", .allDay("Flight seven forty seven", "2026-11-23")),
+        ("flight at seven forty seven tomorrow", .timed("Flight", "2026-11-23 07:47", "2026-11-23 08:47")),
+        // Third pass (A): a number right after "for" is never minutes, and
+        // without "at" only 5, 10, 20, 25, quarter and half are.
+        ("table for four after seven pm", .timed("Table for four after", "2026-11-22 19:00", "2026-11-22 20:00")),
+        ("table for four after 7 PM", .timed("Table for four after", "2026-11-22 19:00", "2026-11-22 20:00")),
+        ("dinner for two after eight", .allDay("Dinner for two after eight", "2026-11-22")),
+        ("meeting four after seven pm", .timed("Meeting four after", "2026-11-22 19:00", "2026-11-22 20:00")),
+        ("call twelve past 3pm", .problem(.unclearTime)),
+        ("tea fifteen past three", .problem(.unclearTime)),
+        ("call at twelve past three", .timed("Call", "2026-11-22 15:12", "2026-11-22 16:12")),
+        ("call twenty past three pm", .timed("Call", "2026-11-22 15:20", "2026-11-22 16:20")),
+        // (B) The hour may be noon, midnight or have am or pm glued on.
+        ("party quarter to midnight", .timed("Party", "2026-11-22 23:45", "2026-11-23 00:45")),
+        ("call 10 past 3pm", .timed("Call", "2026-11-22 15:10", "2026-11-22 16:10")),
+        ("tea half past 4pm", .timed("Tea", "2026-11-22 16:30", "2026-11-22 17:30")),
+        ("lunch ten past noon", .timed("Lunch", "2026-11-22 12:10", "2026-11-22 13:10")),
+        ("lunch at ten to noon", .timed("Lunch", "2026-11-22 11:50", "2026-11-22 12:50")),
+        ("call at ten to 4pm", .timed("Call", "2026-11-22 15:50", "2026-11-22 16:50")),
+        ("party friday quarter to midnight", .timed("Party", "2026-11-27 23:45", "2026-11-28 00:45")),
+        // Which night is not guessed: a problem.
+        ("call ten past midnight", .problem(.unclearTime)),
+        ("party half past midnight", .problem(.unclearTime)),
+        // (C) The am or pm is the hour's: "ten to twelve pm" is 11:50 am.
+        ("meeting at ten to twelve pm", .timed("Meeting", "2026-11-22 11:50", "2026-11-22 12:50")),
+        ("meeting at quarter to twelve pm", .timed("Meeting", "2026-11-22 11:45", "2026-11-22 12:45")),
+        ("meeting at ten to one pm", .timed("Meeting", "2026-11-22 12:50", "2026-11-22 13:50")),
+        ("call at ten to seven", .timed("Call", "2026-11-22 06:50", "2026-11-22 07:50")),
+        ("call at ten to twelve am", .problem(.unclearTime)),
+        ("party at ten to twelve tonight", .timed("Party", "2026-11-22 23:50", "2026-11-23 00:50")),
+        // (D) An unread "past N" is a problem only straight after the time,
+        // or after a number or "at".
+        ("walk past 5 shops tomorrow", .allDay("Walk past 5 shops", "2026-11-23")),
+        ("lunch at noon after 3 meetings", .timed("Lunch after 3 meetings", "2026-11-22 12:00", "2026-11-22 13:00")),
+        ("meeting at ten after thirteen", .problem(.unclearTime)),
         // Words that are not times stay title text.
         ("one on one with Sam friday at 2pm", .timed("One on one with Sam", "2026-11-27 14:00", "2026-11-27 15:00")),
         ("dinner for two at seven", .timed("Dinner for two", "2026-11-22 19:00", "2026-11-22 20:00")),

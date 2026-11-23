@@ -275,6 +275,42 @@ private final class IDSource: @unchecked Sendable {
         #expect(google.retryNotBefore == nil)
     }
 
+    /// A send that has ended is never kept as the one out, not even until a
+    /// separate clean-up gets its turn: a Try again tapped (or said) the
+    /// moment the failure shows sends again instead of waiting on the
+    /// finished send (task 172: the lead's run of the test above had a
+    /// retry end as `.failed` with one create too few).
+    @Test func aFinishedSendIsNotKeptAsOut() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let google = await connected(context)
+        let pending = AddEventPending()
+        let adder = adder(google, pending: pending)
+        stub.answer(
+            GoogleAPIStub.postCreate,
+            GoogleAPIStub.error(.badGateway, "timeout"),
+            GoogleAPIStub.created(id: IDSource.id(1), created: false)
+        )
+        stub.hold(GoogleAPIStub.postCreate)
+        review(adder, line)
+        adder.confirm()
+        await stub.waitUntilParked(GoogleAPIStub.postCreate, count: 1)
+        for _ in 0..<5 { await Task.yield() }
+        let request = try #require(pending.requestTask)
+        stub.release()
+        // Waiting on the send itself: resumed as soon as it has ended.
+        _ = await request.value
+        #expect(!pending.isRequestOut)
+        await settle(adder)
+        guard case .failed(_, let note) = adder.stage, note.canRetry else {
+            Issue.record("expected a failure to retry, got \(adder.stage)")
+            return
+        }
+        adder.confirm()
+        await settle(adder)
+        #expect(adder.stage == .closed)
+        #expect(creates().count == 2)
+    }
+
     @Test func aChangedDraftOrCalendarGetsANewId() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let google = await connected(context)
