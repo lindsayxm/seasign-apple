@@ -15,7 +15,7 @@ Look-only mockups of the Today screen. Nothing here is in the app; an idea is bu
 | `v9-pangea/` | clean slate: vintage machine screen (segment read-outs, ruled tables, wire-mesh scope, meters, keycaps) from the user's references in its `ref-img/` | first pass 2026-11-18 (#123) |
 | `v10-simplify/` | clean slate: very simplified Japanese-print look (paper, flat red sun or cream moon, solid indigo sea with wave lines, upright date column, red seal) | two rounds 2026-11-18 (#124–#126) |
 | `v11-artemis/` | copy of v8 with v7's header (date, day, temperature, events box) | started 2026-11-18 (#131); chosen for Today and built in the app |
-| `v12-imago/` | v11's scene with the buttons and text redrawn after the user's reference `v12-imago/nasa.png`: one mono face, square tiles, corner brackets round the scene, leader rows for events, orange-red accent (`&ink=v11` shows v11's ink instead) | started 2026-11-22 (#182); first round shown to the user, not chosen |
+| `v12-imago/` | v11's scene with the buttons and text redrawn after the user's reference `v12-imago/nasa.png`: one mono face, square tiles, corner brackets round the scene, leader rows for events, orange-red accent (`&ink=v11` shows v11's ink instead) | started 2026-11-22 (#182); on 2026-11-23 the mark was redrawn after the user's `logo-upper-left.png` (#184–#188) and the layout rebuilt to match the user's own `mockup-1.png` (#189); not chosen for the app |
 | `v0-version-landing-page/` | index page: a thumbnail per version that opens it | made 2026-11-17 |
 
 How the mockups are made, so the next session can continue:

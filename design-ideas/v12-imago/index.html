@@ -31,26 +31,31 @@
   .acc { color: rgb(var(--accent)); }
   .clock { left: 34px; top: 19px; font: 600 16px -apple-system, "Helvetica Neue", sans-serif; color: #fff; }   /* the phone's own status bar, as in v11 */
 
-  /* ---- top row: the mark (a square S, after logo-upper-left.png) at the left, a round settings button at the right (white line work, as the reference's logo and icons) ---- */
-  .mark-a { left: 34px; top: 52px; width: 28px; height: 28px; }
-  .mark-a path { fill: none; stroke: #fff; stroke-width: 1.3; stroke-linejoin: miter; }   /* same line and outer height (27.3) as the settings ring */
-  .mark-a path.soft { stroke-linejoin: round; }
-  .round { top: 52px; width: 28px; height: 28px; }
-  .round circle, .round path { fill: none; stroke: #fff; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
-  .round.settings { left: 331px; }
+  /* ---- top row (after the user's mockup-1.png): the mark in white at the left; at the right the place name and settings, both in the accent.
+          Settings stands in the same frame as the mark, so the two match in size and line ---- */
+  .mark-a, .sett { top: 52px; width: 24px; height: 24px; }
+  .mark-a { left: 34px; }
+  .sett { left: 335px; }
+  .mark-a path, .sett path { fill: none; stroke: #fff; stroke-width: 1.5; stroke-linejoin: miter; }
+  .sett path { stroke: rgb(var(--accent)); }
+  .mark-a path.soft, .sett path.soft { stroke-linejoin: round; stroke-linecap: round; }
+  .place { right: 72px; top: 52px; font-size: 12px; line-height: 24px; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; color: rgb(var(--accent)); }
 
   /* ---- square tiles: label at the top left, a slash at the bottom left and the value at the bottom right ---- */
   .tiles { left: 34px; width: 325px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .tiles.top { top: 92px; }
+  .tiles.top { top: 91px; }
   .tiles.bottom { top: 734px; }
   .tile { position: relative; height: 78px; border-radius: 4px; padding: 7px 7px; font-size: 12px; line-height: 15px; letter-spacing: .01em;
           border: 1.4px solid rgb(var(--accent)); color: rgb(var(--accent)); background: rgba(0, 0, 0, .62); }
   .tile .lab { display: block; white-space: nowrap; }
   .tile .foot { position: absolute; left: 7px; right: 7px; bottom: 6px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 11px; line-height: 14px; white-space: nowrap; }
-  .tile .foot svg { width: 16px; height: 16px; display: block; }
-  .tile .foot svg * { fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; stroke-linejoin: round; }
+  .tile .foot svg { display: block; overflow: visible; }
+  .tile .foot svg * { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .tile .foot svg .dots { stroke-width: 1; stroke-dasharray: .1 2; }
   .tile.white { background: #f4f2ee; border-color: #f4f2ee; color: rgb(var(--on-fill)); }
   .tile.fill { background: rgb(var(--accent)); color: rgb(var(--on-fill)); }
+  .tiles.bottom .tile { background: rgba(8, 9, 12, .92); font-size: 13px; letter-spacing: .03em; text-transform: uppercase; }
+  .tiles.bottom .tile.fill { background: rgb(var(--accent)); }
 
   /* ---- the frame round the view: four corner brackets, a small label inside each top corner ---- */
   .frame { left: 34px; top: 180px; width: 325px; height: 246px; pointer-events: none; }
@@ -59,28 +64,21 @@
   .frame i:nth-child(2) { right: 0; top: 0; border-right-width: 1.2px; border-top-width: 1.2px; }
   .frame i:nth-child(3) { left: 0; bottom: 0; border-left-width: 1.2px; border-bottom-width: 1.2px; }
   .frame i:nth-child(4) { right: 0; bottom: 0; border-right-width: 1.2px; border-bottom-width: 1.2px; }
-  .flab { top: 189px; font-size: 12px; line-height: 15px; white-space: nowrap; text-shadow: 0 0 6px #000, 0 0 2px #000; }
-  .flab.l { left: 44px; color: #fff; }
+  .flab { top: 187.5px; font-size: 12px; line-height: 15px; white-space: nowrap; text-shadow: 0 0 6px #000, 0 0 2px #000; }
+  .flab.l { left: 42px; color: #fff; }
   .flab.r { right: 44px; text-align: right; color: rgb(var(--accent)); }
 
-  /* ---- the next three events as leader rows: "6:45 PM/------Hanna's show" ---- */
-  .events { left: 34px; top: 440px; width: 325px; margin: 0; padding: 0; list-style: none; z-index: 0; font-size: 11px; line-height: 16px; color: rgb(var(--accent)); }
-  .events::before { content: ""; position: absolute; left: -8px; right: -8px; top: -5px; bottom: -5px; background: rgba(0, 0, 0, .6); border-radius: 3px; z-index: -1; }
-  .events li { display: flex; white-space: nowrap; }
-  .events time { flex: none; }
-  .events .lead { flex: 1 1 0; min-width: 12px; overflow: hidden; opacity: .8; }
-  .events .lead::before { content: "------------------------------------------------------------------------"; }
-  .events .what { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* ---- the next four events in an outlined box beside the date tile: every row is 34 characters,
+          "11:00 A ----------- Hanna's Show /"; a title too long for the row is cut and ends in the slash ---- */
+  .events { left: 116.75px; top: 91px; width: 242.25px; height: 78px; margin: 0; padding: 3.6px 0 0; border: 1.4px solid rgb(var(--accent)); border-radius: 4px;
+            background: rgba(0, 0, 0, .62); font: inherit; font-size: 11.3px; line-height: 17px; text-align: center; white-space: pre; overflow: hidden; color: rgb(var(--accent)); }
 
-  /* ---- the five article titles as one block of mono lines, numbered, fading out towards the end, a small down arrow at the right ---- */
-  .feed { left: 34px; top: 516px; width: 325px; margin: 0; padding: 0; list-style: none; font-size: 11.5px; line-height: 16.5px; color: rgb(var(--accent)); counter-reset: n; }
-  .feed li { margin-bottom: 5px; display: grid; grid-template-columns: 3ch 1fr; counter-increment: n; text-shadow: 0 0 6px #000, 0 0 2px #000; }
-  .feed li::before { content: counter(n, decimal-leading-zero); opacity: .7; }
-  .feed li:nth-child(3) { opacity: .86; }
-  .feed li:nth-child(4) { opacity: .68; }
-  .feed li:nth-child(5) { opacity: .56; }
-  .down { left: 349px; width: 10px; height: 12px; }
-  .down path { fill: none; stroke: rgb(var(--accent)); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+  /* ---- the five article titles on a dark plate: number, then the title on up to two lines; the first row's band is a shade lighter ---- */
+  .plate { left: 29px; top: 445px; width: 335px; height: 283px; background: rgba(8, 9, 12, .93); }
+  .plate::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 58px; background: rgba(255, 255, 255, .035); }
+  .feed { left: 32px; top: 461px; width: 327px; margin: 0; padding: 0; list-style: none; font-size: 10.5px; line-height: 17px; letter-spacing: .5px; color: rgb(var(--accent)); counter-reset: n; }
+  .feed li { height: 34px; margin-bottom: 17px; display: grid; grid-template-columns: 36px 290px; counter-increment: n; overflow: hidden; }
+  .feed li::before { content: counter(n, decimal-leading-zero); }
 
   /* ---- thin rounded frame lines in the accent, as the reference's phone outlines; broken where the view is, so they never cross the sun or moon ---- */
   .rim { left: 0; top: 0; width: 393px; height: 852px; pointer-events: none; }
@@ -89,7 +87,7 @@
   .mark { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 8.5px; line-height: 10px; letter-spacing: .1em; white-space: nowrap; color: rgba(244,246,246,.95); transform: translateX(-50%); text-shadow: 0 0 4px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9); }
   body.nohud .mark { display: none; }
   .home { left: 127px; top: 838px; width: 139px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.5); }
-  body.nobtn .mark-a, body.nobtn .round, body.nobtn .tiles.bottom, body.nobtn .down { display: none; }   /* ?nobtn: a frame without the controls */
+  body.nobtn .mark-a, body.nobtn .sett, body.nobtn .place, body.nobtn .tiles.bottom { display: none; }   /* ?nobtn: a frame without the controls */
   body.norim .rim { display: none; }
 
   nav { width: 250px; }
@@ -109,14 +107,6 @@
 </head>
 <body>
 
-<!-- Line glyphs: the app's settings symbol (ios/Seasign/Design/Icons.swift) and the small weather marks from v11. -->
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="w-clear" viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".27"/><path d="M.5 0V1M.1 .9H.9"/></symbol>
-  <symbol id="w-clouds" viewBox="0 0 1 1"><path d="M0 .62H1M.14 .62A.24 .24 0 0 1 .62 .62M.5 .44A.18 .18 0 0 1 .86 .62M.2 .86H.8"/></symbol>
-  <symbol id="w-rain" viewBox="0 0 1 1"><path d="M0 .28H1M.36 .1L.18 .95M.6 .28L.48 .85M.84 .28L.76 .66"/></symbol>
-  <symbol id="w-snow" viewBox="0 0 1 1"><path d="M0 .26H1M.5 .08V.44M.12 .52L.32 .72M.32 .52L.12 .72M.42 .76L.62 .96M.62 .76L.42 .96M.72 .5L.9 .68M.9 .5L.72 .68"/></symbol>
-</svg>
-
 <div class="phone" id="phone">
   <canvas id="scene" width="393" height="852"></canvas>
   <div class="ui">
@@ -124,43 +114,36 @@
 
     <!-- the mark, redrawn after logo-upper-left.png: a frame, a middle line and the S curve, all as lines of one width with nothing filled -->
     <svg class="mark-a" viewBox="0 0 28 28" aria-label="Seasign"><path d="M7 1H27V21A6 6 0 0 1 21 27H1V7A6 6 0 0 1 7 1Z"/><path class="soft" d="M1 14H27M14 1A6.5 6.5 0 0 0 14 14A6.5 6.5 0 0 1 14 27"/></svg>
-    <!-- settings: the app's settings symbol inside a ring -->
-    <svg class="round settings" viewBox="0 0 28 28" aria-label="Settings"><circle cx="14" cy="14" r="13"/><path d="M14 7.5V20.5M8.5 11.5H19.5L8.5 16.5H19.5"/></svg>
+    <!-- the place name, and settings: the app's settings symbol in the mark's frame -->
+    <div class="place" id="place">Chicago</div>
+    <svg class="sett" viewBox="0 0 28 28" aria-label="Settings"><path d="M7 1H27V21A6 6 0 0 1 21 27H1V7A6 6 0 0 1 7 1Z"/><path class="soft" d="M14 3.5V24.5M4 11.5H24L4 16.5H24"/></svg>
 
     <div class="tiles top">
       <div class="tile white"><span class="lab" id="t-day">Mon</span><div class="foot"><span>/</span><span id="t-date">Nov 16</span></div></div>
-      <div class="tile"><span class="lab">55°F</span><div class="foot"><span>/</span><span id="t-wind">wind 8</span></div></div>
-      <div class="tile"><span class="lab" id="t-sky">Clear</span><div class="foot"><span>/</span><span id="t-skyv"></span></div></div>
-      <div class="tile fill"><span class="lab" id="t-next">Sunset</span><div class="foot"><span>/</span><span id="t-nextv">4:31 PM</span></div></div>
     </div>
+    <pre class="events" id="events" aria-label="Next events"></pre>
 
     <div class="frame"><i></i><i></i><i></i><i></i></div>
-    <div class="flab l" id="f-place">Chicago</div>
+    <div class="flab l" id="f-temp">55°F<br>wind 8/</div>
     <div class="flab r" id="f-span">Daylight<br>9h 50m/</div>
 
     <div class="mark" id="rise">6:41 AM</div>
     <div class="mark" id="set">4:31 PM</div>
 
-    <ul class="events">
-      <li><time>6:45 PM/</time><span class="lead"></span><span class="what">Hanna’s show</span></li>
-      <li><time>8:15 PM/</time><span class="lead"></span><span class="what">Submit work hours for studio payroll</span></li>
-      <li><time>Tue all/</time><span class="lead"></span><span class="what">Brush pets teeth</span></li>
-    </ul>
-
+    <div class="plate"></div>
     <ul class="feed" id="feed">
-      <li><span>A short explainer on how El Niño works [video]</span></li>
+      <li><span>A short explainer on quantum mechanics and its uses</span></li>
       <li><span>It’s getting too dry for even cactuses to survive</span></li>
-      <li><span>‘Birdbrain’ is a misnomer. Crows make decisions faster than we can</span></li>
+      <li><span>‘Birdbrain’ is a misnomer. Crows make decisions faster than we can.</span></li>
       <li><span>What the Great Lakes remember about last winter</span></li>
-      <li><span>The quiet return of the paper map</span></li>
+      <li><span>The quiet return of the paper map and the use of the graphite pencil</span></li>
     </ul>
-    <svg class="down" id="down" viewBox="0 0 10 12" aria-label="More titles"><path d="M5 .8V11M1 7L5 11L9 7"/></svg>
 
     <div class="tiles bottom">
-      <div class="tile fill"><span class="lab">Day</span><div class="foot"><span>/</span><span>3</span></div></div>
-      <div class="tile fill"><span class="lab">List</span><div class="foot"><span>/</span><span>5</span></div></div>
-      <div class="tile fill"><span class="lab">Saved</span><div class="foot"><span>/</span><span>12</span></div></div>
-      <div class="tile fill"><span class="lab">History</span><div class="foot"><span>/</span><span>7d</span></div></div>
+      <div class="tile fill"><span class="lab">Day</span><div class="foot"><span>/</span><svg width="18" height="18" viewBox="0 0 18 18"><rect x="1" y="1" width="16" height="16" rx="1"/><circle cx="9" cy="9" r="2.6"/></svg></div></div>
+      <div class="tile"><span class="lab">List</span><div class="foot"><span>/</span><svg width="22" height="18" viewBox="0 0 22 18"><circle cx="11" cy="9" r="5.2"/><path d="M3.5 9H18.5"/><path d="M4.6 2A9.6 9.6 0 0 0 4.6 16M17.4 2A9.6 9.6 0 0 1 17.4 16"/></svg></div></div>
+      <div class="tile"><span class="lab">Save</span><div class="foot"><span>/</span><svg width="20" height="20" viewBox="0 0 20 20"><path d="M10 1V19M1 10H19M3.6 3.6L16.4 16.4M16.4 3.6L3.6 16.4"/></svg></div></div>
+      <div class="tile"><span class="lab">Listen</span><div class="foot"><span>/</span><svg width="36" height="20" viewBox="0 0 36 20"><path class="dots" d="M1 10H35"/><path d="M5 10C8.5 -2 14.5 -2 18 10S27.5 22 31 10"/></svg></div></div>
     </div>
 
     <svg class="rim" viewBox="0 0 393 852" aria-hidden="true"><path id="rim"/></svg>
@@ -170,7 +153,7 @@
 
 <nav id="nav" aria-label="Scene state">
   <h1>Seasign v12 · Imago</h1>
-  <p>v11's sky and sea, with every button and word redrawn after the user's reference: one mono face, square tiles, corner brackets round the view, leader rows and one orange-red accent. Pick a state; arrow keys step through them.</p>
+  <p>v11's sky and sea under the layout of the user's own mockup (mockup-1.png): mark, place and settings at the top, the date tile beside the next events, five titles on a dark plate, four tiles at the bottom. Pick a state; arrow keys step through them.</p>
 </nav>
 
 <script>
@@ -522,12 +505,13 @@ for (const k of ["bare", "nobtn", "nohud", "norim"]) if (params.has(k)) document
 
 const mins = s => { const [, h, m, ap] = s.match(/(\d+):(\d+) (AM|PM)/); return (+h % 12 + (ap === "PM" ? 12 : 0)) * 60 + +m; };
 const span = (a, b) => { const d = (mins(b) - mins(a) + 1440) % 1440; return Math.floor(d / 60) + "h " + String(d % 60).padStart(2, "0") + "m"; };
-/* a small disc showing the moon's lit part, the same shape the canvas draws */
-function phaseGlyph(phase) {
-  const r = 6.2, k = Math.cos(TAU * phase), lit = (1 - k) / 2, flip = phase > .5 ? ' transform="scale(-1,1)"' : "";
-  const face = lit > .985 ? `<circle r="${r}" style="fill:currentColor"/>`
-    : `<path${flip} style="fill:currentColor;stroke:none" d="M0 ${-r}A${r} ${r} 0 0 1 0 ${r}A${(r * Math.abs(k)).toFixed(2)} ${r} 0 0 ${lit > .5 ? 1 : 0} 0 ${-r}Z"/>`;
-  return `<svg viewBox="-7.5 -7.5 15 15"><circle r="${r}"/>${face}</svg>`;
+/* the next events (sample data). Every row is 34 characters: the time right-aligned in five, A or P, dashes, the title, a slash */
+const EVENTS = [["11:00", "A", "Hanna’s Show"], ["1:00", "P", "Wearables and sensing demo"], ["6:45", "P", "Submit hours for studio payroll"], ["8:15", "P", "Night Workout"]];
+const ROW = 34;
+function eventRow([time, ap, title]) {
+  const head = time.padStart(5) + " " + ap + " ", room = ROW - head.length;
+  if (title.length + 4 <= room) return head + "-".repeat(room - title.length - 3) + " " + title + " /";   /* at least one dash, a space each side, " /" */
+  return head + "- " + title.slice(0, room - 3) + "/";
 }
 /* the rim: a rounded outline just inside the screen's edge, as the reference's phone outlines, broken down both sides where the view is */
 function rim() {
@@ -549,21 +533,8 @@ function show(id) {
   for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", b.dataset.id === state.id);
 
   const edge = state.turn < .05 ? "rise" : state.turn > .95 ? "set" : null;
-  const body = look.night ? "Moon" : "Sun";
-  /* the tiles: the wind; the weather by day, the moon's phase at night; the next rising or setting (the one happening now, on the horizon) */
-  document.getElementById("t-wind").textContent = "wind " + state.wind;
-  if (state.phase == null) {
-    document.getElementById("t-sky").textContent = state.word;
-    document.getElementById("t-skyv").innerHTML = `<svg viewBox="0 0 1 1" style="overflow:visible"><use href="#w-${state.sign}" style="stroke-width:.075"/></svg>`;
-  } else {
-    const name = state.phase === .5 ? "Full" : state.phase < .5 ? "Waxing" : "Waning";
-    document.getElementById("t-sky").innerHTML = name + "<br>moon";
-    document.getElementById("t-skyv").innerHTML = phaseGlyph(state.phase);
-  }
-  const which = edge === "rise" ? "rise" : "set";
-  document.getElementById("t-next").textContent = body + which;
-  document.getElementById("t-nextv").textContent = state[which];
-  /* inside the frame: the place at the left; at the right, how long the sun or moon is up */
+  /* inside the frame: temperature and wind at the left; at the right, how long the sun or moon is up */
+  document.getElementById("f-temp").innerHTML = "55°F<br>wind " + state.wind + "/";
   document.getElementById("f-span").innerHTML = (look.night ? "Moon up" : "Daylight") + "<br>" + span(state.rise, state.set) + "/";
 
   /* the marks under the horizon: when it rises and sets; the one under a sun or moon on the horizon is hidden, as in v11 */
@@ -591,9 +562,7 @@ addEventListener("keydown", e => {
 ((document.fonts && document.fonts.ready) || Promise.resolve()).then(() => {
   rim();
   show(params.get("state") || "mid-day");
-  /* the small down arrow stands at the right of the last title's last line */
-  const feed = document.getElementById("feed"), last = feed.lastElementChild;
-  document.getElementById("down").style.top = feed.offsetTop + last.offsetTop + last.offsetHeight - 13.5 + "px";
+  document.getElementById("events").textContent = EVENTS.map(eventRow).join("\n");
   if (still) { document.title = "ready"; return; }
   const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const loop = ms => { draw(calm ? T0 : ms / 1000); if (!calm) requestAnimationFrame(loop); };
