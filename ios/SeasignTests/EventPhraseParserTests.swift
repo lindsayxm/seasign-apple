@@ -335,6 +335,10 @@ enum Expected: CustomStringConvertible {
         ("lunch at ten to noon", .timed("Lunch", "2026-11-22 11:50", "2026-11-22 12:50")),
         ("call at ten to 4pm", .timed("Call", "2026-11-22 15:50", "2026-11-22 16:50")),
         ("party friday quarter to midnight", .timed("Party", "2026-11-27 23:45", "2026-11-28 00:45")),
+        // Without "at" these stay the spans they were.
+        ("shift ten to noon", .timed("Shift", "2026-11-22 10:00", "2026-11-22 12:00")),
+        ("open five to midnight", .timed("Open", "2026-11-22 17:00", "2026-11-23 00:00")),
+        ("shift ten to 4pm", .timed("Shift", "2026-11-22 10:00", "2026-11-22 16:00")),
         // Which night is not guessed: a problem.
         ("call ten past midnight", .problem(.unclearTime)),
         ("party half past midnight", .problem(.unclearTime)),
@@ -342,7 +346,13 @@ enum Expected: CustomStringConvertible {
         ("meeting at ten to twelve pm", .timed("Meeting", "2026-11-22 11:50", "2026-11-22 12:50")),
         ("meeting at quarter to twelve pm", .timed("Meeting", "2026-11-22 11:45", "2026-11-22 12:45")),
         ("meeting at ten to one pm", .timed("Meeting", "2026-11-22 12:50", "2026-11-22 13:50")),
-        ("call at ten to seven", .timed("Call", "2026-11-22 06:50", "2026-11-22 07:50")),
+        // With no am or pm written, the half of the day is inferred from the
+        // time said, as before (6:50 is pm).
+        ("call at ten to seven", .timed("Call", "2026-11-22 18:50", "2026-11-22 19:50")),
+        ("call at ten to one am", .timed("Call", "2026-11-23 00:50", "2026-11-23 01:50")),
+        ("flight friday at ten to one am", .timed("Flight", "2026-11-27 00:50", "2026-11-27 01:50")),
+        ("party at ten to one tonight", .timed("Party", "2026-11-23 00:50", "2026-11-23 01:50")),
+        ("show at quarter to one friday night", .timed("Show", "2026-11-28 00:45", "2026-11-28 01:45")),
         ("call at ten to twelve am", .problem(.unclearTime)),
         ("party at ten to twelve tonight", .timed("Party", "2026-11-22 23:50", "2026-11-23 00:50")),
         // (D) An unread "past N" is a problem only straight after the time,

@@ -827,8 +827,9 @@ private struct PhraseScan {
     /// after seven pm"). Without "at" only 5, 10, 20 or 25 minutes ("quarter"
     /// and "half" are read in `spelledClock`); after "at", any past the hour,
     /// and 5, 10, 20, 25 or 13 to 59 to it (other numbers are the start of a
-    /// span: "at twelve to one"). "Ten to four" with no am or pm needs "at"
-    /// (`Clock.needsAt`); "ten to noon" does not.
+    /// span: "at twelve to one"). "Ten to four" needs "at" or am or pm
+    /// (`Clock.needsAt`); "ten to noon" and "ten to 4pm" need "at" (without
+    /// it they are spans, "shift ten to noon").
     private func minutesPastOrTo(at index: Int, minutesTo: Bool, afterAt: Bool) -> (Clock, Int)? {
         guard let first = word(index), anyWord(index - 1) != "for" else { return nil }
         var spelled = true
@@ -856,8 +857,11 @@ private struct PhraseScan {
         }
         let toAmounts = common || (afterAt && minutes > 12)
         guard minutesTo, spelled, toAmounts, ["to", "of", "till", "til"].contains(relation) else { return nil }
+        // Without "at", "ten to noon", "ten to 4pm" stay the spans they were
+        // ("shift ten to noon").
+        if !afterAt, hour.meridiem != nil || hour.isNoon || hour.isMidnight { return nil }
         var clock = clock(minutes, to: hour)
-        clock.needsAt = hour.meridiem == nil && !hour.isNoon && !hour.isMidnight
+        clock.needsAt = true
         return (clock, at + 2)
     }
 
@@ -928,21 +932,31 @@ private struct PhraseScan {
         } else if let part = word(index), Self.partsOfDay.contains(part) {
             index += 1
         }
-        let (begin, finish) = try resolve(opening, closing, hint: hint, night: night)
+        let (begin, finish) = try resolve(Self.plainForm(opening), closing.map(Self.plainForm), hint: hint, night: night)
         let bare = opening.isBare && closing == nil
         return (Time(start: begin, end: finish, zone: zone, tokens: start..<index, night: night, bare: bare), index)
     }
 
+    /// "ten to four" with no am or pm, noon or midnight written: 3:50, its
+    /// half of the day inferred as for "3:50" ("at ten to one tonight" is
+    /// 12:50 am).
+    private static func plainForm(_ clock: Clock) -> Clock {
+        guard clock.minutesBefore > 0, clock.meridiem == nil, !clock.isNoon, !clock.isMidnight else { return clock }
+        return Clock(hour: clock.hour == 1 ? 12 : clock.hour - 1, minute: 60 - clock.minutesBefore, hasColon: true)
+    }
+
     private func resolve(_ opening: Clock, _ closing: Clock?, hint: Meridiem?, night: Bool) throws -> (ResolvedClock, ResolvedClock?) {
-        // "ten to four": the hour named, in its half of the day, less the
-        // minutes ("ten to twelve pm" is 11:50 am, "quarter to midnight"
-        // 11:45 pm on the day named). Before a written "12am" (the start of
-        // a day named, or the end of today) which day is not guessed.
+        // "ten to twelve pm", "quarter to midnight": the hour named, with
+        // its written half of the day, less the minutes (11:50 am; 11:45 pm
+        // on the day named). "ten to one am" is 12:50am, read as written so.
+        // Before a written "12am" (the start of a day named, or the end of
+        // today) which day is not guessed.
         func hour(_ clock: Clock, _ meridiem: Meridiem?) throws -> ResolvedClock {
             let named = try hourNamed(clock, meridiem)
             guard clock.minutesBefore > 0 else { return named }
             if named.writtenAM { throw EventDraftProblem.unclearTime }
             let total = (named.isMidnight ? 24 * 60 : named.hour * 60 + named.minute) - clock.minutesBefore
+            if total < 60 { return ResolvedClock(hour: 0, minute: total, isMidnight: true, writtenAM: true) }
             return ResolvedClock(hour: total / 60, minute: total % 60, isMidnight: false)
         }
         func hourNamed(_ clock: Clock, _ meridiem: Meridiem?) throws -> ResolvedClock {
