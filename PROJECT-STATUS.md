@@ -147,3 +147,33 @@ Entry format:
   - Google test mode: at most 100 users, an "unverified app" warning, sign-in expires every 7 days; verification is needed before the App Store.
   - Background pushes are low priority and throttled by iOS; the app must keep fetching on return to the foreground. Coalescing pushes per device may be needed.
   - Still to correct: the `npx -y npm@11 install` row in the `AGENTS.md` CLI table.
+
+## 2026-11-22 — Google sign-in, push and write access finished in code; day timeline; adding events by typing and by voice; nothing deployed
+
+- Done:
+  - #154, #156, #158, #159: Google sign-in review fixes, watch channels and APNs sender, and the app's push handling (`GoogleWatchKeeper.swift`, `RemotePush.swift`). The user tried the real Google sign-in on the iPhone 16 Pro Max simulator and it works. Push has never run for real (it needs the deploy).
+  - #160, #162: pasted calendar links are checked every 5 minutes (was 1).
+  - #161, #163, #165: no stars while the sun is up, stars spread evenly, horizon times the size of the event times.
+  - #166–#172, #176: plan `plans/2026-11-22-day-calendar-and-voice.md`. API: a `day` parameter on both event routes, `accessRole` on the calendar list, `POST /v1/google/events/create`. App: the write scope `calendar.events.owned` and "Connect again to add events"; the day screen opened by tapping the events box on Today; adding an event by typing one line (`EventPhraseParser.swift`, `AddEventModel.swift`); adding by voice (`ios/Seasign/Voice/`) with read-aloud, a spoken Confirm or Cancel, and a Voice section in Settings.
+  - #175: Connect again as a different Google account is a Disconnect then a fresh Connect; the same account's token is never revoked; connection and scopes in one save.
+  - #177: the speech-recognition prompt wording the user chose. #179: a recognizer failure no longer says "Nothing was heard".
+  - #181: the day screen is a full-day timeline, no scrolling (`DayTimeline.swift`, `DayTimelineView.swift`).
+  - The user typed an event with + on the Pro Max simulator and it was created in their Google Calendar: the first real create.
+  - Last verified by the lead at `2fe6ea3`: iOS suite 755 tests passed on iPhone 16 / iOS 18.3.1 and iPhone 17 / iOS 27.2. API last run at `d31f8dc`: `npm test` 1,978 passed, `tsc` clean; no API change since.
+- In flight: nothing is in progress. The board has no claimed task.
+- Next:
+  1. Ask the user which features come next; they said more features come before the deploy and before checks on their phone.
+  2. Ask whether the mic and + should go back to the top right with + under the mic (they are in the day screen's header row now; the user's first wording was stacked).
+  3. Ask the user to tap the mic once on the Pro Max simulator and say which message shows: "Speech can't be recognised on this iPhone right now…" means #179 works there; "Nothing was heard" means the path where the error comes more than 2 s after the audio ends needs a task.
+  4. Backlog in rough order of value: #178 (Google account-switch edge cases; a renamed Google email is taken for another account and ends the new sign-in), #164, #174, #173 (Pocket-TTS voice clone trial; the user allowed the install on this Mac, the cloning waits; read the licence first), #180 (voice checks on the user's iPhone).
+- Notes:
+  - Decisions: `memory/decisions/2026-11-22-day-calendar-voice-and-google-write.md` (voice in the product, the first permission prompts, Google write access, the scope is marked sensitive by Google) and `memory/decisions/2026-11-22-refresh-stars-deploy-and-checks.md`. Architecture notes for the day screen, voice and Connect again are in `memory/architecture.md`.
+  - Nothing is deployed and no secret is set. #157 (deploy) is on hold by the user's choice; they have Cloudflare Free. #20 still waits for provider keys.
+  - Not verified by anyone: live speech recognition, the read-aloud voice by ear, a spoken confirm, the two permission prompts on a phone (the Simulator cannot recognise speech on the device: error 1101 every time, the Mac's microphone does reach it); the three-scope consent screen was passed by the user but not described; VoiceOver on the day timeline and the events button; a real push; live polling.
+  - Closed by the lead without a separate reviewer: #161, #163, #165, #166, #177, #179, #181, and the last parser pass and retry fix of #172 (`267626c`, `65c241c`). The voice code of #172 had two reviews.
+  - Accepted by the user as built: "at ten to seven" is 6:50 PM; "next friday" is the first Friday after today; "12am"/"12:30am" with a day is the start of that day, "midnight" and "12 tonight" the end.
+  - Simulators: the old `com.example.seasign` app was removed from every simulator at the user's request (with it the pasted calendar link on the Pro Max). The iPhone 16 Pro Max holds the user's real Google connection and has the build of `2fe6ea3`; do not screenshot or log it. Speech recognition is denied for the app on the iPhone 17 simulator (`simctl privacy reset` was refused), so the real listener cannot be driven there.
+  - iOS test runs: one `xcodebuild` at a time, own `-derivedDataPath`, wait on `pgrep -x xcodebuild` (`pgrep -f` matches the waiting shell itself). A result counts only with `Test run with N tests ... passed` and `** TEST SUCCEEDED **`. The lead re-runs the suite before closing; an implementer's first report this session gave false pass counts. A lead run started while an implementer has uncommitted files compiles those files.
+  - A `wrangler dev` started this session on port 8787 may still be running; the app in the Simulator needs it.
+  - The app built for the iPhone 17 destination crashed at launch on the iPhone SE simulator (dyld, library not read); the iPhone 16 build ran there. Not looked into.
+  - Still to correct: the `npx -y npm@11 install` row in the `AGENTS.md` CLI table.
