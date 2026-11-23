@@ -356,37 +356,28 @@ extension EventsModel {
     }
 }
 extension EventLabel {
-    /// The v11 mockup's three event titles.
-    static let mockupTitles = ["Hanna\u{2019}s show", "Submit work hours for studio payroll", "Brush pets teeth"]
+    /// The v12 mockup's four event titles (`design-ideas/v12-imago/`).
+    static let mockupTitles = [
+        "Hanna\u{2019}s Show", "Wearables and sensing demo", "Submit hours for studio payroll", "Night Workout",
+    ]
 
-    /// Debug-only (`-debugMockupEvents YES`): the three events of the v11
-    /// mockup (`design-ideas/v11-artemis/`), 6:45 PM and 8:15 PM on the
-    /// screen's day and an all-day event the day after, worded for `now`,
-    /// so Today can be set beside the mockup's stills at any debug time.
-    /// `titles` replaces the titles and sets how many there are (up to
-    /// three, in the same slots), for checking real-text cases.
+    /// Debug-only (`-debugMockupEvents YES`): the four events of the v12
+    /// mockup, 11:00 AM, 1:00 PM, 6:45 PM and 8:15 PM on the screen's day,
+    /// worded for `now`, so Today can be set beside the mockup's stills at
+    /// any debug time. `titles` replaces the titles and sets how many there
+    /// are (up to four, in the same slots), for checking real-text cases.
     static func mockupSamples(
         now: Date, timeZone: TimeZone, clock: ClockStyle, titles: [String] = mockupTitles
     ) -> [EventLabel] {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let today = calendar.startOfDay(for: now)
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today.addingTimeInterval(86_400)
-        let show = today.addingTimeInterval(18 * 3600 + 45 * 60)
-        let hours = today.addingTimeInterval(20 * 3600 + 15 * 60)
         let link = UUID()
-        let slots: [(String) -> UpcomingEvent] = [
-            { UpcomingEvent(link: link, title: $0, start: show, end: show.addingTimeInterval(3600), allDay: false) },
-            { UpcomingEvent(link: link, title: $0, start: hours, end: hours.addingTimeInterval(1800), allDay: false) },
-            {
-                UpcomingEvent(
-                    link: link, title: $0, start: tomorrow, end: tomorrow.addingTimeInterval(86_400),
-                    allDay: true, date: SkySnapshot.localDateString(for: tomorrow, in: timeZone)
-                )
-            },
-        ]
-        return zip(slots, titles).map { slot, title in
-            EventLabel(event: slot(title), now: now, timeZone: timeZone, clock: clock)
+        let starts: [TimeInterval] = [11 * 3600, 13 * 3600, 18 * 3600 + 45 * 60, 20 * 3600 + 15 * 60]
+        return zip(starts, titles).map { offset, title in
+            let start = today.addingTimeInterval(offset)
+            let event = UpcomingEvent(link: link, title: title, start: start, end: start.addingTimeInterval(3600), allDay: false)
+            return EventLabel(event: event, now: now, timeZone: timeZone, clock: clock)
         }
     }
 }

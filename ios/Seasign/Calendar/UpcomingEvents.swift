@@ -197,6 +197,13 @@ struct EventLabel: Equatable, Sendable {
     /// Today's second time column on a 12-hour phone: `AM` or `PM`, or for
     /// an all-day event `ALL` (`DAY` when it is today). Nil on a 24-hour phone.
     var timeTail: String?
+    /// The time column of a row in Today's v12 events box (`EventRowText`):
+    /// the clock without its half (`11:00`, `18:45`), `ALL` for an all-day
+    /// event today, or the weekday (`TUE`) for any event on a later day.
+    var rowTime: String
+    /// The letter after `rowTime` on a 12-hour phone: `A` or `P`. Nil for
+    /// `ALL`, a weekday, and every time on a 24-hour phone.
+    var rowLetter: Character?
     /// The title as written; the view shows it in caps.
     var title: String
     /// For VoiceOver: "Hanna's show, 10:15 AM" (or "10:15"), "Tuesday, all day".
@@ -242,8 +249,19 @@ struct EventLabel: Equatable, Sendable {
             (lead, tail) = style.columns(hour: parts.hour ?? 0, minute: parts.minute ?? 0)
         }
 
+        // The v12 row's time column, before the day is decided.
+        if event.allDay {
+            rowTime = "ALL"
+            rowLetter = nil
+        } else {
+            rowTime = lead
+            rowLetter = tail?.first
+        }
+
         if eventDay > today, let weekday, Self.shortDays.indices.contains(weekday) {
             let day = Self.shortDays[weekday]
+            rowTime = day
+            rowLetter = nil
             time = "\(day) \(clock)"
             spoken = "\(Self.longDays[weekday]), \(spokenClock)"
             if event.allDay {

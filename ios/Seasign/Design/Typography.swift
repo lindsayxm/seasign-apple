@@ -83,6 +83,31 @@ struct MonoStyle: Equatable, Sendable {
     var uiFont: UIFont { TodayType.mono(size) }
 
     var font: Font { Font(uiFont as CTFont) }
+
+    /// The advance of one character in the mockup, as a fraction of the
+    /// size. The v12 stills were rendered by headless Chrome, which does
+    /// not know `ui-monospace` and fell back to Menlo (0.602 em); iOS's
+    /// system mono is a little wider (0.618 em).
+    static let mockupAdvance: CGFloat = 0.60205
+
+    /// One character cell as the mockup draws it: Menlo's advance plus the
+    /// CSS letter-spacing. Rows of the events box and the title lines are
+    /// laid out on this cell, so they break where the stills break.
+    var cell: CGFloat { Self.mockupAdvance * size + kern }
+
+    /// The spacing the app draws with: the system mono face's own advance
+    /// brought to `cell`. A fraction of a point less than `kern`.
+    var drawnKern: CGFloat {
+        let own = NSAttributedString(string: "0", attributes: [.font: uiFont]).size().width
+        return cell - own
+    }
+
+    /// Width of `text` as drawn, without the spacing after the last
+    /// character. Characters outside the mono face (CJK, emoji) come from
+    /// fallback fonts and are measured as they are.
+    func width(_ text: String) -> CGFloat {
+        TodayType.width(text, font: uiFont, tracking: drawnKern / size)
+    }
 }
 
 /// The HUD's type sizes (design v12). CSS `em` spacing is turned into points
@@ -109,9 +134,10 @@ enum HUDType {
 }
 
 extension Text {
-    /// A verbatim string in one of the HUD's mono sizes.
+    /// A verbatim string in one of the HUD's mono sizes, on the mockup's
+    /// character cell (`MonoStyle.drawnKern`).
     init(hud string: String, style: MonoStyle) {
-        self = Text(verbatim: string).font(style.font).tracking(style.kern)
+        self = Text(verbatim: string).font(style.font).kerning(style.drawnKern)
     }
 
     /// A verbatim string in one of `TodayType`'s fonts with `tracking` (a

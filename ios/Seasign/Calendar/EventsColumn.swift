@@ -1,107 +1,77 @@
 import SwiftUI
 
-/// The events box on Today (design v11): up to three next events on a dark
-/// ground, each with a thin rule in the ink colour at its left, the time in
-/// two fixed columns in the ink colour, and the title in caps.
+/// The events box on Today (design v12): an outline in the accent on a
+/// dark panel beside the date tile, with the next four events as rows of
+/// mono text (`EventRowText`, laid out by `TodayOverlayLayout`). With no
+/// zip saved, the last row is the zip prompt, which opens Settings. With no
+/// events the box stays, empty, so the grid under the top row keeps its
+/// shape.
 ///
-/// Where everything goes is worked out by `TodayOverlayLayout`: how many
-/// events fit, how titles wrap, and where the zip prompt sits. With no zip the
-/// prompt is a one-line row under the events. The rows together never take
-/// more than five lines: the last two-line titles are cut to one line, which
-/// always makes room, so no event is dropped. A word wider than the title
-/// column (a pasted link, a title in a language written without spaces) is
-/// broken between characters, and every drawn line is also held to the
-/// column's width. With no events and no prompt there is no box. This view
-/// fills the screen and draws at the layout's positions.
-///
-/// The whole box is one button that opens the day screen (task 170), also
-/// where the box would be when there is none (`eventsTarget`). It lies under
-/// the rows and the zip prompt, so the prompt keeps its own taps. It fires
-/// on a tap only (`TapOnlyButtonStyle`), so a pull that starts on the box
-/// pulls and never opens the day screen.
+/// The whole box is one button that opens the day screen (task 170). It
+/// lies under the rows and the zip prompt, so the prompt keeps its own
+/// taps. It fires on a tap only (`TapOnlyButtonStyle`), so a pull that
+/// starts on the box pulls and never opens the day screen. VoiceOver reads
+/// each event as the plain event (`EventLabel.spoken`), never the dashes.
 struct EventsColumn: View {
     var layout: TodayOverlayLayout
-    var ink: Color
     /// Set while no zip is saved; opens Settings.
     var zipPrompt: (() -> Void)?
     /// Opens the day screen.
     var openDay: (() -> Void)?
 
-    private var s: CGFloat { layout.scale }
-    private var line: CGFloat { TodayOverlayLayout.Mockup.line * s }
-    private var boxX: CGFloat { layout.box?.minX ?? TodayOverlayLayout.Mockup.boxLeft * s }
-    private var boxWidth: CGFloat {
-        layout.box?.width ?? (TodayOverlayLayout.Mockup.boxRight - TodayOverlayLayout.Mockup.boxLeft) * s
-    }
+    @Environment(\.hudAccent) private var accent
+
+    /// The panel behind the rows: black at 62 %, as the mockup. Accent text
+    /// sits on it over the sky, so it is never lighter than this.
+    static let panelOpacity = 0.62
 
     var body: some View {
+        let box = layout.eventsBox
         ZStack(alignment: .topLeading) {
             Color.clear
                 .frame(width: layout.size.width, height: layout.size.height)
                 .allowsHitTesting(false)
-            if let box = layout.box {
-                Rectangle()
-                    .fill(Palette.todayEventsBox)
-                    .frame(width: box.width, height: box.height)
-                    .placed(x: box.minX, y: box.minY)
-                    .accessibilityHidden(true)
-            }
+            RoundedRectangle(cornerRadius: TodayOverlayLayout.Mockup.tileRadius)
+                .fill(Color.black.opacity(Self.panelOpacity))
+                .overlay {
+                    RoundedRectangle(cornerRadius: TodayOverlayLayout.Mockup.tileRadius)
+                        .strokeBorder(accent, lineWidth: TodayOverlayLayout.Mockup.tileBorder)
+                }
+                .frame(width: box.width, height: box.height)
+                .placed(x: box.minX, y: box.minY)
+                .accessibilityHidden(true)
             if let openDay {
                 dayButton(action: openDay)
             }
             // By position: two identical events would share an id. Taps
             // fall through to the day button under them; VoiceOver still
             // reads each row.
-            ForEach(Array(layout.rows.enumerated()), id: \.offset) { _, row in
-                eventRow(row)
-                    .allowsHitTesting(false)
-                    .placed(x: boxX, y: row.top)
-            }
-            if let prompt = layout.prompt, let zipPrompt {
-                // The 44-point target is centred on the 16-point row.
-                promptRow(prompt, action: zipPrompt)
-                    .placed(x: boxX, y: prompt.top - promptInset(prompt))
+            ForEach(Array(layout.eventRows.enumerated()), id: \.offset) { index, row in
+                if index == layout.promptIndex, let zipPrompt {
+                    promptRow(row, action: zipPrompt)
+                } else if index != layout.promptIndex {
+                    rowText(row)
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text(verbatim: row.spoken ?? row.text))
+                        .placed(x: row.origin.x, y: row.origin.y)
+                }
             }
         }
     }
 
-    /// One event, in coordinates local to its row (x from the box's left).
-    private func eventRow(_ row: TodayOverlayLayout.EventRow) -> some View {
-        let fonts = layout.fonts
-        typealias F = TodayOverlayLayout.Fonts
-        return ZStack(alignment: .topLeading) {
-            Color.clear.frame(width: boxWidth, height: row.height)
-            rule(height: row.height)
-            Text(today: row.label.timeLead, font: fonts.time, tracking: F.timeTracking)
-                .foregroundStyle(ink)
-                .fixedSize()
-                .placed(x: layout.timeX - boxX, baseline: layout.timeBaseline)
-            if let tail = row.label.timeTail {
-                Text(today: tail, font: fonts.time, tracking: F.timeTracking)
-                    .foregroundStyle(ink)
-                    .fixedSize()
-                    .placed(x: layout.tailX - boxX, baseline: layout.timeBaseline)
-            }
-            ForEach(Array(row.lines.enumerated()), id: \.offset) { index, text in
-                // Verbatim: titles come from calendars and are never read as markup.
-                Text(today: text, font: fonts.event, tracking: F.eventTracking)
-                    .foregroundStyle(Palette.todayText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-                    // A backstop: the wrap already keeps lines this narrow;
-                    // the 2 points are within the box's padding.
-                    .frame(width: layout.titleWidth + 2 * s, alignment: .leading)
-                    .placed(x: layout.titleX - boxX, baseline: CGFloat(index) * line + layout.eventBaseline)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: row.label.spoken))
+    private func rowText(_ row: TodayOverlayLayout.EventRow) -> some View {
+        // Verbatim: titles come from calendars and are never read as markup.
+        Text(hud: row.text, style: HUDType.eventRow)
+            .foregroundStyle(accent)
+            .lineLimit(1)
+            .fixedSize()
+            .frame(width: row.width, height: HUDType.eventRow.lineHeight, alignment: .leading)
     }
 
-    /// The whole box (or its place) as one button.
+    /// The whole box as one button.
     private func dayButton(action: @escaping () -> Void) -> some View {
-        let target = layout.eventsTarget
+        let target = layout.eventsBox
         return Button(action: action) {
             Color.clear
                 .frame(width: target.width, height: target.height)
@@ -116,43 +86,22 @@ struct EventsColumn: View {
         .placed(x: target.minX, y: target.minY)
     }
 
-    /// How far the prompt's 44-point target reaches above its row.
-    private func promptInset(_ prompt: TodayOverlayLayout.PromptRow) -> CGFloat {
-        max(0, (44 - prompt.height) / 2)
-    }
-
-    private func promptRow(_ prompt: TodayOverlayLayout.PromptRow, action: @escaping () -> Void) -> some View {
-        let inset = promptInset(prompt)
-        // From the time column to the box's right padding.
-        let textWidth = boxX + boxWidth - TodayOverlayLayout.Mockup.boxPadding * s - layout.timeX
+    /// The zip prompt row, its target 44 points tall round the 17-point row
+    /// and as wide as the box.
+    private func promptRow(_ row: TodayOverlayLayout.EventRow, action: @escaping () -> Void) -> some View {
+        let box = layout.eventsBox
+        let lineHeight = HUDType.eventRow.lineHeight
+        let inset = (44 - lineHeight) / 2
         return Button(action: action) {
-            ZStack(alignment: .topLeading) {
-                // A 44-point tall target with the row in its middle.
-                Color.clear.frame(width: boxWidth, height: prompt.height + 2 * inset)
-                rule(height: prompt.height)
-                    .offset(y: inset)
-                ForEach(Array(prompt.lines.enumerated()), id: \.offset) { index, text in
-                    Text(today: text, font: layout.fonts.event, tracking: TodayOverlayLayout.Fonts.eventTracking)
-                        .foregroundStyle(Palette.todayText.opacity(0.62))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(width: max(0, textWidth) + 2 * s, alignment: .leading)
-                        .placed(x: layout.timeX - boxX, baseline: inset + CGFloat(index) * line + layout.eventBaseline)
-                }
-            }
-            .contentShape(Rectangle())
+            rowText(row)
+                .padding(.leading, row.origin.x - box.minX)
+                .frame(width: box.width, height: 44, alignment: .leading)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Set your zip code in Settings")
         .accessibilityHint("Opens Settings")
-    }
-
-    private func rule(height: CGFloat) -> some View {
-        Rectangle()
-            .fill(ink.opacity(0.6))
-            .frame(width: 1, height: height)
-            .placed(x: layout.ruleX - boxX, y: 0)
+        .placed(x: box.minX, y: row.origin.y - inset)
     }
 }
 

@@ -81,17 +81,17 @@ import Testing
 
     @Test func theSpinnersShareAColumnAtTheBoxsRightPadding() {
         for size in [CGSize(width: 393, height: 852), CGSize(width: 440, height: 956), CGSize(width: 375, height: 667)] {
-            let s = size.width / 393
-            let layout = TodayOverlayLayout(size: size, labels: [], showsZipPrompt: false, date: "NOV 16", weekday: "Mon")
+            let layout = TodayOverlayLayout(size: size, labels: [], showsZipPrompt: false)
             let calendar = layout.calendarSpinnerCenter
             let headlines = layout.headlineSpinnerCenter
             let half = TodayOverlayLayout.spinnerSide / 2
             #expect(calendar.x == headlines.x)
-            // Inside the box's 8-point padding at its right.
-            #expect(abs(calendar.x + half - (377 - 8) * s) < 0.01)
-            // Level with the first event line and the first title line.
-            #expect(abs(calendar.y - (64 + 8 + 8) * s) < 0.01)
-            #expect(abs(headlines.y - (layout.headlineRowTop(0) + layout.titleLineHeight / 2)) < 0.01)
+            // Inside the events box's border at its right (design v12).
+            #expect(abs(calendar.x + half - (layout.eventsBox.maxX - 1.4)) < 0.01)
+            #expect(abs(calendar.x + half - (size.width - 34 - 1.4)) < 0.01)
+            // Level with the first event row and the first title line.
+            #expect(abs(calendar.y - (91 + 1.4 + 3.6 + 17 / 2)) < 0.01)
+            #expect(abs(headlines.y - (layout.titleRowTop(0) + 17 / 2)) < 0.01)
             // The calendar one in the sky, the headline one in the sea.
             let horizonY = SceneLayout(size: size).horizonY
             #expect(calendar.y + half < horizonY)

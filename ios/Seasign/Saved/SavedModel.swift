@@ -284,7 +284,7 @@ extension SavedModel {
                     source: "Example News",
                     published: now.addingTimeInterval(-2.5 * 3600),
                     dateSource: .published,
-                    excerpt: "Forecasters explain how warm water in the Pacific changes winters far away, in three minutes.",
+                    excerpt: "Physicists explain superposition and where it already turns up in everyday devices, in three minutes.",
                     category: "Sci"
                 ),
                 ""

@@ -59,6 +59,14 @@ final class TodayModel {
         }
     }
 
+    /// The zip's place (`Chicago`), for the top row of Today; nil when no
+    /// sky for the saved zip is known or it has no name.
+    var placeName: String? {
+        guard let snapshot, snapshot.zip == zip else { return nil }
+        let name = snapshot.placeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
     /// "New York, New York", for Settings.
     var placeDescription: String? {
         guard let snapshot, snapshot.zip == zip else { return nil }

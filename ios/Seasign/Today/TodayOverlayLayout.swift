@@ -1,381 +1,302 @@
 import SwiftUI
 import UIKit
 
-/// Where every part of Today's fixed overlay sits (design v11, the plan's
-/// "Fixed overlay"): the left column, the events box, the hairline, the wind
-/// line, the three buttons, the article rows and `∀`. Worked out once from
-/// the screen size and the text, so nothing is measured back from the views.
+/// Where every part of Today's overlay sits (design v12,
+/// `design-ideas/v12-imago/`: `index.html` and the positions in its
+/// `README.md`). Worked out once from the screen size and the text, so
+/// nothing is measured back from the views. Everything is in screen points
+/// from the top-left corner.
 ///
-/// All figures are the mockup's points (`design-ideas/v11-artemis/`, 393 wide)
-/// times `scale`; everything is in screen points from the top-left corner.
+/// The mockup is 393 × 852. On other screens (the plan's defaults):
 ///
-/// The left column is fixed: the date's letters start level with the first
-/// event line's letters and the temperature's sit on the baseline the third
-/// line of the mockup's sample ends on. The events box grows and shrinks with
-/// the real events, from its fixed top; the hairline runs along its bottom
-/// edge, but never less than 16 points under the temperature, and the box is
-/// drawn down to the hairline. The wind line and the buttons hang from the
-/// hairline.
+/// - the side margins stay 34 points and the tiles stretch; type never
+///   scales;
+/// - the top (mark, place, settings, date tile, events box) keeps its
+///   distance from the top of the screen, and the four tiles keep theirs
+///   from the bottom;
+/// - the scene scales with the width as before (`SceneLayout`), and the
+///   view's furniture hangs from its horizon: the frame's corner brackets,
+///   the break in the rim, the plate and the titles. On a tall screen the
+///   spare height goes to the scene; on a short one the titles give way
+///   first, whole rows at a time.
 struct TodayOverlayLayout {
-    /// One event in the box.
-    struct EventRow: Equatable {
-        var label: EventLabel
-        /// The title broken into lines, in caps.
-        var lines: [String]
-        /// The top of the first line box.
-        var top: CGFloat
-        /// One line box per line.
-        var height: CGFloat
-    }
-
-    /// The zip prompt, as a row under the events.
-    struct PromptRow: Equatable {
-        var lines: [String]
-        var top: CGFloat
-        var height: CGFloat
-    }
-
-    /// The mockup's figures, in its points.
+    /// The mockup's figures, in its points (393 × 852, horizon at 386).
     enum Mockup {
-        static let left: CGFloat = 34
-        static let boxLeft: CGFloat = 96
-        static let boxRight: CGFloat = 377
-        static let boxTop: CGFloat = 64
-        static let boxPadding: CGFloat = 8
-        /// Under the last row: its 10-point margin and the box's 2 points.
-        static let boxPaddingBottom: CGFloat = 12
-        static let rowGap: CGFloat = 10
-        static let line: CGFloat = 16
-        /// The 1-point rule at the left of each row, and the text after it.
-        static let ruleX: CGFloat = 104
-        static let textX: CGFloat = 112
-        /// The time cell, before the title.
-        static let timeCell: CGFloat = 66
-        /// The tallest the rows may be together: five lines in three rows
-        /// (the mockup's sample is four). Keeps the hairline at or above 184,
-        /// so the saved button ends by 311, clear of the top of a sun or
-        /// moon low at the right of the path (about 324 at its highest there).
-        static let maxRowsHeight: CGFloat = 5 * line + 2 * rowGap
-        static let hairlineUnderTemperature: CGFloat = 16
-        static let windUnderHairline: CGFloat = 18
-        static let buttonTops: [CGFloat] = [18, 63, 108]
-        static let buttonX: CGFloat = 331
-        static let icon: CGFloat = 19
-        static let allBox: CGFloat = 10
-        static let allTopFromBottom: CGFloat = 58
-        static let rowPitch: CGFloat = 57
-        static let titleLine: CGFloat = 17.5
-        static let numberColumn: CGFloat = 23
-        static let feedWidth: CGFloat = 332
-        /// The day name's size is kept within this range (points before
-        /// scaling); as wide as the date it would swing from about 15 (MON on
-        /// JUL 1) to 38 (FRI on NOV 20). The lead's choice until the user
-        /// decides; the stills show about 22.8.
-        static let dayNameSizes: ClosedRange<CGFloat> = 20...28
-        /// The 1-point drop of the number's line box under the title's.
-        static let numberDrop: CGFloat = 1
+        static let margin: CGFloat = 34
+        /// The top row: the mark, the place name and settings.
+        static let topRowY: CGFloat = 52
+        static let topRowHeight: CGFloat = 24
+        static let markSide: CGFloat = 24
+        /// Settings stands this far in from the right edge (335 on 393).
+        static let settingsFromRight: CGFloat = 58
+        /// The place name ends this far in from the right edge (`right: 72px`).
+        static let placeFromRight: CGFloat = 72
+        /// The four-column grid of the date tile and the bottom tiles.
+        static let tileGap: CGFloat = 6
+        static let tileHeight: CGFloat = 78
+        static let tileRadius: CGFloat = 4
+        static let tileBorder: CGFloat = 1.4
+        /// The label inside a tile: 7 points in from the border.
+        static let tilePadding: CGFloat = 7
+        /// The foot (slash and value) stands 6 points above the border.
+        static let tileFootBottom: CGFloat = 6
+        static let tilesTop: CGFloat = 91
+        /// The bottom tiles' top, from the bottom of the screen (734 on 852).
+        static let bottomTilesFromBottom: CGFloat = 118
+        /// The events box's first line box starts 3.6 points under its border.
+        static let eventsPaddingTop: CGFloat = 3.6
+        static let eventRows = 4
+        /// The frame round the view: from 180 down to 40 under the horizon.
+        static let frameTop: CGFloat = 180
+        static let frameBelowHorizon: CGFloat = 40
+        static let bracket: CGFloat = 10
+        static let bracketLine: CGFloat = 1.2
+        /// The labels inside the frame's top corners.
+        static let frameLabelTop: CGFloat = 187.5
+        static let frameLabelLeft: CGFloat = 42
+        static let frameLabelFromRight: CGFloat = 44
+        /// The rim: 7 in from the edge, broken from 176 to 54 under the horizon.
+        static let rimInset: CGFloat = 7
+        static let rimRadius: CGFloat = 39
+        static let rimLine: CGFloat = 1.4
+        static let rimGapTop: CGFloat = 176
+        static let rimGapBelowHorizon: CGFloat = 54
+        /// The plate: from 42 under the horizon to the rim's bottom.
+        static let plateBelowHorizon: CGFloat = 42
+        /// Its top fades in over this many points (the CSS gradient's stops).
+        static let plateFade: CGFloat = 36
+        /// The titles: first row 75 under the horizon, numbers at x 32,
+        /// titles at x 68 and 290 wide, two 17-point lines on a 51 pitch.
+        static let titlesBelowHorizon: CGFloat = 75
+        static let numberX: CGFloat = 32
+        static let titleX: CGFloat = 68
+        /// The title column ends 35 in from the right edge (358 on 393).
+        static let titleFromRight: CGFloat = 35
+        static let titleLine: CGFloat = 17
+        static let titleRowHeight: CGFloat = 34
+        static let titlePitch: CGFloat = 51
+        /// A row is shown only when it ends at least this far above the tiles.
+        static let titlesAboveTiles: CGFloat = 17
     }
 
-    /// The type of the overlay at this scale.
-    struct Fonts {
-        var date: UIFont
-        var temperature: UIFont
-        var event: UIFont
-        var time: UIFont
-        var wind: UIFont
-        var number: UIFont
-        var title: UIFont
-
-        /// The size of the event times in mockup points. The scene's rise
-        /// and set times under the horizon use the same size (task 165).
+    /// Type sizes the scene shares with the overlay.
+    enum Fonts {
+        /// The rise and set times under the horizon, drawn by the scene
+        /// (task 165: 10 points; the v12 mockup kept v11's 8.5).
         static let timeSize: CGFloat = 10
-
-        static let dateTracking: CGFloat = 0.26
-        static let temperatureTracking: CGFloat = 0.2
-        static let eventTracking: CGFloat = 0.13
-        static let timeTracking: CGFloat = 0.04
-        static let windTracking: CGFloat = 0.14
-        static let numberTracking: CGFloat = 0.08
-        static let titleTracking: CGFloat = 0.01
-        static let dayTracking: CGFloat = 0.03
-
-        init(scale s: CGFloat) {
-            date = TodayType.jost(9 * s)
-            temperature = TodayType.jost(10 * s)
-            event = TodayType.jost(11 * s)
-            time = TodayType.mono(Self.timeSize * s)
-            wind = TodayType.mono(8.5 * s)
-            number = TodayType.mono(8 * s)
-            title = TodayType.title(13.5 * s)
-        }
     }
 
-    static let zipPromptText = "SET YOUR ZIP CODE IN SETTINGS"
+    static let zipPromptText = "Set your zip code in Settings"
 
     let size: CGSize
-    let scale: CGFloat
-    let fonts: Fonts
+    /// The scene's horizon.
+    let horizonY: CGFloat
 
-    // Left column.
-    let leftX: CGFloat
-    let dateText: String
-    let dateBaseline: CGFloat
-    let dayText: String
-    let dayFont: UIFont
-    let dayBaseline: CGFloat
-    let temperatureBaseline: CGFloat
+    // Top row.
+    let markRect: CGRect
+    let settingsRect: CGRect
+    /// The right edge of the place name; it is centred on the top row.
+    let placeRight: CGFloat
+    /// The widest the place name may be: from past the mark to `placeRight`.
+    let placeMaxWidth: CGFloat
 
-    // Events box.
-    /// Nil when there is nothing to put in it.
-    let box: CGRect?
-    let rows: [EventRow]
-    let prompt: PromptRow?
-    let ruleX: CGFloat
-    let timeX: CGFloat
-    /// The second time column (`PM`, `ALL`).
-    let tailX: CGFloat
-    let titleX: CGFloat
+    // Date tile and events box.
+    let dateTile: CGRect
+    let eventsBox: CGRect
+    /// How many characters a row of the box holds (34 on the mockup).
+    let eventColumns: Int
+    /// The rows as drawn, at most four: events, then the zip prompt.
+    let eventRows: [EventRow]
+    /// The zip prompt's row index in `eventRows`, if shown.
+    let promptIndex: Int?
+
+    // The frame round the view.
+    let frame: CGRect
+    let frameLabelTop: CGFloat
+    let frameLabelLeft: CGFloat
+    let frameLabelRight: CGFloat
+
+    // Rim and plate.
+    let rimRadius: CGFloat
+    let rimGap: ClosedRange<CGFloat>
+    let plate: CGRect
+
+    // Titles.
+    let titlesTop: CGFloat
     let titleWidth: CGFloat
-    /// The baselines inside one 16-point line box.
-    let eventBaseline: CGFloat
-    let timeBaseline: CGFloat
+    /// How many title rows fit above the tiles (never more than five).
+    let titleCapacity: Int
 
-    // Under the box.
-    let hairlineY: CGFloat
-    let hairlineX: ClosedRange<CGFloat>
-    let windBaseline: CGFloat
-    /// Centres of the settings, list and saved icons.
-    let buttonCenters: [CGPoint]
-    let iconSize: CGFloat
+    // Bottom tiles.
+    let tiles: [CGRect]
 
-    // The sea.
-    let headlinesTop: CGFloat
-    /// The lowest the article rows' text may reach: the top of `∀`'s target.
-    let headlinesBottom: CGFloat
-    /// `∀`'s 10-point box.
-    let allRect: CGRect
+    struct EventRow: Equatable {
+        /// What is drawn, one line of mono text.
+        var text: String
+        /// What VoiceOver says; nil for the zip prompt (its button speaks).
+        var spoken: String?
+        /// The left of the text (each row centred in the box, as CSS does)
+        /// and the top of its 17-point line box.
+        var origin: CGPoint
+        var width: CGFloat
+    }
 
     /// - Parameters:
-    ///   - labels: the next events, at most three, soonest first.
+    ///   - labels: the next events, soonest first; at most four are shown,
+    ///     three when the zip prompt takes the last row.
     ///   - showsZipPrompt: no zip is set yet.
-    ///   - date: the header's date as shown (`NOV 16`).
-    ///   - weekday: the day name (`Mon`), shown in caps.
-    init(
-        size: CGSize,
-        labels: [EventLabel],
-        showsZipPrompt: Bool,
-        date: String,
-        weekday: String
-    ) {
-        let scene = SceneLayout(size: size)
-        let s = scene.scale
-        let fonts = Fonts(scale: s)
+    ///   - cornerRadius: the rim's corner radius, when the system reports
+    ///     the screen's own (`concentricCornerRadii`); the mockup's 39
+    ///     otherwise.
+    init(size: CGSize, labels: [EventLabel], showsZipPrompt: Bool, cornerRadius: CGFloat? = nil) {
+        typealias M = Mockup
         self.size = size
-        self.scale = s
-        self.fonts = fonts
-        let line = Mockup.line * s
+        let width = size.width
+        let horizon = SceneLayout(size: size).horizonY
+        horizonY = horizon
 
-        // Rows of the events box.
-        eventBaseline = TodayType.baseline(in: line, font: fonts.event)
-        timeBaseline = TodayType.baseline(in: line, font: fonts.time)
-        ruleX = Mockup.ruleX * s
-        timeX = Mockup.textX * s
-        let textRight = (Mockup.boxRight - Mockup.boxPadding) * s
+        markRect = CGRect(x: M.margin, y: M.topRowY, width: M.markSide, height: M.markSide)
+        settingsRect = CGRect(x: width - M.settingsFromRight, y: M.topRowY, width: M.markSide, height: M.markSide)
+        placeRight = width - M.placeFromRight
+        placeMaxWidth = max(0, placeRight - markRect.maxX - 12)
 
-        // Left column, fixed. The date's letters start where the first
-        // event line's do; the temperature's end on the third line's baseline
-        // (the mockup's 75.7 and 151.7).
-        leftX = Mockup.left * s
-        dateText = date.uppercased()
-        let firstCapTop = (Mockup.boxTop + Mockup.boxPadding) * s + eventBaseline - fonts.event.capHeight
-        dateBaseline = firstCapTop + fonts.date.capHeight
-        temperatureBaseline = (Mockup.boxTop + Mockup.boxPadding + 3 * Mockup.line + 2 * Mockup.rowGap) * s + eventBaseline
-        // The day name is as wide as the date, and midway between it and
-        // the temperature.
-        dayText = weekday.uppercased()
-        dayFont = Self.dayFont(day: dayText, date: dateText, dateFont: fonts.date, scale: s)
-        let temperatureCapTop = temperatureBaseline - fonts.temperature.capHeight
-        let gap = (temperatureCapTop - dateBaseline - dayFont.capHeight) / 2
-        dayBaseline = dateBaseline + gap + dayFont.capHeight
-
-        // The two time columns, as wide as the widest time shown and never
-        // narrower than the mockup's (5.6 characters, then the rest of 66); at
-        // least a character between the columns and one and a half before the title.
-        let digit = TodayType.width("0", font: fonts.time, tracking: 0)
-        // Over the rows shown: at most three, and no event is ever dropped
-        // after this (see the cap below).
-        let shown = Array(labels.prefix(3))
-        let leadWidths = shown.map { TodayType.width($0.timeLead, font: fonts.time, tracking: Fonts.timeTracking) }
-        let tailWidths = shown.compactMap { $0.timeTail }.map {
-            TodayType.width($0, font: fonts.time, tracking: Fonts.timeTracking)
-        }
-        let widestLead = leadWidths.max() ?? 0
-        let timeEnd: CGFloat
-        if let widestTail = tailWidths.max() {
-            let leadColumn = max(5.6 * digit, widestLead + digit)
-            tailX = timeX + leadColumn
-            timeEnd = leadColumn + widestTail
-        } else {
-            tailX = timeX + widestLead
-            timeEnd = widestLead
-        }
-        titleX = timeX + max(Mockup.timeCell * s, timeEnd + 1.5 * digit)
-        let titleSpace = max(0, textRight - titleX)
-        titleWidth = titleSpace
-
-        let eventFont = fonts.event
-        let measure: (String) -> CGFloat = { TodayType.width($0, font: eventFont, tracking: Fonts.eventTracking) }
-        func lines(_ label: EventLabel, maxLines: Int) -> [String] {
-            CapsWrapper.wrap(
-                label.title.uppercased(), width: titleSpace, maxLines: maxLines, breakingLongWords: true, measure: measure
+        // The four-column grid: the date tile is one column, the events box
+        // the other three and their gaps.
+        let tileWidth = Self.tileWidth(screenWidth: width)
+        dateTile = CGRect(x: M.margin, y: M.tilesTop, width: tileWidth, height: M.tileHeight)
+        let boxX = M.margin + tileWidth + M.tileGap
+        eventsBox = CGRect(x: boxX, y: M.tilesTop, width: width - M.margin - boxX, height: M.tileHeight)
+        tiles = (0..<4).map { index in
+            CGRect(
+                x: M.margin + CGFloat(index) * (tileWidth + M.tileGap),
+                y: size.height - M.bottomTilesFromBottom,
+                width: tileWidth, height: M.tileHeight
             )
         }
-        var wrapped = shown.map { ($0, lines($0, maxLines: 2)) }
-        // One line, so three one-line events and the prompt always fit the
-        // cap below (3 + 1 lines and three gaps: 94 of 100 points).
-        let promptLines = showsZipPrompt
-            ? CapsWrapper.wrap(Self.zipPromptText, width: textRight - timeX, maxLines: 1, breakingLongWords: true, measure: measure)
-            : []
 
-        // Never taller than five lines of rows, so the button column hung
-        // from the hairline stays clear of a low sun or moon at the right
-        // of the path. Over that, the last two-line title is cut to one
-        // line, from the last event up. That always fits (three one-line
-        // events and the one-line prompt take 94 points), so no event is
-        // ever dropped.
-        func height(_ lineCounts: [Int]) -> CGFloat {
-            let lines = lineCounts.reduce(0, +)
-            return CGFloat(lines) * line + CGFloat(max(0, lineCounts.count - 1)) * Mockup.rowGap * s
+        // The rows: as many characters as fit inside the border with at
+        // least half a character free at each side (34 on the mockup, whose
+        // rows stand about 4 points in from the border).
+        let style = HUDType.eventRow
+        let inner = eventsBox.width - 2 * M.tileBorder
+        let columns = EventRowText.columns(width: inner - style.cell, cell: style.cell)
+        eventColumns = columns
+        let measure: (String) -> CGFloat = { style.width($0) }
+        let shown = Array(labels.prefix(showsZipPrompt ? M.eventRows - 1 : M.eventRows))
+        var texts: [(String, String?)] = shown.map {
+            (EventRowText.row($0, columns: columns, maxWidth: inner, measure: measure), $0.spoken)
         }
-        let promptCount = promptLines.isEmpty ? [] : [promptLines.count]
-        func tooTall() -> Bool {
-            height(wrapped.map { max(1, $0.1.count) } + promptCount) > Mockup.maxRowsHeight * s + 0.5
-        }
-        while tooTall(), let index = wrapped.lastIndex(where: { $0.1.count > 1 }) {
-            wrapped[index].1 = lines(wrapped[index].0, maxLines: 1)
-        }
-
-        var y = (Mockup.boxTop + Mockup.boxPadding) * s
-        var rows: [EventRow] = []
-        for (label, lines) in wrapped {
-            let rowHeight = CGFloat(max(1, lines.count)) * line
-            rows.append(EventRow(label: label, lines: lines, top: y, height: rowHeight))
-            y += rowHeight + Mockup.rowGap * s
-        }
-        self.rows = rows
-        if promptLines.isEmpty {
-            prompt = nil
+        if showsZipPrompt {
+            promptIndex = texts.count
+            texts.append((EventRowText.message(Self.zipPromptText, columns: columns, maxWidth: inner, measure: measure), nil))
         } else {
-            let rowHeight = CGFloat(promptLines.count) * line
-            prompt = PromptRow(lines: promptLines, top: y, height: rowHeight)
-            y += rowHeight + Mockup.rowGap * s
+            promptIndex = nil
+        }
+        let firstLine = eventsBox.minY + M.tileBorder + M.eventsPaddingTop
+        let box = eventsBox
+        eventRows = texts.enumerated().map { index, entry in
+            let textWidth = measure(entry.0)
+            return EventRow(
+                text: entry.0,
+                spoken: entry.1,
+                origin: CGPoint(x: box.midX - textWidth / 2, y: firstLine + CGFloat(index) * style.lineHeight),
+                width: textWidth
+            )
         }
 
-        // The hairline along the box's bottom edge, never less than 16 points
-        // under the temperature; the box is drawn down to it.
-        let underTemperature = temperatureBaseline + Mockup.hairlineUnderTemperature * s
-        let isEmpty = rows.isEmpty && prompt == nil
-        let contentBottom = isEmpty ? 0 : y - Mockup.rowGap * s + Mockup.boxPaddingBottom * s
-        let hairline = max(contentBottom, underTemperature)
-        hairlineY = hairline
-        hairlineX = (Mockup.left * s)...(Mockup.boxRight * s)
-        box = isEmpty ? nil : CGRect(
-            x: Mockup.boxLeft * s,
-            y: Mockup.boxTop * s,
-            width: (Mockup.boxRight - Mockup.boxLeft) * s,
-            height: hairlineY - Mockup.boxTop * s
-        )
+        frame = CGRect(x: M.margin, y: M.frameTop, width: width - 2 * M.margin, height: horizon + M.frameBelowHorizon - M.frameTop)
+        frameLabelTop = M.frameLabelTop
+        frameLabelLeft = M.frameLabelLeft
+        frameLabelRight = width - M.frameLabelFromRight
 
-        // Hung from the hairline: the wind line's letters start level with
-        // the top of the settings icon.
-        windBaseline = hairlineY + Mockup.windUnderHairline * s + fonts.wind.capHeight
-        iconSize = Mockup.icon * s
-        buttonCenters = Mockup.buttonTops.map {
-            CGPoint(x: Mockup.buttonX * s, y: hairline + ($0 + Mockup.icon / 2) * s)
+        rimRadius = cornerRadius.flatMap { $0 > 1 ? $0 : nil } ?? M.rimRadius
+        rimGap = M.rimGapTop...(horizon + M.rimGapBelowHorizon)
+        let plateTop = horizon + M.plateBelowHorizon
+        plate = CGRect(x: M.rimInset, y: plateTop, width: width - 2 * M.rimInset, height: size.height - M.rimInset - plateTop)
+
+        titlesTop = horizon + M.titlesBelowHorizon
+        titleWidth = width - M.titleFromRight - M.titleX
+        let room = (size.height - M.bottomTilesFromBottom) - M.titlesAboveTiles - titlesTop
+        titleCapacity = Self.titleRows(fitting: room)
+    }
+
+    /// One column of the four-column grid on a screen `screenWidth` wide.
+    static func tileWidth(screenWidth: CGFloat) -> CGFloat {
+        max(0, (screenWidth - 2 * Mockup.margin - 3 * Mockup.tileGap) / 4)
+    }
+
+    /// How many whole two-line rows fit in `room` points, never more than five.
+    static func titleRows(fitting room: CGFloat) -> Int {
+        var count = 0
+        // A hair of tolerance for rounding.
+        while count < HeadlineFit.maxCount,
+              CGFloat(count) * Mockup.titlePitch + Mockup.titleRowHeight <= room + 0.5 {
+            count += 1
         }
-
-        // The sea: titles from 100 under the horizon; ∀ centred, its top 58
-        // above the bottom of the screen.
-        headlinesTop = scene.headlinesTop
-        let allSide = Mockup.allBox * s
-        allRect = CGRect(
-            x: size.width / 2 - allSide / 2,
-            y: size.height - Mockup.allTopFromBottom * s,
-            width: allSide,
-            height: allSide
-        )
-        headlinesBottom = allRect.midY - 22
+        return count
     }
 
-    /// The day name's face at the size that makes `day` as wide as `date`
-    /// (each without the letter-space after its last letter), kept within
-    /// `Mockup.dayNameSizes`.
-    static func dayFont(day: String, date: String, dateFont: UIFont, scale: CGFloat) -> UIFont {
-        let reference = 28 * scale
-        let want = TodayType.width(date, font: dateFont, tracking: Fonts.dateTracking)
-        let got = TodayType.width(day, font: TodayType.dayName(reference), tracking: Fonts.dayTracking)
-        guard want > 0, got > 0 else { return TodayType.dayName(reference) }
-        let size = min(max(reference * want / got, Mockup.dayNameSizes.lowerBound * scale), Mockup.dayNameSizes.upperBound * scale)
-        return TodayType.dayName(size)
+    // MARK: Titles
+
+    /// The top of title row `index`.
+    func titleRowTop(_ index: Int) -> CGFloat {
+        titlesTop + CGFloat(index) * Mockup.titlePitch
     }
 
-    // MARK: The day screen
-
-    /// Where a tap opens the day screen (task 170): the events box, from its
-    /// fixed top down to the hairline. The same place when there is no box
-    /// (no events and no zip prompt), so it can always be tapped; never
-    /// under 44 points tall (the hairline sits at least 16 points under the
-    /// temperature, well over 44 below the box's top).
-    var eventsTarget: CGRect {
-        let top = Mockup.boxTop * scale
+    /// Title row `index` as a band from the number to the column's end, half
+    /// a gap above and below, so the bands of neighbouring rows meet and a
+    /// drop between two titles still lands on one.
+    func titleBand(_ index: Int) -> CGRect {
+        let half = (Mockup.titlePitch - Mockup.titleRowHeight) / 2
         return CGRect(
-            x: Mockup.boxLeft * scale,
-            y: top,
-            width: (Mockup.boxRight - Mockup.boxLeft) * scale,
-            height: max(44, hairlineY - top)
+            x: Mockup.numberX,
+            y: titleRowTop(index) - half,
+            width: Mockup.titleX + titleWidth - Mockup.numberX,
+            height: Mockup.titlePitch
         )
+    }
+
+    // MARK: Rim
+
+    /// The rim: a rounded outline `rimInset` in from the edge, broken down
+    /// both sides along `rimGap`, where the view is.
+    var rimPath: Path {
+        let inset = Mockup.rimInset
+        let r = rimRadius
+        let x0 = inset, x1 = size.width - inset, y0 = inset, y1 = size.height - inset
+        var path = Path()
+        path.move(to: CGPoint(x: x0, y: rimGap.lowerBound))
+        path.addLine(to: CGPoint(x: x0, y: y0 + r))
+        path.addArc(center: CGPoint(x: x0 + r, y: y0 + r), radius: r, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        path.addLine(to: CGPoint(x: x1 - r, y: y0))
+        path.addArc(center: CGPoint(x: x1 - r, y: y0 + r), radius: r, startAngle: .degrees(270), endAngle: .degrees(360), clockwise: false)
+        path.addLine(to: CGPoint(x: x1, y: rimGap.lowerBound))
+        path.move(to: CGPoint(x: x0, y: rimGap.upperBound))
+        path.addLine(to: CGPoint(x: x0, y: y1 - r))
+        path.addArc(center: CGPoint(x: x0 + r, y: y1 - r), radius: r, startAngle: .degrees(180), endAngle: .degrees(90), clockwise: true)
+        path.addLine(to: CGPoint(x: x1 - r, y: y1))
+        path.addArc(center: CGPoint(x: x1 - r, y: y1 - r), radius: r, startAngle: .degrees(90), endAngle: .degrees(0), clockwise: true)
+        path.addLine(to: CGPoint(x: x1, y: rimGap.upperBound))
+        return path
     }
 
     // MARK: Pull spinners
 
-    /// The frame of each pull's spinner, in points (not scaled).
+    /// The frame of each pull's spinner, in points.
     static let spinnerSide: CGFloat = 20
 
     /// The calendar pull's spinner: in the events box's upper right corner,
-    /// inside its padding, level with the first event line. Placed from the
-    /// mockup's box, so it has a place even when there is no box.
+    /// level with the first row.
     var calendarSpinnerCenter: CGPoint {
         CGPoint(
-            x: spinnerCenterX,
-            y: (Mockup.boxTop + Mockup.boxPadding + Mockup.line / 2) * scale
+            x: eventsBox.maxX - Mockup.tileBorder - Self.spinnerSide / 2,
+            y: eventsBox.minY + Mockup.tileBorder + Mockup.eventsPaddingTop + HUDType.eventRow.lineHeight / 2
         )
     }
 
-    /// The headline pull's spinner: at the upper right of the headlines,
-    /// level with the first title line, under the calendar one.
+    /// The headline pull's spinner: at the right of the first title line,
+    /// under the calendar one.
     var headlineSpinnerCenter: CGPoint {
-        CGPoint(x: spinnerCenterX, y: headlinesTop + titleLineHeight / 2)
-    }
-
-    private var spinnerCenterX: CGFloat {
-        (Mockup.boxRight - Mockup.boxPadding) * scale - Self.spinnerSide / 2
-    }
-
-    // MARK: Article rows
-
-    /// The top of article row `index`.
-    func headlineRowTop(_ index: Int) -> CGFloat {
-        headlinesTop + CGFloat(index) * Mockup.rowPitch * scale
-    }
-
-    var headlinePitch: CGFloat { Mockup.rowPitch * scale }
-    var titleLineHeight: CGFloat { Mockup.titleLine * scale }
-    var headlineTitleX: CGFloat { (Mockup.left + Mockup.numberColumn) * scale }
-    var headlineTitleWidth: CGFloat { (Mockup.feedWidth - Mockup.numberColumn) * scale }
-    /// A title line's baseline inside its 17.5-point line box.
-    var titleBaseline: CGFloat { TodayType.baseline(in: titleLineHeight, font: fonts.title) }
-    /// The number's baseline from the row's top: its line box is 1 point lower.
-    var numberBaseline: CGFloat {
-        Mockup.numberDrop * scale + TodayType.baseline(in: titleLineHeight, font: fonts.number)
+        CGPoint(x: calendarSpinnerCenter.x, y: titlesTop + Mockup.titleLine / 2)
     }
 }

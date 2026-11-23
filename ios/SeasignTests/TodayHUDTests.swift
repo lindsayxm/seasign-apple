@@ -1,0 +1,233 @@
+import CoreGraphics
+import Foundation
+import SwiftUI
+import Testing
+
+@testable import Seasign
+
+/// The v12 events box rows (task 193): `eventRow()` in
+/// `design-ideas/v12-imago/index.html`, and the plan's defaults.
+@Suite struct EventRowTextTests {
+    private func dashes(_ count: Int) -> String { String(repeating: "-", count: count) }
+
+    @Test func aFullRowFillsWithDashes() {
+        #expect(EventRowText.row(time: "11:00", letter: "A", title: "Hanna\u{2019}s Show", columns: 34)
+            == "11:00 A " + dashes(11) + " Hanna\u{2019}s Show /")
+        #expect(EventRowText.row(time: "8:15", letter: "P", title: "Night Workout", columns: 34)
+            == " 8:15 P " + dashes(10) + " Night Workout /")
+        // At least one dash: the longest title that is not cut.
+        let longest = String(repeating: "x", count: 22)
+        #expect(EventRowText.row(time: "8:15", letter: "P", title: longest, columns: 34) == " 8:15 P - " + longest + " /")
+    }
+
+    @Test func aTitleTooLongIsCutAndEndsInTheSlash() {
+        #expect(EventRowText.row(time: "1:00", letter: "P", title: "Wearables and sensing demo", columns: 34)
+            == " 1:00 P - Wearables and sensing d/")
+        #expect(EventRowText.row(time: "6:45", letter: "P", title: "Submit hours for studio payroll", columns: 34)
+            == " 6:45 P - Submit hours for studio/")
+        // One character over the longest whole title.
+        let over = String(repeating: "x", count: 23)
+        #expect(EventRowText.row(time: "8:15", letter: "P", title: over, columns: 34) == " 8:15 P - " + String(repeating: "x", count: 23) + "/")
+        #expect(EventRowText.row(time: "8:15", letter: "P", title: over + "yz", columns: 34).count == 34)
+    }
+
+    /// A cut that would end in a space ends at the word before it; the
+    /// row keeps its width with one more dash in front.
+    @Test func aCutNeverEndsInASpace() {
+        #expect(EventRowText.row(time: "6:45", letter: "P", title: "Submit hours for studio payroll", columns: 35)
+            == " 6:45 P -- Submit hours for studio/")
+        #expect(EventRowText.row(time: "6:45", letter: "P", title: "Submit hours for studio payroll", columns: 35).count == 35)
+    }
+
+    @Test func allDayShowsAllAndNoLetter() {
+        #expect(EventRowText.row(time: "ALL", letter: nil, title: "Market", columns: 34)
+            == "  ALL   " + dashes(17) + " Market /")
+    }
+
+    @Test func anotherDayShowsTheWeekdayAndNoLetter() {
+        #expect(EventRowText.row(time: "TUE", letter: nil, title: "Dentist", columns: 34)
+            == "  TUE   " + dashes(16) + " Dentist /")
+    }
+
+    @Test func otherWidths() {
+        for columns in [12, 20, 32, 35, 39, 41, 60] {
+            let whole = EventRowText.row(time: "11:00", letter: "A", title: "Hanna\u{2019}s Show", columns: columns)
+            #expect(whole.count == columns, "\(columns): \(whole)")
+            #expect(whole.hasSuffix("/"))
+            #expect(whole.hasPrefix("11:00 A "))
+        }
+        #expect(EventRowText.row(time: "11:00", letter: "A", title: "Hanna\u{2019}s Show", columns: 35)
+            == "11:00 A " + dashes(12) + " Hanna\u{2019}s Show /")
+        #expect(EventRowText.row(time: "1:00", letter: "P", title: "Wearables and sensing demo", columns: 32)
+            == " 1:00 P - Wearables and sensing/")
+        // Below the minimum the row is written at the minimum.
+        #expect(EventRowText.row(time: "1:00", letter: "P", title: "Lunch", columns: 3).count == EventRowText.minimumColumns)
+    }
+
+    @Test func whiteSpaceInTheTitleIsOneSpace() {
+        #expect(EventRowText.row(time: "9:00", letter: "A", title: "  Stand\tup\nmeeting ", columns: 34)
+            == " 9:00 A " + dashes(7) + " Stand up meeting /")
+    }
+
+    @Test func theZipPromptIsWrittenLikeARow() {
+        #expect(EventRowText.message("Set your zip code in Settings", columns: 34) == "-- Set your zip code in Settings /")
+        #expect(EventRowText.message("Set your zip code in Settings", columns: 32) == "- Set your zip code in Settings/")
+    }
+
+    @Test func wideCharactersAreCutToTheMeasuredWidth() {
+        // Each CJK character two cells wide, as a fallback font draws it.
+        let measure: (String) -> CGFloat = { text in
+            CGFloat(text.reduce(0) { $0 + ($1.unicodeScalars.first!.value > 0x2E80 ? 2 : 1) })
+        }
+        let label = "東京都の天気予報と週間予報のお知らせ会議"
+        let row = EventRowText.fit(
+            EventRowText.row(time: "9:00", letter: "A", title: label, columns: 34), maxWidth: 34, measure: measure
+        )
+        #expect(measure(row) <= 34)
+        #expect(row.hasPrefix(" 9:00 A -"))
+        #expect(row.count < 34)
+        #expect(row.hasSuffix("/"))
+    }
+
+    @Test func columnsFromWidth() {
+        #expect(EventRowText.columns(width: 34 * 6.8, cell: 6.8) == 34)
+        #expect(EventRowText.columns(width: 34 * 6.8 - 0.5, cell: 6.8) == 33)
+        #expect(EventRowText.columns(width: 0, cell: 6.8) == EventRowText.minimumColumns)
+        #expect(EventRowText.columns(width: 200, cell: 0) == EventRowText.minimumColumns)
+    }
+
+    /// What VoiceOver says is the plain event, never the dashes.
+    @Test func theSpokenLabelIsThePlainEvent() {
+        let zone = TimeZone(identifier: "America/New_York")!
+        let start = Date(timeIntervalSince1970: 1_794_846_960 + 3600)
+        let label = EventLabel(
+            event: UpcomingEvent(link: UUID(), title: "Night Workout", start: start, end: start, allDay: false),
+            now: Date(timeIntervalSince1970: 1_794_846_960), timeZone: zone, clock: .twelveHour
+        )
+        let layout = TodayOverlayLayout(size: CGSize(width: 393, height: 852), labels: [label], showsZipPrompt: false)
+        #expect(layout.eventRows[0].spoken == label.spoken)
+        #expect(label.spoken == "Night Workout, 12:36 PM")
+        #expect(!label.spoken.contains("-"))
+    }
+}
+
+/// The star dragged from SAVE onto a title (task 193).
+@Suite struct StarDropTests {
+    private let layout = TodayOverlayLayout(size: CGSize(width: 393, height: 852), labels: [], showsZipPrompt: false)
+    private var bands: [CGRect] { (0..<5).map { layout.titleBand($0) } }
+
+    @Test func aDropOnATitleSavesIt() {
+        // On the second title's first line.
+        let point = CGPoint(x: 120, y: layout.titleRowTop(1) + 8)
+        #expect(StarDrop.outcome(at: point, bands: bands) { _ in false } == .save(1))
+        // Between two titles: the nearer one.
+        let between = CGPoint(x: 200, y: layout.titleRowTop(2) - 3)
+        #expect(StarDrop.row(at: between, bands: bands) == 2)
+        let justAbove = CGPoint(x: 200, y: layout.titleRowTop(1) + 34 + 5)
+        #expect(StarDrop.row(at: justAbove, bands: bands) == 1)
+    }
+
+    @Test func aDropElsewhereDoesNothing() {
+        for point in [CGPoint(x: 200, y: 300), CGPoint(x: 200, y: 780), CGPoint(x: 5, y: layout.titleRowTop(0) + 8),
+                      CGPoint(x: 380, y: layout.titleRowTop(0) + 8)] {
+            #expect(StarDrop.outcome(at: point, bands: bands) { _ in false } == StarDrop.Outcome.none, "\(point)")
+        }
+        // Only shown titles count: with two titles, the third row is empty.
+        let third = CGPoint(x: 120, y: layout.titleRowTop(2) + 8)
+        #expect(StarDrop.row(at: third, bands: Array(bands.prefix(2))) == nil)
+    }
+
+    @Test func aSavedTitleIsNeverRemovedByADrop() {
+        let point = CGPoint(x: 120, y: layout.titleRowTop(0) + 8)
+        #expect(StarDrop.outcome(at: point, bands: bands) { $0 == 0 } == .alreadySaved(0))
+    }
+
+    @Test func theStarRidesAboveTheFinger() {
+        let finger = CGPoint(x: 240, y: 760)
+        #expect(StarDrop.star(finger: finger) == CGPoint(x: 240, y: 760 - StarDrop.lift))
+        #expect(StarDrop.lift > 20)
+    }
+
+    /// A tap on the tile is not a drag, and the drag starts before Today's
+    /// pull would watch it.
+    @Test func aTapIsNotADrag() {
+        #expect(StarDrop.minimumDistance >= 5)
+        #expect(StarDrop.minimumDistance < TodayPull.minimumDistance)
+        // An upward drag from the tiles to a title is never a pull.
+        #expect(!TodayPull.isPull(CGSize(width: 0, height: -250)))
+    }
+}
+
+/// The words inside the frame's corners and the top row (task 193).
+@Suite struct FrameTextTests {
+    @Test func weatherIsTemperatureOverWind() throws {
+        var state = try midday()
+        state.temperatureF = 54.6
+        state.windMph = 8.2
+        let text = FrameText.weather(state)
+        #expect(text.lines == ["55°F", "wind 8/"])
+        #expect(text.spoken == "55 degrees Fahrenheit, wind 8 miles per hour")
+        state.temperatureF = nil
+        state.windMph = nil
+        #expect(FrameText.weather(state).lines.isEmpty && FrameText.weather(state).spoken == nil)
+    }
+
+    @Test func spanIsHowLongTheBodyIsUp() throws {
+        var state = try midday()
+        let rise = Date(timeIntervalSince1970: 1_800_000_000)
+        state.sunPass = SkyPass(rise: rise, set: rise.addingTimeInterval(9 * 3600 + 50 * 60))
+        state.isLive = true
+        #expect(state.body?.kind == .sun)
+        let text = FrameText.span(state)
+        #expect(text.lines == ["Daylight", "9h 50m/"])
+        #expect(text.spoken == "Daylight, 9 hours 50 minutes")
+        state.sunPass = SkyPass(rise: rise, set: rise.addingTimeInterval(10 * 3600 + 5 * 60))
+        #expect(FrameText.span(state).lines.last == "10h 05m/")
+        state.sunPass = SkyPass(rise: rise, set: nil)
+        #expect(FrameText.span(state).lines.isEmpty)
+        state.isLive = false
+        #expect(FrameText.span(state).spoken == nil)
+    }
+
+    private func midday() throws -> SceneState {
+        let zone = try #require(TimeZone(identifier: "America/Chicago"))
+        let now = Date(timeIntervalSince1970: 1_794_846_960)
+        return SceneState.make(snapshot: nil, now: now, deviceTimeZone: zone)
+    }
+}
+
+/// The v12 line drawings stay inside their viewBox (task 193).
+@Suite struct HUDGlyphTests {
+    @Test func everyGlyphFitsItsViewBox() {
+        for glyph in HUDGlyph.allCases {
+            let box = CGRect(origin: .zero, size: glyph.viewBox)
+            for stroke in glyph.strokes {
+                let bounds = stroke.path.boundingRect
+                #expect(box.insetBy(dx: -0.01, dy: -0.01).contains(bounds), "\(glyph): \(bounds)")
+            }
+        }
+    }
+
+    /// The S of the mark bulges left above the middle line and right below.
+    @Test func theMarksSCurvesTheRightWay() {
+        let inside = HUDGlyph.mark.strokes[1].path.boundingRect
+        #expect(abs(inside.minX - 1) < 0.01 && abs(inside.maxX - 27) < 0.01)
+        let stroked = HUDGlyph.mark.strokes[1].path.strokedPath(StrokeStyle(lineWidth: 1.5))
+        #expect(stroked.contains(CGPoint(x: 7.5, y: 7.5)))
+        #expect(stroked.contains(CGPoint(x: 20.5, y: 20.5)))
+        #expect(!stroked.contains(CGPoint(x: 20.5, y: 7.5)))
+        #expect(!stroked.contains(CGPoint(x: 7.5, y: 20.5)))
+    }
+
+    /// LIST's two arcs bulge outward, each a short arc over its chord.
+    @Test func theListArcsBulgeOut() {
+        let bounds = HUDGlyph.list.strokes[0].path.boundingRect
+        #expect(bounds.minX > 1.5 && bounds.minX < 2.5, "\(bounds)")
+        #expect(bounds.maxX > 19.5 && bounds.maxX < 20.5, "\(bounds)")
+    }
+
+    @Test func theFourTilesAreInOrder() {
+        #expect(HUDTileBar.Tile.allCases.map(\.label) == ["Day", "List", "Save", "Listen"])
+        #expect(HUDTileBar.Tile.allCases.map(\.spoken) == ["Today", "Do and get lists", "Saved", "Listen"])
+    }
+}

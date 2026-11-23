@@ -4,9 +4,12 @@ import SwiftUI
 /// The Today screen: the date, day name and temperature over a living sky and
 /// water, with the headlines in the water. It fills the screen and never scrolls.
 ///
-/// Design v11 (`design-ideas/v11-artemis/`): the scene from `SceneView`, and
-/// over it the fixed overlay placed by `TodayOverlayLayout` (393 pt wide
-/// mockup, scaled with the screen width).
+/// Design v12 (`design-ideas/v12-imago/`): v11's scene from `SceneView`,
+/// and over it the HUD placed by `TodayOverlayLayout`: the mark, the place
+/// and settings, the date tile and events box, the frame round the view,
+/// the titles on their plate, the four tiles and the rim. Accent parts read
+/// `\.hudAccent`; the mark, date tile, temperature and wind, brackets and
+/// the scene's rise and set times stay white.
 struct TodayView: View {
     @Environment(TodayModel.self) private var model
     @Environment(EventsModel.self) private var events
@@ -19,6 +22,7 @@ struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
     /// The phone's 12- or 24-hour setting, for the event times.
     @Environment(\.clockStyle) private var clockStyle
+    @Environment(\.hudAccent) private var accent
 
     @State private var destination: Destination?
     /// The headline open in the reading view.
@@ -31,17 +35,24 @@ struct TodayView: View {
     /// The day screen's confirmed draft and its event id, kept while the app
     /// runs so a Try again from a reopened day screen sends the same id.
     @State private var addPending = AddEventPending()
+    /// Where the star dragged from the SAVE tile is; nil when it is not out.
+    @State private var starPoint: CGPoint?
+    /// Counts titles saved from the star, for the success haptic.
+    @State private var starSaves = 0
 
     #if DEBUG
     @AppStorage(SceneDebugOverride.timeKey) private var debugTime = ""
     @AppStorage(SceneDebugOverride.moonKey) private var debugMoon = ""
     @AppStorage(SceneDebugOverride.weatherKey) private var debugWeather = ""
-    /// `-debugMockupEvents YES`: the v11 mockup's three events, for
+    /// `-debugMockupEvents YES`: the v12 mockup's four events, for
     /// screenshots to set beside its stills.
     @AppStorage("debugMockupEvents") private var debugMockupEvents = false
     /// `-debugEventTitles "Dentist|A long title…"`: other titles for those
-    /// events, one to three, separated by `|`; `none` for none.
+    /// events, one to four, separated by `|`; `none` for none.
     @AppStorage("debugEventTitles") private var debugEventTitles = ""
+    /// `-debugPlace Chicago`: this place name in the top row, and no zip
+    /// prompt, for screenshots on a simulator with no zip saved.
+    @AppStorage("debugPlace") private var debugPlace = ""
     /// `-debugPullSpinner 5`: each pull's spinner stays up at least this
     /// many seconds, for screenshots.
     @AppStorage("debugPullSpinner") private var debugPullSpinner = 0.0
@@ -222,7 +233,7 @@ struct TodayView: View {
         let side = TodayOverlayLayout.spinnerSide
         return ProgressView()
             .controlSize(.small)
-            .tint(Palette.todayText)
+            .tint(accent)
             .frame(width: side, height: side)
             .allowsHitTesting(false)
             .accessibilityLabel(label)
@@ -244,75 +255,69 @@ struct TodayView: View {
         let state = SceneState.make(snapshot: inputs.snapshot, now: inputs.now, deviceTimeZone: .current)
         let date = HeaderDate(now: inputs.now, timeZone: state.timeZone)
         let labels = eventLabels(now: inputs.now)
+        let candidates = feed.headlines(now: clock, timeZone: headlineZone)
 
         return GeometryReader { proxy in
             let layout = TodayOverlayLayout(
                 size: proxy.size,
                 labels: labels,
-                showsZipPrompt: model.zip == nil,
-                date: "\(date.month) \(date.day)",
-                weekday: date.weekday
+                showsZipPrompt: showsZipPrompt,
+                cornerRadius: Self.screenCornerRadius(proxy)
             )
-            let ink = state.inkColor
+            let shown = HeadlinesColumn.shown(candidates, layout: layout)
 
             ZStack(alignment: .topLeading) {
                 SceneView(state: state)
 
-                header(date: date, layout: layout, state: state)
-
+                topRow(layout: layout)
+                dateTile(date, layout: layout)
                 EventsColumn(
                     layout: layout,
-                    ink: ink,
-                    zipPrompt: model.zip == nil ? { destination = .settings } : nil,
+                    zipPrompt: showsZipPrompt ? { destination = .settings } : nil,
                     openDay: { destination = .day }
                 )
+                frame(layout: layout, state: state)
 
-                // The hairline that closes the header.
-                Rectangle()
-                    .fill(Palette.todayHairline)
-                    .frame(width: layout.hairlineX.upperBound - layout.hairlineX.lowerBound, height: 0.5)
-                    .placed(x: layout.hairlineX.lowerBound, y: layout.hairlineY - 0.25)
-                    .accessibilityHidden(true)
-
-                // The wind, whenever there is a fresh reading.
-                if let wind = state.windLabel {
-                    Text(today: wind, font: layout.fonts.wind, tracking: TodayOverlayLayout.Fonts.windTracking)
-                        .foregroundStyle(Palette.todayWind)
-                        .shadow(color: .black, radius: 2.5)
-                        .shadow(color: .black, radius: 1)
-                        .fixedSize()
-                        .accessibilityLabel(Text(verbatim: "Wind \(Int((state.windMph ?? 0).rounded())) miles per hour"))
-                        .placed(x: layout.leftX, baseline: layout.windBaseline)
-                }
-
-                iconButton(.settings, label: "Settings", opens: .settings, layout: layout, ink: ink, at: 0)
-                iconButton(.doGet, label: "Do and get lists", opens: .doGet, layout: layout, ink: ink, at: 1)
-                iconButton(.saved, label: "Saved", opens: .saved, layout: layout, ink: ink, at: 2)
-
+                plate(layout: layout)
                 HeadlinesColumn(
-                    candidates: feed.headlines(now: clock, timeZone: headlineZone),
+                    candidates: candidates,
                     layout: layout,
                     followsNoSites: feed.sites.isEmpty,
-                    ink: ink,
+                    starTarget: starPoint.flatMap { StarDrop.row(at: $0, bands: bands(shown, layout: layout)) },
                     open: { reading = $0 },
                     openSettings: { destination = .settings },
+                    save: { saveFromStar($0) },
                     refresh: { startPull(.headlines) }
                 )
 
-                // ∀, for all publications: the 7-day history.
-                Button {
-                    destination = .history
-                } label: {
-                    LineIconView(icon: .allPublications, size: layout.allRect.width, lineWidth: 0.13 * layout.allRect.width)
-                        .foregroundStyle(ink)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                HUDTileBar(
+                    filled: .day,
+                    action: { tileTapped($0) },
+                    starDrag: HUDTileBar.StarDrag(
+                        space: Self.space,
+                        changed: { starPoint = StarDrop.star(finger: $0) },
+                        ended: { finger in
+                            starDropped(at: StarDrop.star(finger: finger), shown: shown, layout: layout)
+                        }
+                    )
+                )
+                .frame(width: max(0, proxy.size.width - 2 * TodayOverlayLayout.Mockup.margin))
+                .placed(x: TodayOverlayLayout.Mockup.margin, y: layout.tiles[0].minY)
+
+                layout.rimPath
+                    .stroke(accent.opacity(0.85), style: StrokeStyle(lineWidth: TodayOverlayLayout.Mockup.rimLine, lineCap: .round))
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                // The star on its way from the SAVE tile to a title.
+                if let starPoint {
+                    HUDGlyphView(glyph: .save, color: accent)
+                        .scaleEffect(1.3)
+                        .shadow(color: .black, radius: 3)
+                        .allowsHitTesting(false)
+                        .placed(x: starPoint.x - 10, y: starPoint.y - 10)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Last 7 days")
-                // The headline pull, for VoiceOver, also when the sea is empty.
-                .accessibilityAction(named: Text(TodayPull.headlinesActionName)) { startPull(.headlines) }
-                .placed(x: layout.allRect.midX - 22, y: layout.allRect.midY - 22)
 
                 // The pulls' spinners, one for each; nothing at rest.
                 if isPullingCalendar {
@@ -322,59 +327,251 @@ struct TodayView: View {
                     spinner(layout.headlineSpinnerCenter, label: "Refreshing headlines")
                 }
             }
-            .simultaneousGesture(pullGesture(horizonY: SceneLayout(size: proxy.size).horizonY))
+            .coordinateSpace(name: Self.space)
+            .simultaneousGesture(pullGesture(horizonY: layout.horizonY))
+            .sensoryFeedback(.success, trigger: starSaves)
         }
         .ignoresSafeArea()
     }
 
-    // MARK: Header
+    /// The coordinate space of Today's overlay, which fills the screen.
+    private static let space = "today"
 
-    /// The left column: date, day name and temperature, all white. One
-    /// VoiceOver element, a header, that says the date and temperature in
-    /// words; the texts inside it are not read on their own.
-    private func header(date: HeaderDate, layout: TodayOverlayLayout, state: SceneState) -> some View {
-        typealias F = TodayOverlayLayout.Fonts
-        // Local coordinates from the top of the date's line, so no text sits
-        // above the container's origin.
-        let top = layout.dateBaseline - layout.fonts.date.ascender
-        let width = TodayOverlayLayout.Mockup.boxLeft * layout.scale - layout.leftX
-        return ZStack(alignment: .topLeading) {
-            Color.clear
-                .frame(width: width, height: layout.temperatureBaseline - top - layout.fonts.temperature.descender)
-            Text(today: layout.dateText, font: layout.fonts.date, tracking: F.dateTracking)
-                .foregroundStyle(Palette.todayText)
-                .fixedSize()
-                .placed(x: 0, baseline: layout.dateBaseline - top)
-            Text(today: layout.dayText, font: layout.dayFont, tracking: F.dayTracking)
-                .foregroundStyle(Palette.todayText)
-                .fixedSize()
-                // The mockup's soft white glow.
-                .shadow(color: Palette.todayText.opacity(0.45), radius: 5 * layout.scale)
-                .shadow(color: Palette.todayText.opacity(0.35), radius: 1 * layout.scale)
-                .placed(x: 0, baseline: layout.dayBaseline - top)
-            if let temperature = state.temperatureF {
-                Text(today: "\(Int(temperature.rounded()))°F", font: layout.fonts.temperature, tracking: F.temperatureTracking)
-                    .foregroundStyle(Palette.todayText)
-                    .fixedSize()
-                    .placed(x: 0, baseline: layout.temperatureBaseline - top)
-            }
+    /// The radius of the screen's own corners less the rim's inset, where
+    /// the system reports it (iOS 27); nil otherwise, and the layout uses
+    /// the mockup's 39.
+    private static func screenCornerRadius(_ proxy: GeometryProxy) -> CGFloat? {
+        if #available(iOS 27.0, *) {
+            let inset = TodayOverlayLayout.Mockup.rimInset
+            let rect = CGRect(origin: .zero, size: proxy.size).insetBy(dx: inset, dy: inset)
+            guard let radii = proxy.concentricCornerRadii(in: rect) else { return nil }
+            let radius = min(radii.topLeading, radii.topTrailing, radii.bottomLeading, radii.bottomTrailing)
+            return radius > 1 ? radius : nil
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: headerLabel(date: date, state: state)))
+        return nil
+    }
+
+    /// The zip's place for the top row, or the DEBUG stand-in.
+    private var placeName: String? {
+        #if DEBUG
+        if !debugPlace.isEmpty { return debugPlace }
+        #endif
+        return model.placeName
+    }
+
+    /// No zip is saved (and no DEBUG place stands in for one).
+    private var showsZipPrompt: Bool {
+        #if DEBUG
+        if !debugPlace.isEmpty { return false }
+        #endif
+        return model.zip == nil
+    }
+
+    // MARK: Tiles and the star
+
+    private func tileTapped(_ tile: HUDTileBar.Tile) {
+        switch tile {
+        case .day: break
+        case .list: destination = .doGet
+        case .save: destination = .saved
+        // Task 194 adds the Listen page.
+        case .listen: break
+        }
+    }
+
+    private func bands(_ shown: [FeedEntry], layout: TodayOverlayLayout) -> [CGRect] {
+        shown.indices.map { layout.titleBand($0) }
+    }
+
+    /// The star let go at `point`: saves the title under it, unless it is
+    /// saved already.
+    private func starDropped(at point: CGPoint, shown: [FeedEntry], layout: TodayOverlayLayout) {
+        starPoint = nil
+        let outcome = StarDrop.outcome(at: point, bands: bands(shown, layout: layout)) { saved.isSaved(shown[$0].link) }
+        if case .save(let index) = outcome {
+            saveFromStar(shown[index])
+        }
+    }
+
+    /// Saves `entry` if it is not saved yet (a drop or VoiceOver's Save
+    /// never removes one).
+    private func saveFromStar(_ entry: FeedEntry) {
+        guard !saved.isSaved(entry.link) else {
+            AccessibilityNotification.Announcement("Already saved").post()
+            return
+        }
+        if saved.save(ReadingItem(entry)) {
+            starSaves += 1
+            AccessibilityNotification.Announcement("Saved").post()
+        }
+    }
+
+    // MARK: Top row, date tile, frame
+
+    /// The mark (white) at the left, which opens the last 7 days until task
+    /// 194 moves that to Saved; the place name and settings in the accent at
+    /// the right.
+    private func topRow(layout: TodayOverlayLayout) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+                .frame(width: layout.size.width, height: layout.markRect.maxY)
+                .allowsHitTesting(false)
+            Button {
+                destination = .history
+            } label: {
+                HUDGlyphView(glyph: .mark, color: Palette.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Last 7 days")
+            .accessibilityHint("Opens every article from the last 7 days")
+            // The headline pull, for VoiceOver, also when the plate is empty.
+            .accessibilityAction(named: Text(TodayPull.headlinesActionName)) { startPull(.headlines) }
+            .placed(x: layout.markRect.midX - 22, y: layout.markRect.midY - 22)
+
+            if let place = placeName {
+                Text(hud: place.uppercased(), style: HUDType.place)
+                    .foregroundStyle(accent)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: layout.placeMaxWidth, alignment: .trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(height: HUDType.place.lineHeight)
+                    .accessibilityLabel(Text(verbatim: place))
+                    .alignmentGuide(.leading) { $0[.trailing] - layout.placeRight }
+                    .alignmentGuide(.top) { _ in -layout.markRect.minY }
+            }
+
+            Button {
+                destination = .settings
+            } label: {
+                HUDGlyphView(glyph: .settings, color: accent)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
+            .placed(x: layout.settingsRect.midX - 22, y: layout.settingsRect.midY - 22)
+        }
+    }
+
+    /// The white date tile: the weekday at the top, a slash and the date at
+    /// the foot. It opens the day screen, like the events box beside it.
+    private func dateTile(_ date: HeaderDate, layout: TodayOverlayLayout) -> some View {
+        typealias M = TodayOverlayLayout.Mockup
+        let tile = layout.dateTile
+        let inset = M.tileBorder + M.tilePadding
+        let ink = Palette.onAccent
+        return Button {
+            destination = .day
+        } label: {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: M.tileRadius)
+                    .fill(Palette.dateTile)
+                Text(hud: date.weekday, style: HUDType.tileLabel)
+                    .foregroundStyle(ink)
+                    .fixedSize()
+                    .frame(height: HUDType.tileLabel.lineHeight)
+                    .padding(.leading, inset)
+                    .padding(.top, inset)
+                HStack(alignment: .bottom, spacing: 0) {
+                    Text(hud: "/", style: HUDType.tileFoot)
+                    Spacer(minLength: 4)
+                    Text(hud: "\(date.month.capitalized) \(date.day)", style: HUDType.tileFoot)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                .foregroundStyle(ink)
+                .frame(height: HUDType.tileFoot.lineHeight)
+                .padding(.horizontal, inset)
+                .padding(.bottom, M.tileBorder + M.tileFootBottom)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            }
+            .frame(width: tile.width, height: tile.height)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TapOnlyButtonStyle())
+        .accessibilityLabel(Text(verbatim: date.spoken))
+        .accessibilityHint("Shows all of today's events")
         .accessibilityAddTraits(.isHeader)
+        .accessibilityAction { destination = .day }
         // The calendar pull, for VoiceOver, which keeps drags for itself.
         .accessibilityAction(named: Text(TodayPull.calendarActionName)) { startPull(.calendar) }
-        .placed(x: layout.leftX, y: top)
+        .placed(x: tile.minX, y: tile.minY)
     }
 
-    private func headerLabel(date: HeaderDate, state: SceneState) -> String {
-        if let temperature = state.temperatureF {
-            return "\(date.spoken), \(Int(temperature.rounded())) degrees Fahrenheit"
+    /// The four white corner brackets round the view, the temperature and
+    /// wind inside the top left (white) and how long the sun or moon is up
+    /// inside the top right (accent). Both labels keep the mockup's dark
+    /// shadow: they sit on the sky.
+    private func frame(layout: TodayOverlayLayout, state: SceneState) -> some View {
+        typealias M = TodayOverlayLayout.Mockup
+        let weather = FrameText.weather(state)
+        let span = FrameText.span(state)
+        let box = layout.frame
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+                .frame(width: layout.size.width, height: box.maxY)
+            FrameBrackets(arm: M.bracket, line: M.bracketLine)
+                .stroke(Color.white.opacity(0.78), lineWidth: M.bracketLine)
+                .frame(width: box.width, height: box.height)
+                .placed(x: box.minX, y: box.minY)
+                .accessibilityHidden(true)
+            if let spoken = weather.spoken {
+                frameLabel(weather.lines, color: Palette.white, alignment: .leading)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(verbatim: spoken))
+                    .placed(x: layout.frameLabelLeft, y: layout.frameLabelTop)
+            }
+            if let spoken = span.spoken {
+                frameLabel(span.lines, color: accent, alignment: .trailing)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(verbatim: spoken))
+                    .alignmentGuide(.leading) { $0[.trailing] - layout.frameLabelRight }
+                    .alignmentGuide(.top) { _ in -layout.frameLabelTop }
+            }
         }
-        return date.spoken
+        .allowsHitTesting(false)
     }
 
-    /// The next three calendar events, or the DEBUG mockup's three.
+    private func frameLabel(_ lines: [String], color: Color, alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 0) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                Text(hud: line, style: HUDType.frameLabel)
+                    .fixedSize()
+                    .frame(height: HUDType.frameLabel.lineHeight)
+            }
+        }
+        .foregroundStyle(color)
+        // The mockup's `text-shadow: 0 0 6px #000, 0 0 2px #000`.
+        .shadow(color: .black, radius: 3)
+        .shadow(color: .black, radius: 1)
+    }
+
+    /// The dark plate under the titles: rim to rim, from 42 under the
+    /// horizon to the rim's bottom, following its corners; its top fades in
+    /// over 36 points so the water runs into it.
+    private func plate(layout: TodayOverlayLayout) -> some View {
+        let plate = layout.plate
+        let fade = TodayOverlayLayout.Mockup.plateFade
+        let plateColor = Palette.hudPlate
+        // The CSS stops: 0 at 0, .22 at 9, .62 at 20, .86 at 29, .93 at 36.
+        let stops: [Gradient.Stop] = [(0, 0), (0.22, 9), (0.62, 20), (0.86, 29), (0.93, 36)].map { opacity, y in
+            Gradient.Stop(color: plateColor.opacity(opacity), location: y / plate.height)
+        }
+        return UnevenRoundedRectangle(
+            topLeadingRadius: 0, bottomLeadingRadius: layout.rimRadius,
+            bottomTrailingRadius: layout.rimRadius, topTrailingRadius: 0
+        )
+        .fill(LinearGradient(stops: stops + [Gradient.Stop(color: plateColor.opacity(0.93), location: 1)], startPoint: .top, endPoint: .bottom))
+        .frame(width: plate.width, height: max(plate.height, fade))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .placed(x: plate.minX, y: plate.minY)
+    }
+
+    /// The next four calendar events, or the DEBUG mockup's four.
     private func eventLabels(now: Date) -> [EventLabel] {
         #if DEBUG
         if debugMockupEvents || !debugEventTitles.isEmpty {
@@ -389,7 +586,8 @@ struct TodayView: View {
             google: google.upcoming(now: now),
             now: now,
             timeZone: eventZone,
-            clock: clockStyle
+            clock: clockStyle,
+            limit: TodayOverlayLayout.Mockup.eventRows
         )
     }
 
@@ -452,32 +650,34 @@ struct TodayView: View {
         eventZone.identifier
     }
 
-    /// One of the three buttons hung from the hairline: a 19-point line icon
-    /// at 38 % of the ink colour, in a 44-point target.
-    private func iconButton(
-        _ icon: LineIcon, label: String, opens target: Destination,
-        layout: TodayOverlayLayout, ink: Color, at index: Int
-    ) -> some View {
-        let center = layout.buttonCenters[index]
-        return Button {
-            destination = target
-        } label: {
-            LineIconView(icon: icon, size: layout.iconSize, lineWidth: 0.09 * layout.iconSize)
-                .foregroundStyle(ink.opacity(0.38))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .placed(x: center.x - 22, y: center.y - 22)
-    }
-
     // MARK: Headlines
 
     /// The day "since yesterday" is counted in: the zip's time zone when a zip
     /// is set and its sky is known, otherwise the phone's.
     private var headlineZone: TimeZone {
         EventZone.resolve(zip: model.zip, snapshot: model.snapshot, device: .autoupdatingCurrent)
+    }
+}
+
+/// The frame's four corner brackets, `arm` long, inside a rectangle; the
+/// stroke is centred `line / 2` in from the edges so it lies inside.
+struct FrameBrackets: Shape {
+    var arm: CGFloat
+    var line: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: line / 2, dy: line / 2)
+        let a = arm - line / 2
+        var path = Path()
+        for (corner, dx, dy) in [
+            (CGPoint(x: r.minX, y: r.minY), 1.0, 1.0), (CGPoint(x: r.maxX, y: r.minY), -1.0, 1.0),
+            (CGPoint(x: r.minX, y: r.maxY), 1.0, -1.0), (CGPoint(x: r.maxX, y: r.maxY), -1.0, -1.0),
+        ] {
+            path.move(to: CGPoint(x: corner.x, y: corner.y + dy * a))
+            path.addLine(to: corner)
+            path.addLine(to: CGPoint(x: corner.x + dx * a, y: corner.y))
+        }
+        return path
     }
 }
 

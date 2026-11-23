@@ -409,7 +409,7 @@ extension FeedModel {
 
         let titles = PlaceholderHeadlines.all
         let excerpts: [String?] = [
-            "Forecasters explain how warm water in the Pacific changes winters far away, in three minutes.",
+            "Physicists explain superposition and where it already turns up in everyday devices, in three minutes.",
             "Botanists say even the hardiest plants are struggling through the longest dry spell on record.",
             nil,
             nil,

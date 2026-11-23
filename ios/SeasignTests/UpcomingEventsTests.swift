@@ -282,6 +282,27 @@ private func event(
         #expect(label(allTuesday).time == "TUE ALL DAY")
     }
 
+    /// The v12 row's time column (task 193): the clock and A or P today,
+    /// ALL for an all-day event today, the weekday for a later day.
+    @Test func rowTimeColumn() {
+        let tonight = label(event("A", "2026-11-16T01:25:00Z"))
+        #expect(tonight.rowTime == "8:25" && tonight.rowLetter == "P")
+        let morning = label(event("A", "2026-11-15T16:00:00Z"))
+        #expect(morning.rowTime == "11:00" && morning.rowLetter == "A")
+        let tuesday = label(event("A", "2026-11-17T14:00:00Z"))
+        #expect(tuesday.rowTime == "TUE" && tuesday.rowLetter == nil)
+        let allToday = event("M", "2026-11-15T05:00:00Z", "2026-11-16T05:00:00Z", allDay: true, date: "2026-11-15")
+        #expect(label(allToday).rowTime == "ALL" && label(allToday).rowLetter == nil)
+        let allTuesday = event("T", "2026-11-17T05:00:00Z", "2026-11-18T05:00:00Z", allDay: true, date: "2026-11-17")
+        #expect(label(allTuesday).rowTime == "TUE" && label(allTuesday).rowLetter == nil)
+
+        let h24 = ClockStyle.twentyFourHour
+        #expect(label(event("A", "2026-11-16T01:25:00Z"), clock: h24).rowTime == "20:25")
+        #expect(label(event("A", "2026-11-16T01:25:00Z"), clock: h24).rowLetter == nil)
+        #expect(label(event("A", "2026-11-17T14:00:00Z"), clock: h24).rowTime == "TUE")
+        #expect(label(allToday, clock: h24).rowTime == "ALL")
+    }
+
     @Test func allDayShowsNoTime() {
         let today = event("Market", "2026-11-15T05:00:00Z", "2026-11-16T05:00:00Z", allDay: true, date: "2026-11-15")
         #expect(label(today).time == "ALL DAY")
