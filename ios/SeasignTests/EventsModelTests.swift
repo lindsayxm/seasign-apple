@@ -775,7 +775,7 @@ private final class World {
         let usage = info.keys.filter { $0.hasSuffix("UsageDescription") }.sorted()
         #expect(usage == ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"])
         #expect(info["NSMicrophoneUsageDescription"] as? String == "Seasign listens when you tap the mic to add a calendar event.")
-        #expect(info["NSSpeechRecognitionUsageDescription"] as? String == "Seasign turns what you say into a calendar event. Your speech is recognised on this iPhone.")
+        #expect(info["NSSpeechRecognitionUsageDescription"] as? String == "Seasign turns what you say into a calendar event. It only uses on-device recognition, so your speech stays on this iPhone.")
         #expect(!info.keys.contains { key in
             ["NSCalendars", "NSReminders", "NSLocation", "NSContacts"].contains { key.hasPrefix($0) }
         })

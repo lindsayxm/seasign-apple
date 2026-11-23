@@ -36,7 +36,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Seasign listens when you tap the mic to add a calendar event.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Seasign turns what you say into a calendar event. Your speech is recognised on this iPhone.</string>
+	<string>Seasign turns what you say into a calendar event. It only uses on-device recognition, so your speech stays on this iPhone.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Jost-400-Book.ttf</string>
