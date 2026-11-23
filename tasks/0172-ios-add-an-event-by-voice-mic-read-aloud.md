@@ -1,11 +1,11 @@
 ---
 id: 172
 title: iOS: add an event by voice: mic, read-aloud, spoken Confirm or Cancel, Voice setting
-status: review
+status: done
 owner: implementer-2
 depends_on: []
 created: 2026-11-22T17:50:02Z
-updated: 2026-11-23T00:35:34Z
+updated: 2026-11-23T00:40:10Z
 ---
 
 ## Goal
@@ -18,7 +18,7 @@ Plan plans/2026-11-22-day-calendar-and-voice.md, task 7. The mic records one phr
 - [x] Listening: SFSpeechRecognizer with requiresOnDeviceRecognition, English, partial results shown, stops on a pause or a second tap, a hard time limit; names from existing event titles as contextualStrings; the audio session is released afterwards; recognizer behind a protocol so tests inject transcripts
 - [x] Read-aloud: after mic entry only, the popup speaks the event in the chosen voice; listening for the answer opens only after speech ends, for a bounded window; only a whole utterance of confirm or cancel counts ('confirm that later' does nothing); voice and tap cannot both fire; typed entry stays silent
 - [x] Settings Voice section: System default plus installed English system voices with a Preview; Settings.voiceIdentifier optional with the old-schema store test; falls back when the stored voice is gone
-- [ ] Tests with injected transcripts and a fake speaker cover the above. Suite passes on both runtimes; screenshots on the iPhone 17. Live microphone, recognition and the voice by ear are the user's checks; say so in the log
+- [x] Tests with injected transcripts and a fake speaker cover the above. Suite passes on both runtimes; screenshots on the iPhone 17. Live microphone, recognition and the voice by ear are the user's checks; say so in the log
 
 ## Relevant files
 
@@ -96,3 +96,6 @@ Plan plans/2026-11-22-day-calendar-and-voice.md, task 7. The mic records one phr
 - 2026-11-23T00:25:16Z [implementer-2] tried: Stress probe of the retry gap (300 confirm/settle/confirm loops in one test, own AddEventPending): 0 stale sends, 0 swallowed retries on a quiet Mac, so not usable as a red test; replaced by waiting on the send task itself.
 - 2026-11-23T00:35:34Z [implementer-2] Correction to the note for 267626c, after a check (commit 65c241c). (1) That commit took the half of the day from the named hour even when no am/pm was written, which moved readings no row pinned: 'call at ten to one am' gave today 00:50 (wrong day; 12:50am is the end of today, as 'flight at 12:30am'), 'party at ten to one tonight' gave 12:50 PM, and 'at ten to seven' 6:50 AM. Now with no am/pm, noon or midnight written, 'ten to H' is read as before (H-1:60-N, half of the day inferred from that); only a written am/pm, noon or midnight is the hour's own ((C): 'ten to twelve pm' 11:50 AM), and a written 'ten to one am' is 12:50am as written. 'at ten to seven' is 6:50 PM again (the old reading); 6:50 AM, to match 'at seven' = 7 AM, is a suggestion for the lead, not built. (2) The earlier note said that without this change 'lunch ten to noon' would read noon with 'ten to' left in the title; wrong: at a4cf957 it was a span (10-12). Without 'at', 'ten to noon', 'five to midnight' and 'ten to 4pm' are spans again, as they were; with 'at' they read 11:50, 11:55 PM, 3:50 PM ((B)). 8 rows pin these (all pass on the a4cf957 parser too): 'call at ten to seven' 18:50, 'call at ten to one am' 11-23 00:50, 'flight friday at ten to one am' 11-27 00:50, 'party at ten to one tonight' 11-23 00:50, 'show at quarter to one friday night' 11-28 00:45, 'shift ten to noon' 10-12, 'open five to midnight' 17:00-00:00, 'shift ten to 4pm' 10-16. Rows run against the a4cf957 parser: '✘ Test run with 10 tests in 1 suite failed after 0.575 seconds with 30 issues.' '** TEST FAILED **' (the 30 new readings of (A)-(F); every older row and the 8 above pass). After 65c241c: parser suite '✔ Test run with 10 tests in 1 suite passed after 0.568 seconds.' '** TEST SUCCEEDED **'; full suite iPhone 16 / iOS 18.3.1: '✔ Test run with 730 tests in 87 suites passed after 74.874 seconds.' '** TEST SUCCEEDED **'; iPhone 17 / iOS 27.2: '✔ Test run with 730 tests in 87 suites passed after 76.766 seconds.' '** TEST SUCCEEDED **'. Screenshot 5: its exact scripted phrase is not in this log; 'four thirty' reads 4:30 PM with or without 'at' after (E), so it reproduces either way. aFinishedSendIsNotKeptAsOut: its red relies on the runtime resuming the newest waiter first; its green does not.
 - 2026-11-23T00:35:34Z [implementer-2] status: in-progress → review
+- 2026-11-23T00:40:09Z [implementer-2] criterion 5 met: Tests with injected transcripts and a fake speaker cover the above. Suite passes on both runtimes; screenshots on the iPhone 17. Live microphone, recognition and the voice by ear are the user's checks; say so in the log
+- 2026-11-23T00:40:10Z [implementer-2] Lead: own run at 65c241c, own DerivedData: iPhone 16 / iOS 18.3.1 'Test run with 730 tests in 87 suites passed', TEST SUCCEEDED; iPhone 17 / iOS 27.2 the same. Earlier lead runs at a4cf957 failed once each on iPhone 16 (aPartialGrantIsHandedBackAndNotKept, a fixed 100 ms sleep, on #175; aRetryAfterATimeoutSendsTheSameId, a real fault fixed in 267626c, fix read by the lead). Closed by the lead: the voice code had two reviews; the last parser pass (267626c, 65c241c) and the retry fix were checked by the lead from the rows and the diff, not by a separate reviewer. Not verified by anyone: live microphone, recognition, the voice by ear, the prompts on a phone, a tap on the popup text stopping the reading, whether the recognizer ends its own result before the 1.5 s pause (then a spoken confirm never counts). Open for the user: wording of the speech-recognition usage string; 'at ten to seven' 6:50 PM or AM.
+- 2026-11-23T00:40:10Z [implementer-2] status: review → done

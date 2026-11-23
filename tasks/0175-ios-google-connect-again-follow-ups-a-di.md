@@ -5,7 +5,7 @@ status: todo
 owner: 
 depends_on: []
 created: 2026-11-22T18:54:27Z
-updated: 2026-11-22T23:56:36Z
+updated: 2026-11-23T00:40:10Z
 ---
 
 ## Goal
@@ -32,3 +32,4 @@ From the #169 review. (1) 'Connect again to add events' from a working connectio
 - 2026-11-22T18:54:27Z [implementer-2] status: todo → in-progress — claimed by implementer-2
 - 2026-11-22T18:54:51Z [implementer-2] status: in-progress → todo
 - 2026-11-22T23:56:36Z [li] Lead: test gap seen 2026-11-22 while verifying #172: aPartialGrantIsHandedBackAndNotKept (GoogleCalendarTests.swift:570) waits a fixed 100 ms for the detached revoke Task and failed once on a busy Mac (iPhone 16 / 18.3.1, 'endpoint.revoked == [FakeGoogle.refresh]'); wait on a signal with a bound instead. Same pass: look for other fixed short sleeps in the Google and voice tests.
+- 2026-11-23T00:40:10Z [li] Lead: also make VoiceEntryModelTests.aConfirmCutOffByTheEndOfTheWindowDoesNothing wait on a signal (failed once on timing for the implementer, 2026-11-22).
