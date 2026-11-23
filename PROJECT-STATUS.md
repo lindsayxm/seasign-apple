@@ -184,3 +184,10 @@ Entry format:
 - In flight: nothing claimed. The user has been shown the first round and has not yet answered.
 - Next: the user's reactions to v12 (accent colour: the reference's orange-red or v11's per-screen ink with `&ink=v11`; the four top tiles; events as leader rows; the fading titles; the bottom tiles Day, Do & get, Saved, History; the rim line), then iterate in `design-ideas/v12-imago/`. Nothing from v12 goes into the app until the user picks it.
 - Notes: the user also asked how much a shipped voice clone would add to the app: roughly 120–160 MB by the published sizes of community Pocket-TTS ports (not measured; #173 would measure it). `memory/notes/2026-11-16-design-ideas.md` has the v12 row.
+
+## 2026-11-22 (end of session) — v12-imago: bottom tile reads List
+
+- Done: #183: in `design-ideas/v12-imago/` the second bottom tile reads `List` (was `Do & get`), at the user's request; `index.html`, `README.md` and the twelve stills updated (stills rendered with headless Chrome, 393×852 at 3×, `?state=<id>&bare&still`).
+- In flight: nothing. No task is claimed and the working tree is clean.
+- Next: the user's further reactions to v12 (only the List label has been asked for so far); then the items under "Next" in the two entries above.
+- Notes: the v0 landing page thumbnails for v12 still show the first round. The user said "good" about v12 without choosing it for the app; nothing from v12 is built in `ios/`.
