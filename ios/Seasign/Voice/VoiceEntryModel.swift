@@ -246,7 +246,15 @@ final class VoiceEntryModel {
         case .failed(.interrupted):
             phase = .notice(.interrupted)
             return
-        case .failed(.unavailable), .cancelled:
+        case .failed(.unavailable):
+            // The recognizer failed with nothing heard: not silence.
+            phase = .notice(.cannotRecognize)
+            return
+        case .failed(.noSpeech):
+            // `listen` gives silence as no words; kept for completeness.
+            phase = .notice(.notHeard)
+            return
+        case .cancelled:
             phase = .notice(.busy)
             return
         }
@@ -378,13 +386,16 @@ final class VoiceEntryModel {
                 return .final(final)
             }
             if let failure = box.failure {
-                // After the audio was ended, an error is how a phone often
-                // answers silence: as no final result (the event keeps the
-                // words heard; the answer counts as none). An interruption
-                // is always one.
-                if endedAudioAt != nil, failure != .interrupted {
-                    return needsFinal ? .cancelled : .final(box.latest)
-                }
+                // An interruption always ends the run as one. Any other
+                // error, before or after the audio was ended, counts as no
+                // final result: the answer counts as none, and the event
+                // keeps the words heard. With no words, the recognizer's
+                // no-speech error is silence ("Nothing was heard"); any
+                // other error is a recognizer that could not listen (task
+                // 179), which must not send the user to the microphone.
+                if failure == .interrupted { return .failed(.interrupted) }
+                if needsFinal { return .cancelled }
+                if !box.latest.isEmpty || failure == .noSpeech { return .final(box.latest) }
                 return .failed(failure)
             }
             let now = ContinuousClock.now

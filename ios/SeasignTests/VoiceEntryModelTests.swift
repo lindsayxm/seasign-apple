@@ -30,8 +30,10 @@ final class FakeListener: SpeechListening {
     var givesFinal = true
     /// The final result `finish()` gives instead of the last partial.
     var finalText: String?
-    /// `finish()` is answered by an error, as a phone often answers silence.
-    var failsOnFinish = false
+    /// `finish()` is answered by this error instead of a final result:
+    /// `.noSpeech` is how a phone answers silence, `.unavailable` a
+    /// recognizer that failed (a missing on-device model, say).
+    var failsOnFinish: SpeechFailure?
     private(set) var starts: [[String]] = []
     private(set) var finishes = 0
     private(set) var stops = 0
@@ -78,8 +80,8 @@ final class FakeListener: SpeechListening {
     func finish() {
         finishes += 1
         log.entries.append("finish")
-        if failsOnFinish {
-            continuation?.yield(.failed(.unavailable))
+        if let failsOnFinish {
+            continuation?.yield(.failed(failsOnFinish))
             continuation?.finish()
             continuation = nil
             return
@@ -434,11 +436,13 @@ final class FakeSpeaker: SpeechSpeaking {
     }
 
     /// A phone often answers the end of the audio with an error instead of
-    /// a final result: the words heard still make the popup, silence still
-    /// says nothing was heard, and the answer counts as none.
-    @Test func anErrorAfterTheAudioEndedCountsAsNoFinalResult() async throws {
+    /// a final result. Either kind of error (silence, or a recognizer that
+    /// failed), before or after the audio ended: the words heard still make
+    /// the popup.
+    @Test(arguments: [SpeechFailure.noSpeech, .unavailable])
+    func wordsHeardBeforeAnErrorStillMakeThePopup(_ failure: SpeechFailure) async throws {
         let rig = try await rig()
-        rig.listener.failsOnFinish = true
+        rig.listener.failsOnFinish = failure
         rig.voice.micTapped()
         #expect(await eventually { rig.listener.isListening })
         rig.listener.hear(said)
@@ -446,22 +450,111 @@ final class FakeSpeaker: SpeechSpeaking {
         rig.voice.interrupt()
         rig.adder.cancel()
 
-        rig.voice.micTapped()
-        await settle(rig.voice)
-        #expect(rig.voice.notice == .notHeard)
-
-        rig.listener.failsOnFinish = false
+        // The error comes while the audio is still on.
+        rig.listener.failsOnFinish = nil
         rig.voice.micTapped()
         #expect(await eventually { rig.listener.isListening })
         rig.listener.hear(said)
-        #expect(await eventually { rig.speaker.isSpeaking })
-        rig.listener.failsOnFinish = true
+        rig.listener.send(.failed(failure))
+        #expect(await eventually { rig.adder.stage == .reviewing(meeting) })
+        rig.voice.interrupt()
+    }
+
+    /// Silence, reported by the recognizer as no speech (1110), says
+    /// nothing was heard, whether it came after the audio ended or before.
+    @Test func silenceReportedByTheRecognizerSaysNothingWasHeard() async throws {
+        let rig = try await rig()
+        rig.listener.failsOnFinish = .noSpeech
+        rig.voice.micTapped()
+        await settle(rig.voice)
+        #expect(rig.voice.notice == .notHeard)
+        #expect(rig.listener.finishes == 1)
+
+        rig.listener.failsOnFinish = nil
+        rig.voice.micTapped()
+        #expect(await eventually { rig.listener.isListening })
+        rig.listener.send(.failed(.noSpeech))
+        await settle(rig.voice)
+        #expect(rig.voice.notice == .notHeard)
+        #expect(!rig.adder.isOpen)
+        #expect(rig.speaker.spoken.isEmpty)
+    }
+
+    /// Task 179: a recognizer that fails with nothing heard (on the
+    /// Simulator, a missing on-device model: 1101 on every attempt) is not
+    /// silence. It says speech can't be recognised and points to the +,
+    /// instead of sending the user to look at the microphone.
+    @Test func aRecognizerThatFailsWithNothingHeardSaysSoAndPointsToThePlus() async throws {
+        let rig = try await rig()
+        // After the audio ended (no words by `firstWords`).
+        rig.listener.failsOnFinish = .unavailable
+        rig.voice.micTapped()
+        await settle(rig.voice)
+        #expect(rig.listener.finishes == 1)
+        #expect(rig.voice.notice == .cannotRecognize)
+        #expect(!rig.adder.isOpen)
+        #expect(rig.speaker.spoken.isEmpty)
+
+        // While the audio was still on.
+        rig.listener.failsOnFinish = nil
+        rig.voice.micTapped()
+        #expect(await eventually { rig.listener.isListening })
+        rig.listener.send(.failed(.unavailable))
+        await settle(rig.voice)
+        #expect(rig.voice.notice == .cannotRecognize)
+        #expect(!rig.adder.isOpen)
+        #expect(rig.speaker.spoken.isEmpty)
+
+        let message = VoiceNotice.cannotRecognize.message
+        #expect(message.contains("can't be recognised on this iPhone right now"))
+        #expect(message.contains("Use + to type the event"))
+        #expect(!message.contains("Nothing was heard"))
+        #expect(VoiceNotice.cannotRecognize.opensSystemSettings == false)
+
+        // The + still opens the field, and the notice goes.
+        rig.voice.typingStarted()
+        rig.adder.open()
+        #expect(rig.adder.stage == .entering)
+        #expect(rig.voice.phase == .idle)
+    }
+
+    /// In the answer window any error is no answer: the popup and its
+    /// buttons stay and nothing is added, even with "confirm" heard first.
+    @Test(arguments: [SpeechFailure.noSpeech, .unavailable])
+    func anErrorInTheAnswerWindowIsNoAnswer(_ failure: SpeechFailure) async throws {
+        let rig = try await rig()
+        await sayTheExample(rig)
+        rig.listener.failsOnFinish = failure
         await readingEnds(rig)
         rig.listener.hear("confirm")
         await settle(rig.voice)
         #expect(rig.voice.phase == .idle)
+        #expect(rig.voice.notice == nil)
         #expect(rig.adder.stage == .reviewing(meeting))
         #expect(creates() == 0)
+
+        // The error comes while the window's audio is still on.
+        rig.adder.cancel()
+        rig.listener.failsOnFinish = nil
+        await sayTheExample(rig)
+        await readingEnds(rig)
+        rig.listener.hear("confirm")
+        rig.listener.send(.failed(failure))
+        await settle(rig.voice)
+        #expect(rig.voice.phase == .idle)
+        #expect(rig.adder.stage == .reviewing(meeting))
+        #expect(creates() == 0)
+    }
+
+    /// Only the recognizer's no-speech error counts as silence; the codes
+    /// are from Apple's table under `SFSpeechRecognitionTask.error`.
+    @Test func onlyTheNoSpeechErrorCountsAsSilence() {
+        #expect(SpeechFailure(recognizerError: NSError(domain: "kAFAssistantErrorDomain", code: 1110)) == .noSpeech)
+        #expect(SpeechFailure(recognizerError: NSError(domain: "kAFAssistantErrorDomain", code: 1101)) == .unavailable)
+        #expect(SpeechFailure(recognizerError: NSError(domain: "kAFAssistantErrorDomain", code: 1107)) == .unavailable)
+        #expect(SpeechFailure(recognizerError: NSError(domain: "kAFAssistantErrorDomain", code: 203)) == .unavailable)
+        #expect(SpeechFailure(recognizerError: NSError(domain: "kLSRErrorDomain", code: 102)) == .unavailable)
+        #expect(SpeechFailure(recognizerError: NSError(domain: "SomeOtherDomain", code: 1110)) == .unavailable)
     }
 
     @Test func nothingHeardSaysSoAndOpensNoPopup() async throws {

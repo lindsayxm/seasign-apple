@@ -16,11 +16,14 @@ import Foundation
 ///   screenshot of the listening state or the answer window).
 /// - `-debugVoiceUnavailable unsupported|micDenied|speechDenied|restricted|busy`:
 ///   the mic reports this instead of listening.
+/// - `-debugVoiceFail noSpeech|unavailable`: the end of listening is
+///   answered by this recognizer error instead of a final result (task 179:
+///   `unavailable` is a recognizer that failed, as a missing on-device model).
 /// - `-debugVoiceStart YES`: the mic is tapped when the day screen opens.
 enum VoiceDebug {
     static var isRequested: Bool {
         let defaults = UserDefaults.standard
-        return ["debugVoiceSay", "debugVoiceAnswer", "debugVoiceUnavailable"].contains { defaults.string(forKey: $0) != nil }
+        return ["debugVoiceSay", "debugVoiceAnswer", "debugVoiceUnavailable", "debugVoiceFail"].contains { defaults.string(forKey: $0) != nil }
             || defaults.bool(forKey: "debugVoiceHold") || defaults.bool(forKey: "debugVoiceStart")
     }
 
@@ -46,6 +49,11 @@ enum VoiceDebug {
         case "busy": .busy
         default: .ready
         }
+        let failure: SpeechFailure? = switch defaults.string(forKey: "debugVoiceFail") {
+        case "noSpeech": .noSpeech
+        case "unavailable": .unavailable
+        default: nil
+        }
         var timing = VoiceEntryModel.Timing()
         if hold {
             timing.pause = .seconds(600)
@@ -53,7 +61,7 @@ enum VoiceDebug {
             timing.phraseLimit = .seconds(600)
             timing.answerWindow = .seconds(600)
         }
-        return (ScriptedSpeechListener(availability: availability, scripts: scripts), TimedSpeechSpeaker(), timing)
+        return (ScriptedSpeechListener(availability: availability, scripts: scripts, failure: failure), TimedSpeechSpeaker(), timing)
     }
 
     /// "lunch with Rahaf" → ["lunch", "lunch with", "lunch with Rahaf"].
@@ -65,18 +73,21 @@ enum VoiceDebug {
 
 /// Hears scripted words: each `start` takes the next script and reports
 /// its partial results a quarter second apart; `finish` gives the last of
-/// them as the final result. With no script left it hears nothing.
+/// them as the final result, or `failure` instead when it is set. With no
+/// script left it hears nothing.
 @MainActor
 final class ScriptedSpeechListener: SpeechListening {
     private let fixed: SpeechAvailability
     private var scripts: [[String]]
+    private let failure: SpeechFailure?
     private var continuation: AsyncStream<SpeechEvent>.Continuation?
     private var feeding: Task<Void, Never>?
     private var latest = ""
 
-    init(availability: SpeechAvailability, scripts: [[String]]) {
+    init(availability: SpeechAvailability, scripts: [[String]], failure: SpeechFailure? = nil) {
         fixed = availability
         self.scripts = scripts
+        self.failure = failure
     }
 
     func availability() -> SpeechAvailability { fixed }
@@ -102,7 +113,7 @@ final class ScriptedSpeechListener: SpeechListening {
 
     func finish() {
         feeding?.cancel()
-        continuation?.yield(.final(latest))
+        continuation?.yield(failure.map { .failed($0) } ?? .final(latest))
         continuation?.finish()
         continuation = nil
     }

@@ -194,11 +194,27 @@ final class SystemSpeechListener: SpeechListening {
                 } else {
                     continuation.yield(.partial(words))
                 }
-            } else if error != nil {
-                continuation.yield(.failed(.unavailable))
+            } else if let error {
+                // Only the kind of error goes on, never the error itself.
+                continuation.yield(.failed(SpeechFailure(recognizerError: error)))
                 continuation.finish()
             }
         }
+    }
+}
+
+extension SpeechFailure {
+    /// An error from the recognition task, as the model needs it (task 179).
+    /// Apple's table of the errors a task may give
+    /// (`SFSpeechRecognitionTask.error`) lists `kAFAssistantErrorDomain`
+    /// 1110 as "Failed to recognize any speech": silence. Everything else
+    /// (1101 "Connection to speech process was invalidated", `kLSRErrorDomain`
+    /// 102 "Assets are not installed", and the rest) is a recognizer that
+    /// could not do its job. Only the domain and code are compared; nothing
+    /// is logged.
+    nonisolated init(recognizerError error: any Error) {
+        let error = error as NSError
+        self = error.domain == "kAFAssistantErrorDomain" && error.code == 1110 ? .noSpeech : .unavailable
     }
 }
 

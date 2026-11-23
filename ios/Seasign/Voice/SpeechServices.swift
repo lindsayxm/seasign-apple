@@ -37,7 +37,12 @@ enum SpeechEvent: Equatable, Sendable {
 enum SpeechFailure: Error, Equatable, Sendable {
     /// A call, an alarm or another app took the audio.
     case interrupted
-    /// Recognition could not start or stopped with an error.
+    /// The recognizer heard no speech: silence, not a fault
+    /// (`kAFAssistantErrorDomain` 1110, "Failed to recognize any speech").
+    case noSpeech
+    /// Recognition could not start, or the recognizer stopped with any
+    /// other error (on the Simulator a missing on-device model ended every
+    /// attempt with `kAFAssistantErrorDomain` 1101).
     case unavailable
 }
 
@@ -152,6 +157,9 @@ enum VoiceNotice: Equatable, Sendable {
     case restricted
     case busy
     case notHeard
+    /// The recognizer failed with nothing heard: not silence, so the mic
+    /// is not blamed.
+    case cannotRecognize
     case interrupted
 
     var message: String {
@@ -168,6 +176,8 @@ enum VoiceNotice: Equatable, Sendable {
             "Speech recognition isn't available right now. Try the mic again in a moment, or use + to type the event."
         case .notHeard:
             "Nothing was heard. Tap the mic and say the event and when, like “Lunch with Ann tomorrow at noon”."
+        case .cannotRecognize:
+            "Speech can't be recognised on this iPhone right now. Use + to type the event, or try the mic again later."
         case .interrupted:
             "Listening stopped because another sound took over. Tap the mic to try again."
         }
