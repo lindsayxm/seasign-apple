@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A two-sided pill switch with both labels always visible ("Use My List" |
-/// "Let AI Search"); the chosen side is filled.
+/// A two-sided switch with both labels always visible ("Use My List" |
+/// "Let AI Search"); the chosen side is filled with the HUD accent, the
+/// whole outlined in it (design v12, task 195).
 ///
 /// To VoiceOver it is one control: its label, the chosen side as its value,
 /// double-tap to switch sides and swipe up or down to adjust. It follows
@@ -16,6 +17,7 @@ struct PillToggle: View {
     var choose: (Bool) -> Void
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.hudAccent) private var accent
 
     var body: some View {
         let layout = typeSize.isAccessibilitySize
@@ -26,10 +28,7 @@ struct PillToggle: View {
             segment(right, selected: isRight) { choose(true) }
         }
         .padding(4)
-        .background(
-            RoundedRectangle(cornerRadius: typeSize.isAccessibilitySize ? 24 : 40, style: .continuous)
-                .strokeBorder(Palette.rule, lineWidth: 1)
-        )
+        .background(HUDShape.rect.strokeBorder(accent, lineWidth: HUDShape.line))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
         .accessibilityValue(isRight ? right : left)
@@ -48,15 +47,16 @@ struct PillToggle: View {
     private func segment(_ text: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(caps: text)
-                .capsRelative(10.5, medium: selected, tracking: 0.12)
-                .foregroundStyle(selected ? Palette.charcoal : Palette.dimText)
+                .hudText(.chip)
+                .fontWeight(selected ? .semibold : .regular)
+                .foregroundStyle(selected ? Palette.onAccent : Palette.dimText)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .background(
-                    Capsule().fill(selected ? Palette.white : Color.clear)
+                    RoundedRectangle(cornerRadius: max(HUDShape.radius - 2, 1)).fill(selected ? accent : Color.clear)
                 )
-                .contentShape(Capsule())
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

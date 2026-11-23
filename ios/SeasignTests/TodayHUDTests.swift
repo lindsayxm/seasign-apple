@@ -179,12 +179,49 @@ import Testing
         #expect(!flight.isFlying && flight.row(bands: bands) == nil)
         // Lifted over a title: saved, and the star is back.
         flight.move(finger: over)
-        #expect(flight.land(finger: over, bands: bands) { _ in false } == .save(1))
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == .save(1))
         #expect(!flight.isFlying)
         // Lifted elsewhere: nothing, and the star is back.
         flight.move(finger: CGPoint(x: 200, y: 300))
-        #expect(flight.land(finger: CGPoint(x: 200, y: 300), bands: bands) { _ in false } == StarDrop.Outcome.none)
+        #expect(flight.land(finger: CGPoint(x: 200, y: 300), bands: bands, activity: onToday) { _ in false } == StarDrop.Outcome.none)
         #expect(!flight.isFlying)
+    }
+
+    /// Today showing, nothing over it, the app active.
+    private var onToday: TodayActivity {
+        TodayActivity(tab: .day, coverOpen: false, appActive: true)
+    }
+
+    /// A landing saves only when a drag is under way and Today is the page
+    /// showing with nothing over it (task 195, from the task 194 review):
+    /// a lift with no drag (none started, or one already cancelled), or on
+    /// another page or under a cover, saves nothing and leaves the star in
+    /// its tile.
+    @Test func aLandingWithNoDragOrOffTodaySavesNothing() {
+        let over = CGPoint(x: 120, y: layout.titleRowTop(1) + 8 + StarDrop.lift)
+        var flight = StarFlight()
+        // No drag started.
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == StarDrop.Outcome.none)
+        #expect(!flight.isFlying)
+        // A drag already cancelled.
+        flight.move(finger: over)
+        flight.cancel()
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == StarDrop.Outcome.none)
+        #expect(!flight.isFlying)
+        // A drag under way, but another page is showing, or a cover is up.
+        for tab in HUDTileBar.Tile.allCases where tab != .day {
+            flight.move(finger: over)
+            let elsewhere = TodayActivity(tab: tab, coverOpen: false, appActive: true)
+            #expect(flight.land(finger: over, bands: bands, activity: elsewhere) { _ in false } == StarDrop.Outcome.none, "\(tab)")
+            #expect(!flight.isFlying)
+        }
+        flight.move(finger: over)
+        let covered = TodayActivity(tab: .day, coverOpen: true, appActive: true)
+        #expect(flight.land(finger: over, bands: bands, activity: covered) { _ in false } == StarDrop.Outcome.none)
+        #expect(!flight.isFlying)
+        // The same drop with a drag under way on Today saves the title.
+        flight.move(finger: over)
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == .save(1))
     }
 
     /// A tap on the tile is not a drag, and the drag starts before Today's

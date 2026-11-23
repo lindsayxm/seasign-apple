@@ -145,15 +145,18 @@ struct HistoryView: View {
     }
 }
 
-/// The thin X in the top right of History and the day screen that closes it.
+/// The thin X in the top right of History, the day screen and Settings
+/// that closes it, in the HUD accent (design v12, task 195).
 struct CloseMark: View {
     var action: () -> Void
+
+    @Environment(\.hudAccent) private var accent
 
     var body: some View {
         Button(action: action) {
             Image(systemName: "xmark")
-                .font(.system(size: 20, weight: .thin))
-                .foregroundStyle(Palette.dimText)
+                .font(.system(size: 20, weight: .light))
+                .foregroundStyle(accent)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }

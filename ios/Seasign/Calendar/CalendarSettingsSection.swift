@@ -38,11 +38,7 @@ struct CalendarSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(caps: "Calendars")
-                .capsRelative(11)
-                .foregroundStyle(Palette.dimText)
-                .padding(.top, 24)
-                .accessibilityAddTraits(.isHeader)
+            HUDSectionHeader(title: "Calendars")
 
             ForEach(model.links, id: \.id) { link in
                 row(link)
@@ -59,7 +55,7 @@ struct CalendarSettingsSection: View {
             ForEach(Self.instructions, id: \.provider) { item in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(caps: item.provider)
-                        .capsRelative(10, medium: true, tracking: 0.12)
+                        .hudText(.rowName)
                         .foregroundStyle(Palette.white)
                     note(item.steps)
                 }
@@ -88,11 +84,11 @@ struct CalendarSettingsSection: View {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(caps: link.name)
-                        .capsRelative(11.5, medium: true)
+                        .hudText(.rowName)
                         .foregroundStyle(Palette.white)
                     // The host only: the rest of a link is the secret.
                     Text(caps: LinkMask.host(of: link.url) ?? "Link saved")
-                        .capsRelative(9.5, tracking: 0.12)
+                        .hudText(.detail)
                         .foregroundStyle(Palette.dimText)
                 }
                 Spacer(minLength: 8)
@@ -100,26 +96,16 @@ struct CalendarSettingsSection: View {
                     removing = link
                 } label: {
                     Text(caps: "Remove")
-                        .capsRelative(10)
-                        .foregroundStyle(Palette.dimText)
-                        .underline()
-                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hudLink(minWidth: 44, alignment: .trailing))
                 .accessibilityLabel("Remove \(link.name)")
             }
             if let message = status?.message {
-                Text(caps: message)
-                    .capsRelative(10, tracking: 0.12)
-                    .lineSpacing(3)
-                    // A calendar that could not be read stands out; a partly
-                    // read one is only noted.
-                    .foregroundStyle(status?.problem != nil ? Palette.sun : Palette.dimText)
+                // A calendar that could not be read stands out; a partly
+                // read one is only noted.
+                HUDNote(text: message, warning: status?.problem != nil)
             }
-            Rectangle()
-                .fill(Palette.rule)
-                .frame(height: 1)
+            HUDRule()
         }
     }
 
@@ -143,23 +129,15 @@ struct CalendarSettingsSection: View {
                 .onSubmit { add() }
 
             if let problem {
-                Text(caps: problem.message)
-                    .capsRelative(10.5, tracking: 0.12)
-                    .lineSpacing(3)
-                    .foregroundStyle(Palette.sun)
+                HUDNote(text: problem.message, warning: true)
             }
 
             Button {
                 add()
             } label: {
                 Text(caps: isChecking ? "Checking" : "Add calendar")
-                    .capsRelative(11, medium: true)
-                    .foregroundStyle(canAdd ? Palette.charcoal : Palette.dimText)
-                    .padding(.horizontal, 18)
-                    .frame(minHeight: 44)
-                    .background(canAdd ? Palette.white : Palette.rule.opacity(0.4), in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hudFilled)
             .disabled(!canAdd)
         }
         .onChange(of: name) { problem = nil }
@@ -169,26 +147,19 @@ struct CalendarSettingsSection: View {
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(caps: label)
-                .capsRelative(9.5, tracking: 0.15)
+                .hudText(.label)
                 .foregroundStyle(Palette.dimText)
                 .accessibilityHidden(true)
             TextField("", text: text, prompt: Text(prompt).foregroundStyle(Palette.rule))
-                .font(.capsRelative(13))
-                .foregroundStyle(Palette.white)
-                .tint(Palette.dayWater)
+                .hudField()
                 .frame(minHeight: 44)
                 .accessibilityLabel(label)
-            Rectangle()
-                .fill(Palette.rule)
-                .frame(height: 1)
+            HUDRule(accent: true)
         }
     }
 
     private func note(_ text: String) -> some View {
-        Text(caps: text)
-            .capsRelative(10, tracking: 0.12)
-            .lineSpacing(4)
-            .foregroundStyle(Palette.dimText)
+        HUDNote(text: text)
     }
 
     private var canAdd: Bool {

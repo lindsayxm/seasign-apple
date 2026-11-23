@@ -167,6 +167,18 @@ struct HUDAccentRoot<Content: View>: View {
     }
 
     var body: some View {
-        content.environment(\.hudAccent, HUDAccent.color(hue: settings.first?.hudHue))
+        content.environment(\.hudAccent, HUDAccent.color(hue: Self.hue(stored: settings.first?.hudHue)))
+    }
+
+    /// The hue every screen draws with: the stored one. In DEBUG builds
+    /// `-debugHue <degrees>` stands in for it without writing the store
+    /// (screenshots); the Settings slider still shows the stored hue.
+    static func hue(stored: Double?) -> Double? {
+        #if DEBUG
+        if let text = UserDefaults.standard.string(forKey: "debugHue"), let debug = Double(text) {
+            return debug
+        }
+        #endif
+        return stored
     }
 }

@@ -23,6 +23,7 @@ extension SkyStore {
 /// system default.
 struct VoiceSettingsSection: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.hudAccent) private var accent
 
     @State private var groups: [VoiceCatalog.Group] = []
     @State private var selected: String?
@@ -31,20 +32,16 @@ struct VoiceSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(caps: "Voice")
-                .capsRelative(11)
-                .foregroundStyle(Palette.dimText)
-                .padding(.top, 24)
-                .accessibilityAddTraits(.isHeader)
+            HUDSectionHeader(title: "Voice")
 
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(caps: selectedName)
-                        .capsRelative(12, medium: true, tracking: 0.12)
+                        .hudText(.rowName)
                         .foregroundStyle(Palette.white)
                     if let detail = selectedDetail {
                         Text(caps: detail)
-                            .capsRelative(9.5, tracking: 0.12)
+                            .hudText(.detail)
                             .foregroundStyle(Palette.dimText)
                     }
                 }
@@ -60,7 +57,7 @@ struct VoiceSettingsSection: View {
                     row(name: "System default", detail: defaultDetail, identifier: nil)
                     ForEach(groups) { group in
                         Text(caps: group.title)
-                            .capsRelative(9.5, tracking: 0.15)
+                            .hudText(.label)
                             .foregroundStyle(Palette.dimText)
                             .padding(.top, 16)
                             .padding(.bottom, 2)
@@ -72,11 +69,7 @@ struct VoiceSettingsSection: View {
                 }
             }
 
-            Text(caps: "After you add an event with the mic, Seasign reads it aloud in this voice. The voices are on this iPhone; more can be downloaded in the iPhone's Settings, under Accessibility, Spoken Content, Voices.")
-                .capsRelative(10, tracking: 0.12)
-                .lineSpacing(4)
-                .foregroundStyle(Palette.dimText)
-                .fixedSize(horizontal: false, vertical: true)
+            HUDNote(text: "After you add an event with the mic, Seasign reads it aloud in this voice. The voices are on this iPhone; more can be downloaded in the iPhone's Settings, under Accessibility, Spoken Content, Voices.")
         }
         .onAppear(perform: load)
         .onDisappear { preview.stop() }
@@ -123,15 +116,16 @@ struct VoiceSettingsSection: View {
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Circle()
-                    .fill(isSelected ? Palette.white : Color.clear)
-                    .overlay(Circle().stroke(Palette.dimText, lineWidth: 1))
+                    .fill(isSelected ? accent : Color.clear)
+                    .overlay(Circle().stroke(accent, lineWidth: 1))
                     .frame(width: 9, height: 9)
                 Text(caps: name)
-                    .capsRelative(11, medium: isSelected, tracking: 0.12)
+                    .hudText(.rowName)
+                    .fontWeight(isSelected ? .semibold : .regular)
                     .foregroundStyle(Palette.white)
                 if let detail {
                     Text(caps: detail)
-                        .capsRelative(9.5, tracking: 0.12)
+                        .hudText(.detail)
                         .foregroundStyle(Palette.dimText)
                 }
                 Spacer(minLength: 0)
@@ -147,25 +141,15 @@ struct VoiceSettingsSection: View {
     private func pill(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(caps: label)
-                .capsRelative(11, medium: true)
-                .foregroundStyle(Palette.charcoal)
-                .padding(.horizontal, 18)
-                .frame(minHeight: 44)
-                .background(Palette.white, in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudFilled)
     }
 
     private func textLink(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(caps: label)
-                .capsRelative(10)
-                .foregroundStyle(Palette.dimText)
-                .underline()
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudLink)
     }
 }
 

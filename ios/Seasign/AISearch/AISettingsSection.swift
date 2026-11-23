@@ -24,11 +24,7 @@ struct AISettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(caps: "AI search")
-                .capsRelative(11)
-                .foregroundStyle(Palette.dimText)
-                .padding(.top, 24)
-                .accessibilityAddTraits(.isHeader)
+            HUDSectionHeader(title: "AI search")
 
             PillToggle(
                 label: "AI search",
@@ -53,10 +49,7 @@ struct AISettingsSection: View {
             searchNowRow
 
             if let problem = model.problem {
-                Text(caps: problem.message)
-                    .capsRelative(10.5, tracking: 0.12)
-                    .lineSpacing(3)
-                    .foregroundStyle(Palette.sun)
+                HUDNote(text: problem.message, warning: true)
             } else if let last = model.lastSearch {
                 note(last.found == 1 ? "The last search found 1 article." : "The last search found \(last.found) articles.")
             }
@@ -115,13 +108,8 @@ struct AISettingsSection: View {
                             model.setProvider(provider)
                         } label: {
                             Text(caps: provider.displayName)
-                                .capsRelative(10, medium: selected, tracking: 0.12)
-                                .foregroundStyle(selected ? Palette.charcoal : Palette.white)
-                                .padding(.horizontal, 12)
-                                .frame(minHeight: 36)
-                                .background(selected ? Palette.white : Palette.rule.opacity(0.35), in: Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.hudChip(selected: selected))
                         .accessibilityLabel("Provider " + provider.displayName)
                         .accessibilityAddTraits(selected ? .isSelected : [])
                     }
@@ -144,7 +132,7 @@ struct AISettingsSection: View {
                 // there, so this does not ask for it. Replace stays possible.
                 HStack(alignment: .center, spacing: 16) {
                     Text(caps: "Key can't be read now")
-                        .capsRelative(11.5, medium: true)
+                        .hudText(.rowName)
                         .foregroundStyle(Palette.sun)
                     Spacer(minLength: 8)
                     textButton("Try again") {
@@ -162,7 +150,7 @@ struct AISettingsSection: View {
             } else if model.hasKey && !isReplacingKey {
                 HStack(alignment: .center, spacing: 16) {
                     Text(caps: "Key saved")
-                        .capsRelative(11.5, medium: true)
+                        .hudText(.rowName)
                         .foregroundStyle(Palette.white)
                     Spacer(minLength: 8)
                     textButton("Replace") {
@@ -179,9 +167,7 @@ struct AISettingsSection: View {
                 .frame(minHeight: 44)
             } else {
                 SecureField("", text: $keyText, prompt: Text(verbatim: "Paste your key").foregroundStyle(Palette.rule))
-                    .font(.capsRelative(13))
-                    .foregroundStyle(Palette.white)
-                    .tint(Palette.dayWater)
+                    .hudField()
                     .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -197,13 +183,8 @@ struct AISettingsSection: View {
                         saveKey()
                     } label: {
                         Text(caps: "Save key")
-                            .capsRelative(11, medium: true)
-                            .foregroundStyle(keyText.isEmpty ? Palette.dimText : Palette.charcoal)
-                            .padding(.horizontal, 18)
-                            .frame(minHeight: 44)
-                            .background(keyText.isEmpty ? Palette.rule.opacity(0.4) : Palette.white, in: Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hudFilled)
                     .disabled(keyText.isEmpty)
                     if isReplacingKey {
                         textButton("Cancel") {
@@ -215,10 +196,7 @@ struct AISettingsSection: View {
                 }
             }
             if let keyProblem {
-                Text(caps: keyProblem.message)
-                    .capsRelative(10.5, tracking: 0.12)
-                    .lineSpacing(3)
-                    .foregroundStyle(Palette.sun)
+                HUDNote(text: keyProblem.message, warning: true)
             }
         }
         .onChange(of: keyText) {
@@ -251,9 +229,7 @@ struct AISettingsSection: View {
                 prompt: Text(verbatim: "tide pools, new telescopes").foregroundStyle(Palette.rule),
                 axis: .vertical
             )
-            .font(.capsRelative(13))
-            .foregroundStyle(Palette.white)
-            .tint(Palette.dayWater)
+            .hudField()
             .lineLimit(1...6)
             .textInputAutocapitalization(.never)
             .submitLabel(.done)
@@ -283,14 +259,12 @@ struct AISettingsSection: View {
                 in: DailyCap.range
             ) {
                 Text(caps: "Max searches per day: \(model.dailyCap)")
-                    .capsRelative(10.5, tracking: 0.12)
+                    .hudText(.rowName)
                     .foregroundStyle(Palette.white)
             }
             .accessibilityLabel("Maximum searches per day")
             .accessibilityValue("\(model.dailyCap)")
-            Text(caps: model.usageLine)
-                .capsRelative(10, tracking: 0.12)
-                .foregroundStyle(model.capReached ? Palette.sun : Palette.dimText)
+            HUDNote(text: model.usageLine, warning: model.capReached)
         }
     }
 
@@ -300,13 +274,8 @@ struct AISettingsSection: View {
             Task { await model.searchNow() }
         } label: {
             Text(caps: model.isSearching ? "Searching" : "Search now")
-                .capsRelative(10)
-                .foregroundStyle(model.canSearchNow ? Palette.white : Palette.dimText)
-                .underline()
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudLink)
         .disabled(!model.canSearchNow)
         .accessibilityHint("Runs one AI search now. It counts toward today's searches.")
     }
@@ -315,35 +284,23 @@ struct AISettingsSection: View {
 
     private func label(_ text: String) -> some View {
         Text(caps: text)
-            .capsRelative(9.5, tracking: 0.15)
+            .hudText(.label)
             .foregroundStyle(Palette.dimText)
             .accessibilityHidden(true)
     }
 
     private var rule: some View {
-        Rectangle()
-            .fill(Palette.rule)
-            .frame(height: 1)
-            .accessibilityHidden(true)
+        HUDRule(accent: true)
     }
 
     private func note(_ text: String, warning: Bool = false) -> some View {
-        Text(caps: text)
-            .capsRelative(10, tracking: 0.12)
-            .lineSpacing(4)
-            .foregroundStyle(warning ? Palette.sun : Palette.dimText)
-            .fixedSize(horizontal: false, vertical: true)
+        HUDNote(text: text, warning: warning)
     }
 
     private func textButton(_ text: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(caps: text)
-                .capsRelative(10)
-                .foregroundStyle(Palette.dimText)
-                .underline()
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudLink(minWidth: 44, alignment: .center))
     }
 }

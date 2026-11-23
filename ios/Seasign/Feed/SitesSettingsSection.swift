@@ -30,11 +30,7 @@ struct SitesSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(caps: "Sites")
-                .capsRelative(11)
-                .foregroundStyle(Palette.dimText)
-                .padding(.top, 24)
-                .accessibilityAddTraits(.isHeader)
+            HUDSectionHeader(title: "Sites")
 
             ForEach(model.sites, id: \.id) { site in
                 row(site)
@@ -82,11 +78,11 @@ struct SitesSettingsSection: View {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(caps: site.title)
-                        .capsRelative(11.5, medium: true)
+                        .hudText(.rowName)
                         .foregroundStyle(Palette.white)
                         .lineLimit(2)
                     Text(caps: [site.category, host].filter { !$0.isEmpty }.joined(separator: " · "))
-                        .capsRelative(9.5, tracking: 0.12)
+                        .hudText(.detail)
                         .foregroundStyle(Palette.dimText)
                         .lineLimit(1)
                 }
@@ -95,22 +91,12 @@ struct SitesSettingsSection: View {
                     removing = Removal(id: site.id, title: site.title)
                 } label: {
                     Text(caps: "Remove")
-                        .capsRelative(10)
-                        .foregroundStyle(Palette.dimText)
-                        .underline()
-                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hudLink(minWidth: 44, alignment: .trailing))
                 .accessibilityLabel("Remove " + site.title)
             }
-            Text(caps: line.text)
-                .capsRelative(10, tracking: 0.12)
-                .lineSpacing(3)
-                .foregroundStyle(line.isProblem ? Palette.sun : Palette.dimText)
-            Rectangle()
-                .fill(Palette.rule)
-                .frame(height: 1)
+            HUDNote(text: line.text, warning: line.isProblem)
+            HUDRule()
         }
     }
 
@@ -119,13 +105,8 @@ struct SitesSettingsSection: View {
             Task { await model.refresh(force: true) }
         } label: {
             Text(caps: model.isRefreshing ? "Refreshing" : "Refresh headlines now")
-                .capsRelative(10)
-                .foregroundStyle(Palette.dimText)
-                .underline()
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudLink)
         .disabled(model.isRefreshing)
     }
 
@@ -154,23 +135,15 @@ struct SitesSettingsSection: View {
             }
 
             if let problem {
-                Text(caps: problem.message)
-                    .capsRelative(10.5, tracking: 0.12)
-                    .lineSpacing(3)
-                    .foregroundStyle(Palette.sun)
+                HUDNote(text: problem.message, warning: true)
             }
 
             Button {
                 add()
             } label: {
                 Text(caps: isChecking ? "Checking" : "Follow site")
-                    .capsRelative(11, medium: true)
-                    .foregroundStyle(canAdd ? Palette.charcoal : Palette.dimText)
-                    .padding(.horizontal, 18)
-                    .frame(minHeight: 44)
-                    .background(canAdd ? Palette.white : Palette.rule.opacity(0.4), in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hudFilled)
             .disabled(!canAdd)
         }
         .padding(.top, 8)
@@ -188,13 +161,8 @@ struct SitesSettingsSection: View {
                         category = name
                     } label: {
                         Text(caps: name)
-                            .capsRelative(10, medium: selected, tracking: 0.12)
-                            .foregroundStyle(selected ? Palette.charcoal : Palette.white)
-                            .padding(.horizontal, 12)
-                            .frame(minHeight: 36)
-                            .background(selected ? Palette.white : Palette.rule.opacity(0.35), in: Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hudChip(selected: selected))
                     .accessibilityLabel("Use category " + name)
                     .accessibilityAddTraits(selected ? .isSelected : [])
                 }
@@ -205,26 +173,19 @@ struct SitesSettingsSection: View {
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(caps: label)
-                .capsRelative(9.5, tracking: 0.15)
+                .hudText(.label)
                 .foregroundStyle(Palette.dimText)
                 .accessibilityHidden(true)
             TextField("", text: text, prompt: Text(verbatim: prompt).foregroundStyle(Palette.rule))
-                .font(.capsRelative(13))
-                .foregroundStyle(Palette.white)
-                .tint(Palette.dayWater)
+                .hudField()
                 .frame(minHeight: 44)
                 .accessibilityLabel(label)
-            Rectangle()
-                .fill(Palette.rule)
-                .frame(height: 1)
+            HUDRule(accent: true)
         }
     }
 
     private func note(_ text: String) -> some View {
-        Text(caps: text)
-            .capsRelative(10, tracking: 0.12)
-            .lineSpacing(4)
-            .foregroundStyle(Palette.dimText)
+        HUDNote(text: text)
     }
 
     private var canAdd: Bool {

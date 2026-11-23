@@ -8,17 +8,14 @@ import SwiftUI
 /// detail is ever shown.
 struct GoogleSettingsSection: View {
     @Environment(GoogleCalendarModel.self) private var model
+    @Environment(\.hudAccent) private var accent
 
     @State private var signIn = GoogleWebSignIn()
     @State private var confirmingDisconnect = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(caps: "Google Calendar")
-                .capsRelative(11)
-                .foregroundStyle(Palette.dimText)
-                .padding(.top, 24)
-                .accessibilityAddTraits(.isHeader)
+            HUDSectionHeader(title: "Google Calendar")
 
             switch model.connection {
             case .notConnected:
@@ -111,7 +108,7 @@ struct GoogleSettingsSection: View {
         let current = model.newEventsCalendar
         return VStack(alignment: .leading, spacing: 6) {
             Text(caps: "New events go to")
-                .capsRelative(9.5, tracking: 0.12)
+                .hudText(.label)
                 .foregroundStyle(Palette.dimText)
                 .padding(.top, 8)
             Menu {
@@ -134,13 +131,13 @@ struct GoogleSettingsSection: View {
             } label: {
                 HStack(spacing: 8) {
                     Text(caps: current?.displayName ?? "Choose a calendar")
-                        .capsRelative(11.5, medium: true)
+                        .hudText(.rowName)
                         .foregroundStyle(Palette.white)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 13, weight: .light))
-                        .foregroundStyle(Palette.dimText)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(accent)
                         .accessibilityHidden(true)
                 }
                 .frame(minHeight: 44)
@@ -148,13 +145,8 @@ struct GoogleSettingsSection: View {
             }
             .accessibilityLabel("New events go to")
             .accessibilityValue(current?.displayName ?? "None")
-            Text(caps: "Only calendars you own are listed. Seasign adds only the events you confirm.")
-                .capsRelative(10, tracking: 0.12)
-                .lineSpacing(3)
-                .foregroundStyle(Palette.dimText)
-            Rectangle()
-                .fill(Palette.rule)
-                .frame(height: 1)
+            HUDNote(text: "Only calendars you own are listed. Seasign adds only the events you confirm.")
+            HUDRule()
         }
     }
 
@@ -164,33 +156,25 @@ struct GoogleSettingsSection: View {
             Toggle(isOn: Binding(get: { choice.isOn }, set: { model.setOn(choice, $0) })) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(caps: choice.displayName)
-                        .capsRelative(11.5, medium: true)
+                        .hudText(.rowName)
                         .foregroundStyle(Palette.white)
                     if choice.isPrimary {
                         Text(caps: "Main calendar")
-                            .capsRelative(9.5, tracking: 0.12)
+                            .hudText(.detail)
                             .foregroundStyle(Palette.dimText)
                     }
                 }
             }
-            .tint(Palette.dayWater)
+            .tint(accent)
             .frame(minHeight: 44)
             .accessibilityLabel(choice.displayName)
             if let message {
-                Text(caps: message.text)
-                    .capsRelative(10, tracking: 0.12)
-                    .lineSpacing(3)
-                    .foregroundStyle(message.isProblem ? Palette.sun : Palette.dimText)
+                HUDNote(text: message.text, warning: message.isProblem)
             }
             if let watchMessage = model.watchMessage(for: choice) {
-                Text(caps: watchMessage)
-                    .capsRelative(10, tracking: 0.12)
-                    .lineSpacing(3)
-                    .foregroundStyle(Palette.dimText)
+                HUDNote(text: watchMessage)
             }
-            Rectangle()
-                .fill(Palette.rule)
-                .frame(height: 1)
+            HUDRule()
         }
     }
 
@@ -206,13 +190,8 @@ struct GoogleSettingsSection: View {
             }
         } label: {
             Text(caps: model.isConnecting ? "Connecting" : title)
-                .capsRelative(11, medium: true)
-                .foregroundStyle(enabled ? Palette.charcoal : Palette.dimText)
-                .padding(.horizontal, 18)
-                .frame(minHeight: 44)
-                .background(enabled ? Palette.white : Palette.rule.opacity(0.4), in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudFilled)
         .disabled(!enabled)
     }
 
@@ -221,20 +200,11 @@ struct GoogleSettingsSection: View {
             confirmingDisconnect = true
         } label: {
             Text(caps: "Disconnect Google")
-                .capsRelative(10)
-                .foregroundStyle(Palette.dimText)
-                .underline()
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudLink)
     }
 
     private func note(_ text: String, warning: Bool = false) -> some View {
-        Text(caps: text)
-            .capsRelative(10, tracking: 0.12)
-            .lineSpacing(4)
-            .foregroundStyle(warning ? Palette.sun : Palette.dimText)
-            .fixedSize(horizontal: false, vertical: true)
+        HUDNote(text: text, warning: warning)
     }
 }

@@ -1,36 +1,28 @@
 import SwiftUI
 
-/// The frame shared by the full-screen sheets: charcoal, a caps title, a close
-/// button, and scrolling content.
+/// The frame of a full-screen page in the HUD's look (design v12, task 195):
+/// the dark plate, the title in the accent's mono capitals, the close mark,
+/// an accent hairline, and scrolling content.
 struct SheetScaffold<Content: View>: View {
     var title: String
     @ViewBuilder var content: Content
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.hudAccent) private var accent
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .center) {
                     Text(caps: title)
-                        .capsRelative(13, medium: true)
-                        .foregroundStyle(Palette.white)
+                        .hudText(.title)
+                        .foregroundStyle(accent)
                         .accessibilityAddTraits(.isHeader)
                     Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Text(caps: "Close")
-                            .capsRelative(11)
-                            .foregroundStyle(Palette.dimText)
-                            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                    CloseMark { dismiss() }
+                        .padding(.trailing, -12)
                 }
-                Rectangle()
-                    .fill(Palette.rule)
-                    .frame(height: 1)
+                HUDRule(accent: true)
                 content
             }
             .padding(.horizontal, 35)
@@ -39,19 +31,19 @@ struct SheetScaffold<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDismissesKeyboard(.interactively)
-        .background(Palette.charcoal.ignoresSafeArea())
-        .statusBarCover()
+        .background(Palette.hudPlate.ignoresSafeArea())
+        .statusBarCover(Palette.hudPlate)
         .preferredColorScheme(.dark)
     }
 }
 
 extension View {
-    /// Covers the status bar area with the sheet's charcoal, so content that
-    /// scrolls up goes out of sight under it instead of showing through the
-    /// clock and battery.
-    func statusBarCover() -> some View {
+    /// Covers the status bar area with the page's ground (charcoal unless
+    /// told), so content that scrolls up goes out of sight under it instead
+    /// of showing through the clock and battery.
+    func statusBarCover(_ ground: Color = Palette.charcoal) -> some View {
         overlay(alignment: .top) {
-            Palette.charcoal
+            ground
                 .ignoresSafeArea(edges: .top)
                 .frame(height: 0)
         }

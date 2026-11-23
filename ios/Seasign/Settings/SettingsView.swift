@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Settings: the zip code the Today scene follows, Google Calendar
-/// (`GoogleSettingsSection`), the calendar links (`CalendarSettingsSection`), the followed sites (`SitesSettingsSection`)
+/// Settings: the zip code the Today scene follows, the HUD colour
+/// (`HUDColourSettingsSection`), Google Calendar (`GoogleSettingsSection`), the calendar links (`CalendarSettingsSection`), the followed sites (`SitesSettingsSection`)
 /// AI search (`AISettingsSection`) and the read-aloud voice (`VoiceSettingsSection`).
+/// Drawn in the HUD's look (design v12): `SheetScaffold` and `HUDForm`.
 struct SettingsView: View {
     @Environment(TodayModel.self) private var model
 
@@ -14,6 +15,7 @@ struct SettingsView: View {
     var body: some View {
         SheetScaffold(title: "Settings") {
             zipSection
+            HUDColourSettingsSection()
             GoogleSettingsSection()
             CalendarSettingsSection()
             SitesSettingsSection()
@@ -30,14 +32,11 @@ struct SettingsView: View {
 
     private var zipSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(caps: "Zip code")
-                .capsRelative(11)
-                .foregroundStyle(Palette.dimText)
+            HUDSectionHeader(title: "Zip code", topPadding: 0)
 
             HStack(alignment: .center, spacing: 16) {
                 TextField("", text: $zipText, prompt: Text("00000").foregroundStyle(Palette.rule))
-                    .font(.custom(FontName.dayName, size: 44, relativeTo: .largeTitle))
-                    .foregroundStyle(Palette.white)
+                    .hudField(.display)
                     .keyboardType(.numberPad)
                     .textContentType(.postalCode)
                     .focused($zipFocused)
@@ -54,35 +53,23 @@ struct SettingsView: View {
                     save()
                 } label: {
                     Text(caps: isSaving ? "Checking" : "Save")
-                        .capsRelative(11, medium: true)
-                        .foregroundStyle(canSave ? Palette.charcoal : Palette.dimText)
-                        .padding(.horizontal, 18)
-                        .frame(minHeight: 44)
-                        .background(canSave ? Palette.white : Palette.rule.opacity(0.4), in: Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hudFilled)
                 .disabled(!canSave)
             }
 
-            Rectangle()
-                .fill(Palette.rule)
-                .frame(height: 1)
+            HUDRule(accent: true)
 
             if let problem {
-                Text(caps: problem.message)
-                    .capsRelative(10.5, tracking: 0.12)
-                    .foregroundStyle(Palette.sun)
+                HUDNote(text: problem.message, warning: true)
                     .accessibilityLabel(problem.message)
             } else if let place = model.placeDescription {
                 Text(caps: place)
-                    .capsRelative(10.5, medium: true)
+                    .hudText(.rowName)
                     .foregroundStyle(Palette.white)
             }
 
-            Text(caps: "Today follows the sun, moon and weather over this zip code. Seasign never asks for your location.")
-                .capsRelative(10, tracking: 0.12)
-                .lineSpacing(4)
-                .foregroundStyle(Palette.dimText)
+            HUDNote(text: "Today follows the sun, moon and weather over this zip code. Seasign never asks for your location.")
 
             if model.zip != nil {
                 Button {
@@ -91,13 +78,8 @@ struct SettingsView: View {
                     problem = nil
                 } label: {
                     Text(caps: "Remove zip code")
-                        .capsRelative(10)
-                        .foregroundStyle(Palette.dimText)
-                        .underline()
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hudLink)
             }
         }
     }
@@ -140,25 +122,20 @@ private struct DebugSceneSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(caps: "Debug scene")
-                .capsRelative(11)
-                .foregroundStyle(Palette.sun)
-                .padding(.top, 24)
+            HUDSectionHeader(title: "Debug scene")
 
             picker("Time", selection: $time, options: SceneDebugOverride.Time.allCases.map { ($0.rawValue, $0.rawValue) })
             picker("Moon", selection: $moon, options: Self.moons.map { ($0.label, $0.value) })
             picker("Weather", selection: $weather, options: SceneDebugOverride.Weather.allCases.map { ($0.rawValue, $0.rawValue) })
 
-            Text(caps: "Debug builds only. Live uses the real clock and the zip's weather.")
-                .capsRelative(9.5, tracking: 0.12)
-                .foregroundStyle(Palette.dimText)
+            HUDNote(text: "Debug builds only. Live uses the real clock and the zip's weather.")
         }
     }
 
     private func picker(_ title: String, selection: Binding<String>, options: [(label: String, value: String)]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(caps: title)
-                .capsRelative(10)
+                .hudText(.label)
                 .foregroundStyle(Palette.dimText)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -168,13 +145,8 @@ private struct DebugSceneSection: View {
                             selection.wrappedValue = option.value
                         } label: {
                             Text(caps: option.label)
-                                .capsRelative(10, medium: selected, tracking: 0.12)
-                                .foregroundStyle(selected ? Palette.charcoal : Palette.white)
-                                .padding(.horizontal, 12)
-                                .frame(minHeight: 36)
-                                .background(selected ? Palette.white : Palette.rule.opacity(0.35), in: Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.hudChip(selected: selected))
                         .accessibilityLabel("\(title) \(option.label)")
                         .accessibilityAddTraits(selected ? .isSelected : [])
                     }

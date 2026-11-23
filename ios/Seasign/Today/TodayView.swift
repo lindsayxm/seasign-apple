@@ -394,7 +394,9 @@ struct TodayView: View {
     /// The finger lifted at `finger`: saves the title under the star,
     /// unless it is saved already.
     private func starDropped(finger: CGPoint, shown: [FeedEntry], layout: TodayOverlayLayout) {
-        let outcome = starFlight.land(finger: finger, bands: bands(shown, layout: layout)) { saved.isSaved(shown[$0].link) }
+        let outcome = starFlight.land(finger: finger, bands: bands(shown, layout: layout), activity: activity) {
+            saved.isSaved(shown[$0].link)
+        }
         if case .save(let index) = outcome {
             saveFromStar(shown[index])
         }

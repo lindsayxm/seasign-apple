@@ -61,10 +61,22 @@ struct StarFlight: Equatable {
     }
 
     /// The finger lifted at `finger`: the star goes back, and the outcome
-    /// says what the drop does. It does not depend on `star`, so the order
-    /// in which the system reports the end and the reset does not matter.
-    mutating func land(finger: CGPoint, bands: [CGRect], isSaved: (Int) -> Bool) -> StarDrop.Outcome {
+    /// says what the drop does. A landing counts only while a drag is under
+    /// way (the star is out) and Today is the page showing with nothing over
+    /// it (`TodayActivity.isOnScreen`); any other landing saves nothing.
+    ///
+    /// `HUDTileBar` reports the end (`onEnded`) before the reset that
+    /// cancels (its `@GestureState` going back, seen in `onChange`), so a
+    /// real drop still finds the star out.
+    mutating func land(
+        finger: CGPoint,
+        bands: [CGRect],
+        activity: TodayActivity,
+        isSaved: (Int) -> Bool
+    ) -> StarDrop.Outcome {
+        let wasFlying = isFlying
         star = nil
+        guard wasFlying, activity.isOnScreen else { return .none }
         return StarDrop.outcome(at: StarDrop.star(finger: finger), bands: bands, isSaved: isSaved)
     }
 
