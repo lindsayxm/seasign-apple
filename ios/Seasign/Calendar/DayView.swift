@@ -2,15 +2,17 @@ import SwiftUI
 
 /// The day screen (task 170), opened by tapping the events box on Today:
 /// every event of today from Google and the pasted links, ended ones
-/// included and dimmed, all-day events first, times worded as on Today
-/// (`EventLabel`). The date as the header, the close mark at the top
-/// right, and under it the mic and + buttons, which add events (tasks 171
-/// and 172); the + is shown only with an `AddEventModel`, whose one-line
-/// field and confirm popup open in a sheet, the mic only with a
-/// `VoiceEntryModel`, which listens here (the words heard show under the
-/// date), then opens the same popup and reads it aloud. After an add,
+/// included and dimmed, as a timeline of the whole day that fits the screen
+/// (`DayTimelineView`, task 181): all-day events in a strip, each other
+/// event a box from its start to its end. The date as the header with the
+/// mic, the + and the close mark on the same line, so nothing covers the
+/// day; the mic and + add events (tasks 171 and 172). The + is shown only
+/// with an `AddEventModel`, whose one-line field and confirm popup open in
+/// a sheet, the mic only with a `VoiceEntryModel`, which listens here (the
+/// words heard show under the date, and the day shrinks to fit under
+/// them), then opens the same popup and reads it aloud. After an add,
 /// "Added · Sun 3:00 PM · Meeting with Rahaf" shows for a few seconds and
-/// an event for today joins the list at once.
+/// an event for today joins the day at once.
 ///
 /// It reads through its own `DayModel`, which refreshes while the screen is
 /// open and the app is active (Today's Google poll stops under any cover).
@@ -111,65 +113,78 @@ struct DayView: View {
     }
     #endif
 
-    private func content(now: Date) -> some View {
+    private func content(now realNow: Date) -> some View {
+        let now = displayedNow(realNow)
         let rows = model.rows(now: now, clock: clockStyle)
         let problem = model.problem(now: now)
         let zone = model.current(at: now).zone
+        let empty = rows.isEmpty ? model.emptyLine(now: now) : nil
+        let isListening = voice?.isListening == true
+        let notice = isListening ? nil : voice?.notice
+        let added = adder?.addedNote
+        let hasNotes = isListening || notice != nil || added != nil || problem != nil || empty != nil
         return VStack(alignment: .leading, spacing: 0) {
             header(HeaderDate(now: now, timeZone: zone))
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
+                .padding(.leading, 20)
+                .padding(.trailing, 8)
+                .padding(.top, 4)
             Rectangle()
                 .fill(Palette.rule)
                 .frame(height: 1)
                 .padding(.horizontal, 20)
-                .padding(.top, 6)
+                .padding(.top, 2)
                 .accessibilityHidden(true)
-            HStack(alignment: .top, spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let voice, voice.isListening {
-                            listening(voice.heard ?? "")
-                                .padding(.top, 14)
-                        } else if let notice = voice?.notice {
-                            voiceNotice(notice)
-                                .padding(.top, 14)
-                        }
-                        if let added = adder?.addedNote {
-                            addedNote(added)
-                                .padding(.top, 14)
-                        }
-                        if let problem {
-                            note(problem.message)
-                                .padding(.top, 14)
-                        }
-                        if rows.isEmpty {
-                            if let empty = model.emptyLine(now: now) {
-                                note(empty)
-                                    .padding(.top, 24)
-                            }
-                        } else {
-                            list(rows)
-                                .padding(.top, 6)
-                        }
+            // The notes take their own room above the day, which shrinks to
+            // fit under them, so they never cover an event.
+            if hasNotes {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let voice, isListening {
+                        listening(voice.heard ?? "")
+                    } else if let notice {
+                        voiceNotice(notice)
                     }
-                    .padding(.leading, 20)
-                    .padding(.trailing, hasButtons ? 8 : 20)
-                    .padding(.bottom, 40)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if let added {
+                        addedNote(added)
+                    }
+                    if let problem {
+                        note(problem.message)
+                    }
+                    if let empty {
+                        note(empty)
+                    }
                 }
-                if hasButtons {
-                    buttons
-                        .padding(.top, 4)
-                        .padding(.trailing, 20)
-                }
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            DayTimelineView(
+                rows: rows, day: DayTimeline.bounds(of: now, in: zone), zone: zone, now: now, clock: clockStyle
+            )
+            .padding(.leading, 12)
+            .padding(.trailing, 20)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var hasButtons: Bool {
-        voice != nil || adder != nil
+    /// The time the screen is drawn for: the real one, except with the
+    /// DEBUG sample and `-debugDayNow HH:MM`, which draws today as at that
+    /// time (for screenshots; it changes only what is drawn).
+    private func displayedNow(_ now: Date) -> Date {
+        #if DEBUG
+        if model.isSample, let text = UserDefaults.standard.string(forKey: "debugDayNow") {
+            let parts = text.split(separator: ":").compactMap { Int($0) }
+            if parts.count == 2 {
+                var calendar = Calendar(identifier: .gregorian)
+                calendar.timeZone = model.current(at: now).zone
+                let start = calendar.startOfDay(for: now)
+                return start.addingTimeInterval(TimeInterval(parts[0] * 3600 + parts[1] * 60))
+            }
+        }
+        #endif
+        return now
     }
 
     /// While the mic listens: what has been heard so far, as said.
@@ -234,20 +249,25 @@ struct DayView: View {
             }
     }
 
+    /// The date, then the mic, the + and the close mark on the same line,
+    /// so nothing is drawn over the day.
     private func header(_ date: HeaderDate) -> some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 0) {
             Text(caps: date.spoken)
                 .capsRelative(11, medium: true, tracking: 0.15)
                 .foregroundStyle(Palette.white)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
                 .accessibilityAddTraits(.isHeader)
-            Spacer()
+            Spacer(minLength: 8)
+            buttons
             CloseMark { dismiss() }
         }
     }
 
-    /// Mic above +, each a 44-point target, in the line style of Today's icons.
+    /// Mic, then +, each a 44-point target, in the line style of Today's icons.
     private var buttons: some View {
-        VStack(spacing: 0) {
+        HStack(spacing: 0) {
             if let voice {
                 let listening = voice.isListening
                 iconButton(.mic, label: listening ? "Stop listening" : "Add an event by voice", active: listening) {
@@ -273,56 +293,6 @@ struct DayView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
-    }
-
-    private func list(_ rows: [DayRow]) -> some View {
-        // The time columns are as wide as their widest entry (each sized by
-        // a hidden copy of it), so the titles line up.
-        let widestLead = rows.map(\.label.timeLead).max { $0.count < $1.count } ?? ""
-        let widestTail = rows.compactMap(\.label.timeTail).max { $0.count < $1.count }
-        return VStack(alignment: .leading, spacing: 0) {
-            // By position: two identical events would share an id.
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                if index > 0 {
-                    Rectangle()
-                        .fill(Palette.rule)
-                        .frame(height: 1)
-                        .accessibilityHidden(true)
-                }
-                rowView(row, widestLead: widestLead, widestTail: widestTail)
-            }
-        }
-    }
-
-    private func rowView(_ row: DayRow, widestLead: String, widestTail: String?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            column(row.label.timeLead, widest: widestLead)
-            if let widestTail {
-                column(row.label.timeTail ?? "", widest: widestTail)
-                    .padding(.leading, 6)
-            }
-            // Verbatim: titles come from calendars and are never read as markup.
-            Text(caps: row.label.title)
-                .capsRelative(12, tracking: 0.15)
-                .lineSpacing(5)
-                .foregroundStyle(Palette.white)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, 16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 14)
-        .opacity(row.hasEnded ? 0.4 : 1)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: row.hasEnded ? "\(row.label.spoken), ended" : row.label.spoken))
-    }
-
-    private func column(_ text: String, widest: String) -> some View {
-        ZStack(alignment: .leading) {
-            Text(verbatim: widest).hidden()
-            Text(verbatim: text)
-        }
-        .font(.system(.caption, design: .monospaced))
-        .foregroundStyle(Palette.dimText)
     }
 
     private func note(_ text: String) -> some View {

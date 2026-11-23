@@ -605,7 +605,87 @@ final class DayModel {
 }
 
 #if DEBUG
+/// The fixed sample days of `-debugDaySample` (task 181), only ever shown
+/// with the sample Google account, which sends nothing.
+enum DaySampleDay: String {
+    case normal
+    case overlap
+    case allday
+    case short
+    case empty
+
+    func events(first: UUID, second: UUID, startOfDay: Date, calendar: Calendar, day: String) -> [UpcomingEvent] {
+        func at(_ hour: Int, _ minute: Int = 0) -> Date {
+            startOfDay.addingTimeInterval(TimeInterval(hour * 3600 + minute * 60))
+        }
+        func timed(_ title: String, _ start: Date, _ end: Date, on link: UUID? = nil) -> UpcomingEvent {
+            UpcomingEvent(link: link ?? first, title: title, start: start, end: end, allDay: false)
+        }
+        func allDay(_ title: String, on link: UUID? = nil) -> UpcomingEvent {
+            UpcomingEvent(
+                link: link ?? first, title: title, start: startOfDay,
+                end: calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay.addingTimeInterval(86_400),
+                allDay: true, date: day
+            )
+        }
+        switch self {
+        case .normal:
+            return [
+                allDay("Farmers' market"),
+                timed("Morning run", at(7), at(8)),
+                timed("Standup", at(9, 30), at(9, 45)),
+                timed("Design review with the whole product team", at(10), at(11, 30)),
+                timed("Lunch with Ann", at(12, 30), at(13, 30), on: second),
+                timed("Dentist", at(15), at(16)),
+                timed("Swim practice", at(17, 30), at(19), on: second),
+                timed("Dinner", at(20), at(21, 30)),
+            ]
+        case .overlap:
+            return [
+                timed("Night flight home", at(-2), at(1, 30)),
+                timed("Planning", at(9), at(10, 30)),
+                timed("Call with Rahaf", at(9, 30), at(10)),
+                timed("Interview", at(9, 45), at(11), on: second),
+                timed("Focus time", at(10, 30), at(12)),
+                timed("School pickup", at(15), at(15, 30), on: second),
+                timed("Piano lesson", at(15), at(16)),
+                timed("Late show", at(22, 30), at(25)),
+            ]
+        case .allday:
+            return [
+                allDay("Farmers' market"),
+                allDay("Mum's birthday", on: second),
+                allDay("Out of office"),
+                allDay("Recycling day", on: second),
+                allDay("Conference: Day 2"),
+                allDay("Library books due"),
+                allDay("Daylight saving reminder", on: second),
+                timed("Keynote", at(9), at(10, 30)),
+                timed("Lunch", at(12), at(13)),
+                timed("Panel", at(14), at(15, 30)),
+            ]
+        case .short:
+            return [
+                timed("Take medicine", at(8), at(8)),
+                timed("Quick call", at(9), at(9, 5)),
+                timed("Coffee", at(9, 10), at(9, 25)),
+                timed("Stretch", at(11), at(11, 15)),
+                timed("Parking meter", at(13), at(13, 10), on: second),
+                timed("Pay rent", at(18), at(18)),
+                timed("Bedtime", at(23, 50), at(24)),
+            ]
+        case .empty:
+            return []
+        }
+    }
+}
+
 extension DayModel {
+    /// Whether this screen reads the DEBUG sample Google account.
+    var isSample: Bool {
+        googleModel.isSample
+    }
+
     /// `-debugEvents YES`: the sample links' events that fall on the current
     /// day, from the frozen sample; nothing is sent.
     private func showLinksSample() {
@@ -643,6 +723,18 @@ extension DayModel {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = zone
         let startOfDay = calendar.startOfDay(for: date)
+        // `-debugDaySample normal|overlap|allday|short|empty`: a fixed day for
+        // the timeline's screenshots (task 181), at set clock times.
+        if let kind = UserDefaults.standard.string(forKey: "debugDaySample"),
+           let sample = DaySampleDay(rawValue: kind) {
+            let events = sample.events(first: first, second: second, startOfDay: startOfDay, calendar: calendar, day: day)
+            google = DaySourceSnapshot(
+                day: day, timezone: zone.identifier, events: DayOrder.ordered(events),
+                failed: sample == .normal && second != first ? [second] : [], fetchedAt: date
+            )
+            googleFailed = false
+            return
+        }
         let elapsed = date.timeIntervalSince(startOfDay)
         // Ended: an hour that ended an hour ago, or early in the day's first minutes.
         let endedStart = elapsed >= 2 * 3600 ? date.addingTimeInterval(-2 * 3600) : startOfDay
