@@ -83,6 +83,8 @@ struct TodayView: View {
             content(clock: timeline.date)
         }
         .preferredColorScheme(.dark)
+        // Behind another page no tap, pull or star drag reaches Today.
+        .allowsHitTesting(activity.takesTouches)
         #if DEBUG
         .onAppear {
             if debugOpenSettings { destination = .settings }

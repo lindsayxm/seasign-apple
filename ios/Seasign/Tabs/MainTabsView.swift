@@ -31,9 +31,10 @@ struct MainTabsView: View {
     var body: some View {
         let todayShowing = tabs.showing == .day
         ZStack {
+            // Today turns its own touches off on another page
+            // (`TodayActivity.takesTouches`).
             TodayView()
                 .opacity(todayShowing ? 1 : 0)
-                .allowsHitTesting(todayShowing)
                 .accessibilityHidden(!todayShowing)
 
             if !todayShowing {
