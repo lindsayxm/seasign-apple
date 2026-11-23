@@ -47,3 +47,9 @@ If a cloned voice ships inside the app, the voice file can be extracted from the
 
 - Whether Google marks `calendar.events.owned` as sensitive, and the effect on verification.
 - Editing or deleting events from the app; attendees; other days in the day screen; the wake phrase; AI parsing.
+
+## Update 2026-11-22: the scope is added and is sensitive
+
+The user added `calendar.events.owned` in Google Cloud Console (Data Access). The console marks it **sensitive**. In test mode this changes nothing for the listed test users. Before the App Store, the app must pass Google's verification for sensitive scopes; what that review asks for is to be read from Google's own pages when the deploy and store work is planned, not assumed.
+
+The user also chose the speech-recognition prompt wording (task 177), and accepted as built: "at ten to seven" is 6:50 PM, "next friday" is the first Friday after today, and the lead's midnight ruling. Pocket-TTS may be installed on this Mac; the cloning waits in the backlog (task 173).

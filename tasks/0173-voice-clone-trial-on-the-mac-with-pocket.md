@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: []
 created: 2026-11-22T17:50:02Z
-updated: 2026-11-22T17:50:02Z
+updated: 2026-11-23T01:24:44Z
 ---
 
 ## Goal
@@ -27,3 +27,4 @@ Plan plans/2026-11-22-day-calendar-and-voice.md, task 8. Needs its own go-ahead 
 ## Log
 
 - 2026-11-22T17:50:02Z [li] created (backlog)
+- 2026-11-23T01:24:44Z [li] Lead: the user said on 2026-11-22 that Pocket-TTS may be installed on this Mac, and that the cloning itself waits (stays in backlog). Before installing: read the licence file and model terms; accepting the model terms and recording the sample are the user's actions; the sample stays outside the repo.
