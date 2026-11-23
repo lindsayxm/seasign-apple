@@ -1,11 +1,11 @@
 ---
 id: 194
 title: iOS v12: navigation shell (four tabs), Listen placeholder, History from Saved
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [193]
 created: 2026-11-23T20:25:09Z
-updated: 2026-11-23T20:25:09Z
+updated: 2026-11-23T22:44:33Z
 ---
 
 ## Goal
@@ -33,3 +33,4 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 ## Log
 
 - 2026-11-23T20:25:09Z [li] created (todo)
+- 2026-11-23T22:44:33Z [implementer-1] status: todo → in-progress — claimed by implementer-1

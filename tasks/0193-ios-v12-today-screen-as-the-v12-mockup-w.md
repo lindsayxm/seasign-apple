@@ -1,11 +1,11 @@
 ---
 id: 193
 title: iOS v12: Today screen as the v12 mockup, with the four-tile bar
-status: review
+status: done
 owner: implementer-1
 depends_on: [192]
 created: 2026-11-23T20:25:09Z
-updated: 2026-11-23T22:40:36Z
+updated: 2026-11-23T22:44:33Z
 ---
 
 ## Goal
@@ -18,7 +18,7 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 - [x] Events row formatter is pure and tested: full row, cut title, all-day, other day, widths other than 34
 - [x] Tap targets and the star drag work (tests for both gestures' models; VoiceOver labels for mark, settings, tiles, events, titles)
 - [x] Screens checked on iPhone SE (3rd gen) and iPhone 16 Pro Max sizes via layout tests or a non-Google simulator; pinned layout tests rewritten, none deleted
-- [ ] xcodebuild test passes on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2)
+- [x] xcodebuild test passes on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2)
 
 ## Relevant files
 
@@ -53,3 +53,6 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 - 2026-11-23T22:19:51Z [implementer-1] Review fixes (round 2): (1) EventRowText: a row held to a measured width now gives up dashes first (down to one) and only then cuts the title; a cut never ends in a space; the old fit() is gone (row/message take maxWidth+measure). Tests: wideCharactersAreCutToTheMeasuredWidth rewritten, aShortWideTitleGivesUpDashesNotCharacters added (CJK, emoji, mixed, exact fit, wide zip prompt). (2) StarFlight (StarDrop.swift): move/land/cancel; HUDTileBar has @GestureState isDraggingStar and calls StarDrag.cancelled when it resets (a cancelled drag); TodayView also cancels on scenePhase != active and when a cover or the read view opens. Test theStarNeverStaysOut. (3) Rows share one left x (a full row of cells centred in the box) and are held to the border from there; leftColumnLinesUpWithTheEvents checks it with wide rows. (4) Renamed (checks kept): noEventsMeansNoBoxAndTheHairlineUnderTheTemperature -> noEventsLeavesTheBoxEmpty; oneEventStretchesTheBoxToTheHairline -> oneEventTakesTheFirstRowAndTheBoxKeepsItsSize; theBoxNeverOutgrowsFiveLines -> theBoxNeverShowsMoreThanFourRows; aTwentyFourHourPhoneHasOneTimeColumn -> aTwentyFourHourPhoneShowsNoLetter; theDayNameSizeIsClamped -> typeDoesNotScaleAndTheWeekdayFitsTheDateTile; everyDayNameFitsBetweenTheDateAndTheTemperature -> everyScreenGetsTheMostColumnsThatFit; aWiderTimeWidensTheColumnsForEveryRow -> aLaterDayShowsItsWeekdayAndTheColumnsAlign. theDayTargetIsTheBoxOrItsPlace now asserts on its inputs (row count and prompt index per case, every row inside the box). (5) MonoStyle.drawnKern is a stored let measured once in init. Text(hud:) doc says fixed size, not for scrolling body text.
 - 2026-11-23T22:40:36Z [implementer-1] Round-2 verified: iPhone 17 / iOS 27.2 '✔ Test run with 794 tests in 94 suites passed after 97.419 seconds.' '** TEST SUCCEEDED **'; iPhone 16 / iOS 18.3.1 '✔ Test run with 794 tests in 94 suites passed after 821.657 seconds.' '** TEST SUCCEEDED **'. Screenshot with wide titles (-debugEventTitles '会議資料|Night Workout|🎉🎂|Hanna’s Show'): /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6b67084e-3b16-4a0b-9976-164876a415f4/scratchpad/t193/r2-rows.png: all rows start at one x, the wide rows give up dashes and keep ' /'. Commit 95da48f.
 - 2026-11-23T22:40:36Z [implementer-1] status: in-progress → review
+- 2026-11-23T22:44:33Z [implementer-1] Lead: the five review fixes landed in 95da48f. Lead re-ran the suite on iPhone 17 / iOS 27.2 at 24604ca: 794 tests in 94 suites passed, TEST SUCCEEDED. iPhone 16 / iOS 18.3.1 rests on the implementer's reported run (794 passed). Lead looked at side-02-mid-day and se-mid-day.
+- 2026-11-23T22:44:33Z [implementer-1] criterion 5 met: xcodebuild test passes on iPhone 16 (iOS 18.3.1) and iPhone 17 (iOS 27.2)
+- 2026-11-23T22:44:33Z [implementer-1] status: review → done
