@@ -1,11 +1,11 @@
 ---
 id: 181
 title: iOS: day screen as a full-day timeline with event boxes
-status: todo
-owner: 
+status: review
+owner: implementer-2
 depends_on: []
 created: 2026-11-23T02:04:39Z
-updated: 2026-11-23T02:04:39Z
+updated: 2026-11-23T03:50:04Z
 ---
 
 ## Goal
@@ -27,7 +27,13 @@ The user asked on 2026-11-22: on the full-screen day view show how long each eve
 
 ## What's been tried
 
+- Installing the app built for the iPhone 17 (iOS 27.2) destination on the iPhone SE (iOS 18.3) crashes at launch: dyld 'Library missing' (library name not read). Use the app built by the iPhone 16 / OS=18.3.1 test run for the SE instead.
 
 ## Log
 
 - 2026-11-23T02:04:39Z [li] created (todo)
+- 2026-11-23T02:37:14Z [implementer-2] status: todo → in-progress — claimed by implementer-2
+- 2026-11-23T02:48:13Z [implementer-2] Built: DayTimeline.swift (pure layout: day bounds by calendar midnight, y by real elapsed seconds so 23/25-hour days work, hour marks labelled by local clock, minimum box height = one title line, columns from drawn frames incl. minimum height, groups share column count, boxes widen into free columns, cut at midnight, bottom-edge shift, content tier per height, all-day strip flow with +N chip, spoken text, time text). DayTimelineView.swift draws it; DayView: mic/+ moved into the header row beside the close mark so nothing floats over the grid; notices/listening/Added/problem/empty line sit between header and grid, which shrinks to the height left. DEBUG -debugDaySample normal|overlap|allday|short|empty and -debugDayNow HH:MM, both only with the sample Google model.
+- 2026-11-23T03:50:03Z [implementer-2] tried: Installing the app built for the iPhone 17 (iOS 27.2) destination on the iPhone SE (iOS 18.3) crashes at launch: dyld 'Library missing' (library name not read). Use the app built by the iPhone 16 / OS=18.3.1 test run for the SE instead.
+- 2026-11-23T03:50:04Z [implementer-2] Verified. iPhone 16 OS=18.3.1: '✔ Test run with 755 tests in 89 suites passed after 872.001 seconds.' and '** TEST SUCCEEDED **'. iPhone 17 OS=27.2: '✔ Test run with 755 tests in 89 suites passed after 157.674 seconds.' and '** TEST SUCCEEDED **'. Screenshots (sample Google, -debugDayNow 14:20) in the scratchpad t181/shots: iPhone 17 normal, overlap, allday, allday-24h, short, empty; SE normal, listening, added. snapshot_ui on the iPhone 17 shows one element per box with the full spoken label (title, start, end, length, ended; yesterday/tomorrow for cut events) and the +3 chip listing the folded all-day events; VoiceOver order is set by accessibilitySortPriority by start but was not observed with VoiceOver itself. Commit 2fe6ea3.
+- 2026-11-23T03:50:04Z [implementer-2] status: in-progress → review

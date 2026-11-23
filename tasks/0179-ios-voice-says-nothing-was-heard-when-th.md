@@ -1,11 +1,11 @@
 ---
 id: 179
 title: iOS: voice says 'Nothing was heard' when the recognizer itself failed
-status: review
+status: done
 owner: implementer-1
 depends_on: []
 created: 2026-11-23T01:58:23Z
-updated: 2026-11-23T02:36:09Z
+updated: 2026-11-23T02:58:59Z
 ---
 
 ## Goal
@@ -14,9 +14,9 @@ Seen 2026-11-22 on the iPhone 16 Pro Max simulator (iOS 18.3): the mic listens, 
 
 ## Acceptance criteria
 
-- [ ] Look up in sosumi / the SDK headers what SFSpeechRecognizer reports for silence (reported: kAFAssistantErrorDomain 1110 'No speech detected') and for a missing on-device model (1101); cite in the log
-- [ ] A recognizer error with no words heard, other than the no-speech one, shows a notice that speech can't be recognised on this iPhone right now and points to the + button; true silence still says Nothing was heard; words heard before an error still make the popup; in the answer window an error still counts as no answer
-- [ ] The listener protocol carries the distinction so tests inject it; tests fail without the change. Error codes are not logged with any transcript. Suite passes on both runtimes; never touch the iPhone 16 Pro Max
+- [x] Look up in sosumi / the SDK headers what SFSpeechRecognizer reports for silence (reported: kAFAssistantErrorDomain 1110 'No speech detected') and for a missing on-device model (1101); cite in the log
+- [x] A recognizer error with no words heard, other than the no-speech one, shows a notice that speech can't be recognised on this iPhone right now and points to the + button; true silence still says Nothing was heard; words heard before an error still make the popup; in the answer window an error still counts as no answer
+- [x] The listener protocol carries the distinction so tests inject it; tests fail without the change. Error codes are not logged with any transcript. Suite passes on both runtimes; never touch the iPhone 16 Pro Max
 
 ## Relevant files
 
@@ -35,3 +35,8 @@ Seen 2026-11-22 on the iPhone 16 Pro Max simulator (iOS 18.3): the mic listens, 
 - 2026-11-23T02:34:21Z [implementer-1] Full suite at 7704810, own DerivedData, one runtime after the other: iPhone 16 / iOS 18.3.1: '✔ Test run with 742 tests in 88 suites passed after 162.286 seconds.' '** TEST SUCCEEDED **'. iPhone 17 / iOS 27.2: '✔ Test run with 742 tests in 88 suites passed after 126.811 seconds.' '** TEST SUCCEEDED **'. Screenshot, iPhone 17 / iOS 27.2, -debugGoogle YES -debugVoiceFail unavailable -debugVoiceStart YES, events box touched to open the day screen: /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6b67084e-3b16-4a0b-9976-164876a415f4/scratchpad/shots/179-cannot-recognize-iphone17.jpg (the new notice under the date, mic and + on the right; the sample's own 'Google Calendar couldn't be read just now' line also shows). Not verified: the real SystemSpeechListener was not driven (speech recognition is denied for the app on the iPhone 17 Simulator; the iPhone 16 Pro Max was not touched), so which code a real phone or the Simulator gives for silence and for a missing model is unchecked here. The iPhone 16 Simulator was used only for tests. Follow-up for the lead: memory/architecture.md's Voice note does not yet mention the no-speech / recognizer-failure split (not edited: outside ios/).
 - 2026-11-23T02:36:09Z [implementer-1] Open risk for the lead: the old code gave 'busy' for an error before the audio ended, so the 'Nothing was heard' seen on the iPhone 16 Pro Max means 1101 came after the audio ended. If it came within finalWait (2 s) it now gives the new notice; if it came later than 2 s (or never), the finalWait timeout still returns no words and still says 'Nothing was heard' (that path is unchanged). Check on the Pro Max: tap the mic and stay silent; the new notice means fixed, 'Nothing was heard' means the error lands after finalWait and needs a follow-up task for the timeout path. Also: if a real phone reports silence with a code other than 1110, silence will now show the new notice (user check: tap the mic, say nothing, expect 'Nothing was heard'). The mapping is unit-tested; its call from the real result handler is not exercised by any test.
 - 2026-11-23T02:36:09Z [implementer-1] status: in-progress → review
+- 2026-11-23T02:58:59Z [implementer-1] criterion 1 met: Look up in sosumi / the SDK headers what SFSpeechRecognizer reports for silence (reported: kAFAssistantErrorDomain 1110 'No speech detected') and for a missing on-device model (1101); cite in the log
+- 2026-11-23T02:58:59Z [implementer-1] criterion 2 met: A recognizer error with no words heard, other than the no-speech one, shows a notice that speech can't be recognised on this iPhone right now and points to the + button; true silence still says Nothing was heard; words heard before an error still make the popup; in the answer window an error still counts as no answer
+- 2026-11-23T02:58:59Z [implementer-1] criterion 3 met: The listener protocol carries the distinction so tests inject it; tests fail without the change. Error codes are not logged with any transcript. Suite passes on both runtimes; never touch the iPhone 16 Pro Max
+- 2026-11-23T02:58:59Z [implementer-1] Lead: own run. iPhone 16 / iOS 18.3.1 at 7704810: 'Test run with 742 tests in 88 suites passed', TEST SUCCEEDED. iPhone 17 / iOS 27.2: the run picked up task 181's uncommitted work (755 tests); its only failure was 181's own new test overlapsGetColumnsAndAGroupSharesItsColumnCount, every other test passed; the implementer's clean run at 7704810 on iPhone 17 reported 742 passed. Diff of listen() and the error mapping read by the lead; screenshot on the implementer's word. Closed by the lead without a separate reviewer. Not verified: the real listener with this change; if the error comes more than 2 s after the audio ends the old 'Nothing was heard' may still show (the user will tap the mic on the Pro Max simulator after the next install); a real phone reporting silence with a code other than 1110.
+- 2026-11-23T02:58:59Z [implementer-1] status: review → done
