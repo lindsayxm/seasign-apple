@@ -7,8 +7,13 @@ import SwiftUI
 /// on it draws one still frame. The sun and moon move along their path
 /// because the parent passes a new `SceneState` as the clock advances, not
 /// because of this animation.
+///
+/// `paused` stops the animation where it is (Today hidden behind another
+/// page, task 194); the scene is not rebuilt, and when it resumes the time
+/// carries on from `start`.
 struct SceneView: View {
     var state: SceneState
+    var paused = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The phone's 12- or 24-hour setting, for the rise and set times.
@@ -23,7 +28,7 @@ struct SceneView: View {
             if reduceMotion {
                 canvas(time: SceneRenderer.stillTime)
             } else {
-                TimelineView(.animation(minimumInterval: Self.frameInterval)) { timeline in
+                TimelineView(.animation(minimumInterval: Self.frameInterval, paused: paused)) { timeline in
                     canvas(time: SceneRenderer.stillTime + timeline.date.timeIntervalSince(start))
                 }
             }

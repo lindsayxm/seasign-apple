@@ -1,14 +1,15 @@
 import SwiftUI
 
 /// The Do/Get screen (`ref-img/00-do-get-list.png`): DO on top, GET below, each
-/// with its items, a text field and an ADD button.
+/// with its items, a text field and an ADD button. It is the LIST page, one of
+/// the four main pages (`MainTabsView`); the tiles are the way back, so it has
+/// no close mark.
 ///
-/// The whole sheet is one `List`: both sections scroll together and rows get
+/// The whole page is one `List`: both sections scroll together and rows get
 /// the system swipe-to-delete. The field being typed in is kept above the
 /// keyboard however long the lists are (see `reveal`).
 struct DoGetView: View {
     @Environment(ListsModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
 
     @State private var drafts: [ListKind: String] = [:]
     @FocusState private var focus: ListKind?
@@ -21,9 +22,9 @@ struct DoGetView: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
-                section(.todo, isFirst: true)
+                section(.todo)
                 divider
-                section(.get, isFirst: false)
+                section(.get)
             }
             .listStyle(.plain)
             .environment(\.defaultMinListRowHeight, 1)
@@ -43,8 +44,8 @@ struct DoGetView: View {
     // MARK: Sections
 
     @ViewBuilder
-    private func section(_ kind: ListKind, isFirst: Bool) -> some View {
-        header(kind, showsClose: isFirst)
+    private func section(_ kind: ListKind) -> some View {
+        header(kind)
             .bare()
         ForEach(model.items(kind), id: \.persistentModelID) { item in
             ListItemRow(item: item, minHeight: rowHeight) {
@@ -67,27 +68,14 @@ struct DoGetView: View {
             .id(Self.addRowID(kind))
     }
 
-    /// The small section label. The first one shares its line with Close, the
-    /// way out of the sheet.
-    private func header(_ kind: ListKind, showsClose: Bool) -> some View {
+    /// The small section label.
+    private func header(_ kind: ListKind) -> some View {
         HStack(alignment: .center) {
             Text(caps: kind.label)
                 .capsRelative(9.5, tracking: 0.15)
                 .foregroundStyle(Palette.dimText)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
-            if showsClose {
-                Button {
-                    dismiss()
-                } label: {
-                    Text(caps: "Close")
-                        .capsRelative(9.5, tracking: 0.15)
-                        .foregroundStyle(Palette.dimText)
-                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
         }
         .frame(minHeight: 44)
         .padding(.horizontal, margin)

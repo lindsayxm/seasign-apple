@@ -22,8 +22,9 @@ struct SeasignApp: App {
         WindowGroup {
             switch session {
             case .ready(let container, let today, let lists, let events, let google, let feed, let saved, let ai):
-                // The HUD accent comes from the settings row (design v12).
-                HUDAccentRoot { TodayView() }
+                // The HUD accent comes from the settings row (design v12);
+                // the four main pages switch in place (`MainTabsView`).
+                HUDAccentRoot { MainTabsView() }
                     .environment(today)
                     .environment(lists)
                     .environment(events)

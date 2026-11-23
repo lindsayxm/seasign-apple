@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The 7-day history, opened by `>>` on Today: every item that has been in
+/// The 7-day history, opened by `∀` on Saved (a cover with a close mark): every item that has been in
 /// the feed in the last 7 days, newest first, so an article that was not
 /// saved can still be found after the feed has moved on. Search, a category
 /// filter, a save control per row; a title opens the reading view.
@@ -145,7 +145,7 @@ struct HistoryView: View {
     }
 }
 
-/// The thin X in the top right of History and Saved that closes the screen.
+/// The thin X in the top right of History and the day screen that closes it.
 struct CloseMark: View {
     var action: () -> Void
 

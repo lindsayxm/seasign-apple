@@ -166,10 +166,11 @@ struct TodayOverlayLayout {
         dateTile = CGRect(x: M.margin, y: M.tilesTop, width: tileWidth, height: M.tileHeight)
         let boxX = M.margin + tileWidth + M.tileGap
         eventsBox = CGRect(x: boxX, y: M.tilesTop, width: width - M.margin - boxX, height: M.tileHeight)
+        let bar = Self.tileBar(screen: size)
         tiles = (0..<4).map { index in
             CGRect(
-                x: M.margin + CGFloat(index) * (tileWidth + M.tileGap),
-                y: size.height - M.bottomTilesFromBottom,
+                x: bar.minX + CGFloat(index) * (tileWidth + M.tileGap),
+                y: bar.minY,
                 width: tileWidth, height: M.tileHeight
             )
         }
@@ -221,6 +222,19 @@ struct TodayOverlayLayout {
         titleWidth = width - M.titleFromRight - M.titleX
         let room = (size.height - M.bottomTilesFromBottom) - M.titlesAboveTiles - titlesTop
         titleCapacity = Self.titleRows(fitting: room)
+    }
+
+    /// The four-tile bar on a screen `screen` big, in full-screen points:
+    /// 34 in from each side, its top 118 above the bottom edge. Every main
+    /// page puts the bar here (Today through `tiles`, List, Saved and Listen
+    /// through `MainTabsView`), so it does not move when the page changes.
+    static func tileBar(screen: CGSize) -> CGRect {
+        CGRect(
+            x: Mockup.margin,
+            y: screen.height - Mockup.bottomTilesFromBottom,
+            width: max(0, screen.width - 2 * Mockup.margin),
+            height: Mockup.tileHeight
+        )
     }
 
     /// One column of the four-column grid on a screen `screenWidth` wide.

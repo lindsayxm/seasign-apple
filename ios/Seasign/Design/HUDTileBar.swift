@@ -7,9 +7,11 @@ import SwiftUI
 /// dark plate.
 ///
 /// It takes the width it is given (four equal columns, 6 points apart) and
-/// is 78 points tall. What each tile does is the caller's (`action`); the
-/// SAVE tile can also hand its star to a drag (`starDrag`), which Today
-/// uses to save a title by dropping the star on it (`StarDrop`).
+/// is 78 points tall. What each tile does is the caller's (`action`;
+/// `MainTabs` switches the page); the SAVE tile can also hand its star to a
+/// drag (`starDrag`), which Today uses to save a title by dropping the star
+/// on it (`StarDrop`). On the other pages the star does not drag. Every page
+/// places the bar at `TodayOverlayLayout.tileBar(screen:)`.
 struct HUDTileBar: View {
     enum Tile: CaseIterable, Equatable {
         case day, list, save, listen
@@ -55,10 +57,20 @@ struct HUDTileBar: View {
         var cancelled: () -> Void
     }
 
+    /// A VoiceOver action for the page showing, offered on its (filled)
+    /// tile, which is on screen even when the page has nothing else to
+    /// carry it (Today's headline refresh with an empty plate).
+    struct PageAction: Identifiable {
+        var name: String
+        var perform: () -> Void
+        var id: String { name }
+    }
+
     /// The page showing.
     var filled: Tile
     var action: (Tile) -> Void
     var starDrag: StarDrag?
+    var pageActions: [PageAction] = []
 
     /// True while the star's drag is under way; it goes back to false
     /// however the drag ends, cancelled included.
@@ -94,6 +106,13 @@ struct HUDTileBar: View {
         .accessibilityLabel(tile.spoken)
         .accessibilityAddTraits(tile == filled ? .isSelected : [])
         .accessibilityAction { action(tile) }
+        .accessibilityActions {
+            if tile == filled {
+                ForEach(pageActions) { pageAction in
+                    Button(pageAction.name, action: pageAction.perform)
+                }
+            }
+        }
 
         if tile == .save, let starDrag {
             button

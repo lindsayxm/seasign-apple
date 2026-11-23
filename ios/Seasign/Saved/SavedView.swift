@@ -1,25 +1,28 @@
 import SwiftUI
 
-/// Saved, opened by the asterisk on Today (`ref-img/00-save-list.png`): a
-/// search field and a CATEGORY menu, then each saved article as its title in
-/// caps, a `SOURCE · DATE` line with REMOVE, and its notes, with thin rules
-/// between. A title opens the reading view.
+/// Saved, the SAVE page, one of the four main pages (`MainTabsView`;
+/// `ref-img/00-save-list.png`): a search field and a CATEGORY menu, then each
+/// saved article as its title in caps, a `SOURCE · DATE` line with REMOVE,
+/// and its notes, with thin rules between. A title opens the reading view.
+/// `∀` at the top right opens History (the last 7 days) over it; the tiles
+/// are the way back, so there is no close mark.
 ///
 /// Notes are typed into `SavedModel`, which holds what is typed until it is
 /// written: a moment after typing stops, when a notes field loses focus,
-/// when this screen closes and when the app leaves the foreground. If a
-/// write fails the screen says so and Close asks before leaving.
+/// when this page is left and when the app leaves the foreground. If a
+/// write fails the page says so, and a tile asks before leaving
+/// (`MainTabs.select`).
 struct SavedView: View {
     var timeZone: TimeZone
 
     @Environment(SavedModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var query = ArticleQuery()
     @State private var reading: ReadingItem?
     @State private var confirming: RemovalConfirmation?
-    @State private var closeBlocked = false
+    /// History (the last 7 days) is open over Saved.
+    @State private var showsHistory = false
     @FocusState private var editing: UUID?
 
     var body: some View {
@@ -34,7 +37,7 @@ struct SavedView: View {
                         .foregroundStyle(Palette.white)
                         .accessibilityAddTraits(.isHeader)
                     Spacer()
-                    CloseMark { close() }
+                    HistoryMark { showsHistory = true }
                 }
 
                 ArticleFilterBar(searchLabel: "Search saved", query: $query, categories: categories)
@@ -85,35 +88,18 @@ struct SavedView: View {
             query.category = ArticleQuery.choice(query.category, among: available)
         }
         .removalConfirmation($confirming, model: model)
-        .alert(
-            Text(verbatim: "Your notes aren't saved yet"),
-            isPresented: $closeBlocked
-        ) {
-            Button(role: .cancel) {
-                model.flushNotes()
-            } label: {
-                Text(verbatim: "Try again")
-            }
-            Button {
-                // The drafts stay in memory and show again when Saved opens.
-                dismiss()
-            } label: {
-                Text(verbatim: "Close anyway")
-            }
-        } message: {
-            Text(verbatim: "They couldn't be written to this phone. They're kept while Seasign is open, and saving is tried again each time you open Saved.")
-        }
         .fullScreenCover(item: $reading) { item in
             ReadingView(item: item, timeZone: timeZone)
         }
-    }
-
-    private func close() {
-        editing = nil
-        if model.flushNotes() {
-            dismiss()
-        } else {
-            closeBlocked = true
+        .fullScreenCover(isPresented: $showsHistory) {
+            HistoryView(timeZone: timeZone)
+        }
+        .onChange(of: showsHistory) { _, open in
+            // Notes typed so far are written before History covers them.
+            if open {
+                editing = nil
+                model.flushNotes()
+            }
         }
     }
 
@@ -211,5 +197,23 @@ struct SavedView: View {
             .lineSpacing(4)
             .foregroundStyle(Palette.dimText)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// `∀`, for all publications, at the top right of Saved: opens History,
+/// every article from the last 7 days.
+struct HistoryMark: View {
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            LineIconView(icon: .allPublications, size: 17, lineWidth: 1.4)
+                .foregroundStyle(Palette.dimText)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Last 7 days")
+        .accessibilityHint("Opens every article from the last 7 days")
     }
 }

@@ -10,6 +10,10 @@ import SwiftUI
 /// the titles on their plate, the four tiles and the rim. Accent parts read
 /// `\.hudAccent`; the mark, date tile, temperature and wind, brackets and
 /// the scene's rise and set times stay white.
+///
+/// Today is one of the four main pages (`MainTabs`). `MainTabsView` keeps
+/// it mounted while another page shows; it then pauses its scene, clock,
+/// minute loop and Google poll (`TodayActivity`) and resumes them on return.
 struct TodayView: View {
     @Environment(TodayModel.self) private var model
     @Environment(EventsModel.self) private var events
@@ -23,6 +27,8 @@ struct TodayView: View {
     /// The phone's 12- or 24-hour setting, for the event times.
     @Environment(\.clockStyle) private var clockStyle
     @Environment(\.hudAccent) private var accent
+    /// The page showing; Today pauses while it is another one.
+    @Environment(MainTabs.self) private var tabs
 
     @State private var destination: Destination?
     /// The headline open in the reading view.
@@ -63,15 +69,17 @@ struct TodayView: View {
     @AppStorage("debugOpenDay") private var debugOpenDay = false
     #endif
 
+    /// The covers Today opens. List, Saved and Listen are pages beside it
+    /// (`MainTabs`), and History opens from Saved.
     enum Destination: String, Identifiable {
-        case settings, doGet, saved, history, day
+        case settings, day
         var id: String { rawValue }
     }
 
     var body: some View {
         // The clock: re-reads the time often enough for the sun to creep along
         // its arc. The scene's own animation is separate (see `SceneView`).
-        TimelineView(.periodic(from: .now, by: 20)) { timeline in
+        TimelineView(TodayClockSchedule(paused: !activity.animates)) { timeline in
             content(clock: timeline.date)
         }
         .preferredColorScheme(.dark)
@@ -90,10 +98,15 @@ struct TodayView: View {
             // failing search never holds up or blanks the followed sites.
             // It sends nothing unless AI search is on and a search is due.
             Task { await ai.refreshIfDue() }
-            // Refresh at launch, then whenever the sky (10 minutes) or the
-            // pasted-link events (5 minutes, `EventsModel.refreshInterval`)
-            // have gone stale. These scheduled checks never send `fresh`, so
-            // the API may answer events from its 5-minute cache.
+        }
+        // Refresh at launch, then whenever the sky (10 minutes) or the
+        // pasted-link events (5 minutes, `EventsModel.refreshInterval`)
+        // have gone stale. These scheduled checks never send `fresh`, so
+        // the API may answer events from its 5-minute cache. The loop stops
+        // while another page shows and starts again, checking at once, when
+        // Today comes back (`TodayActivity.refreshLoopRuns`).
+        .task(id: activity.refreshLoopRuns) {
+            guard activity.refreshLoopRuns else { return }
             while !Task.isCancelled {
                 await model.refresh()
                 await events.refresh(force: EventsRefreshTrigger.minuteLoop.force)
@@ -101,7 +114,7 @@ struct TodayView: View {
             }
         }
         // Google events: while the app is active and Today itself is on
-        // screen, one request for all chosen calendars every 5 seconds, or
+        // screen (its page showing, no cover over it), one request for all chosen calendars every 5 seconds, or
         // once a minute while push channels cover them (`GooglePoll`). The
         // task starts again, asking at once, whenever the gate opens (back
         // to the foreground, a sheet closed, a calendar turned on) or the
@@ -119,6 +132,7 @@ struct TodayView: View {
         // app leaves the foreground or a cover opens.
         .onChange(of: destination) { _, opened in if opened != nil { starFlight.cancel() } }
         .onChange(of: reading) { _, opened in if opened != nil { starFlight.cancel() } }
+        .onChange(of: tabs.showing) { starFlight.cancel() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { starFlight.cancel() }
             // Notes typed in Saved are written before the app leaves the
@@ -156,12 +170,6 @@ struct TodayView: View {
             switch destination {
             case .settings:
                 SettingsView()
-            case .doGet:
-                DoGetView()
-            case .saved:
-                SavedView(timeZone: headlineZone)
-            case .history:
-                HistoryView(timeZone: headlineZone)
             case .day:
                 dayView
             }
@@ -272,7 +280,7 @@ struct TodayView: View {
             let shown = HeadlinesColumn.shown(candidates, layout: layout)
 
             ZStack(alignment: .topLeading) {
-                SceneView(state: state)
+                SceneView(state: state, paused: !activity.animates)
 
                 topRow(layout: layout)
                 dateTile(date, layout: layout)
@@ -295,18 +303,22 @@ struct TodayView: View {
                     refresh: { startPull(.headlines) }
                 )
 
+                let bar = TodayOverlayLayout.tileBar(screen: proxy.size)
                 HUDTileBar(
                     filled: .day,
-                    action: { tileTapped($0) },
+                    action: { tabs.select($0) },
                     starDrag: HUDTileBar.StarDrag(
                         space: Self.space,
                         changed: { starFlight.move(finger: $0) },
                         ended: { finger in starDropped(finger: finger, shown: shown, layout: layout) },
                         cancelled: { starFlight.cancel() }
-                    )
+                    ),
+                    // The headline pull, for VoiceOver, also when the plate
+                    // is empty (the titles carry it too).
+                    pageActions: [.init(name: TodayPull.headlinesActionName) { startPull(.headlines) }]
                 )
-                .frame(width: max(0, proxy.size.width - 2 * TodayOverlayLayout.Mockup.margin))
-                .placed(x: TodayOverlayLayout.Mockup.margin, y: layout.tiles[0].minY)
+                .frame(width: bar.width)
+                .placed(x: bar.minX, y: bar.minY)
 
                 layout.rimPath
                     .stroke(accent.opacity(0.85), style: StrokeStyle(lineWidth: TodayOverlayLayout.Mockup.rimLine, lineCap: .round))
@@ -371,17 +383,7 @@ struct TodayView: View {
         return model.zip == nil
     }
 
-    // MARK: Tiles and the star
-
-    private func tileTapped(_ tile: HUDTileBar.Tile) {
-        switch tile {
-        case .day: break
-        case .list: destination = .doGet
-        case .save: destination = .saved
-        // Task 194 adds the Listen page.
-        case .listen: break
-        }
-    }
+    // MARK: The star
 
     private func bands(_ shown: [FeedEntry], layout: TodayOverlayLayout) -> [CGRect] {
         shown.indices.map { layout.titleBand($0) }
@@ -411,27 +413,18 @@ struct TodayView: View {
 
     // MARK: Top row, date tile, frame
 
-    /// The mark (white) at the left, which opens the last 7 days until task
-    /// 194 moves that to Saved; the place name and settings in the accent at
-    /// the right.
+    /// The mark (white, plain) at the left; the place name and settings in
+    /// the accent at the right. (History opens from Saved.)
     private func topRow(layout: TodayOverlayLayout) -> some View {
         ZStack(alignment: .topLeading) {
             Color.clear
                 .frame(width: layout.size.width, height: layout.markRect.maxY)
                 .allowsHitTesting(false)
-            Button {
-                destination = .history
-            } label: {
-                HUDGlyphView(glyph: .mark, color: Palette.white)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Last 7 days")
-            .accessibilityHint("Opens every article from the last 7 days")
-            // The headline pull, for VoiceOver, also when the plate is empty.
-            .accessibilityAction(named: Text(TodayPull.headlinesActionName)) { startPull(.headlines) }
-            .placed(x: layout.markRect.midX - 22, y: layout.markRect.midY - 22)
+            HUDGlyphView(glyph: .mark, color: Palette.white)
+                .frame(width: 44, height: 44)
+                .allowsHitTesting(false)
+                // Decorative: HUDGlyphView is hidden from VoiceOver.
+                .placed(x: layout.markRect.midX - 22, y: layout.markRect.midY - 22)
 
             if let place = placeName {
                 Text(hud: place.uppercased(), style: HUDType.place)
@@ -632,15 +625,16 @@ struct TodayView: View {
         )
     }
 
+    /// What Today runs now: its page showing or not, a cover over it or
+    /// not (`TodayActivity`).
+    private var activity: TodayActivity {
+        tabs.today(coverOpen: destination != nil || reading != nil, appActive: scenePhase == .active)
+    }
+
     /// How often Today polls Google now, or nil when it does not
-    /// (`GooglePoll.isOn`, `GoogleCalendarModel.pollInterval`).
+    /// (`TodayActivity.pollsGoogle`, `GoogleCalendarModel.pollInterval`).
     private var googlePoll: Duration? {
-        let on = GooglePoll.isOn(
-            appActive: scenePhase == .active,
-            todayOnScreen: destination == nil && reading == nil,
-            canPoll: google.canPoll
-        )
-        return on ? google.pollInterval : nil
+        activity.pollsGoogle(canPoll: google.canPoll) ? google.pollInterval : nil
     }
 
     /// The time zone events are asked for and shown in.
