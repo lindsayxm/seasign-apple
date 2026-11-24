@@ -23,8 +23,13 @@ struct TodayOverlayLayout {
     /// The mockup's figures, in its points (393 × 852, horizon at 386).
     enum Mockup {
         static let margin: CGFloat = 34
+        /// Extra room under the status bar, added to the mockup's figures for
+        /// the top row and everything that hangs from it down to the frame's
+        /// top (the user, 2026-11-23: the mark and settings sat too close to
+        /// the system's time, battery and wifi).
+        static let topPadding: CGFloat = 14
         /// The top row: the mark, the place name and settings.
-        static let topRowY: CGFloat = 52
+        static let topRowY: CGFloat = 52 + topPadding
         static let topRowHeight: CGFloat = 24
         static let markSide: CGFloat = 24
         /// Settings stands this far in from the right edge (335 on 393).
@@ -40,26 +45,26 @@ struct TodayOverlayLayout {
         static let tilePadding: CGFloat = 7
         /// The foot (slash and value) stands 6 points above the border.
         static let tileFootBottom: CGFloat = 6
-        static let tilesTop: CGFloat = 91
+        static let tilesTop: CGFloat = 91 + topPadding
         /// The bottom tiles' top, from the bottom of the screen (734 on 852).
         static let bottomTilesFromBottom: CGFloat = 118
         /// The events box's first line box starts 3.6 points under its border.
         static let eventsPaddingTop: CGFloat = 3.6
         static let eventRows = 4
         /// The frame round the view: from 180 down to 40 under the horizon.
-        static let frameTop: CGFloat = 180
+        static let frameTop: CGFloat = 180 + topPadding
         static let frameBelowHorizon: CGFloat = 40
         static let bracket: CGFloat = 10
         static let bracketLine: CGFloat = 1.2
         /// The labels inside the frame's top corners.
-        static let frameLabelTop: CGFloat = 187.5
+        static let frameLabelTop: CGFloat = 187.5 + topPadding
         static let frameLabelLeft: CGFloat = 42
         static let frameLabelFromRight: CGFloat = 44
         /// The rim: 7 in from the edge, broken from 176 to 54 under the horizon.
         static let rimInset: CGFloat = 7
         static let rimRadius: CGFloat = 39
         static let rimLine: CGFloat = 1.4
-        static let rimGapTop: CGFloat = 176
+        static let rimGapTop: CGFloat = 176 + topPadding
         static let rimGapBelowHorizon: CGFloat = 54
         /// The plate: from 42 under the horizon to the rim's bottom.
         static let plateBelowHorizon: CGFloat = 42

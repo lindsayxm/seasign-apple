@@ -90,7 +90,7 @@ import Testing
             #expect(abs(calendar.x + half - (layout.eventsBox.maxX - 1.4)) < 0.01)
             #expect(abs(calendar.x + half - (size.width - 34 - 1.4)) < 0.01)
             // Level with the first event row and the first title line.
-            #expect(abs(calendar.y - (91 + 1.4 + 3.6 + 17 / 2)) < 0.01)
+            #expect(abs(calendar.y - (105 + 1.4 + 3.6 + 17 / 2)) < 0.01)
             #expect(abs(headlines.y - (layout.titleRowTop(0) + 17 / 2)) < 0.01)
             // The calendar one in the sky, the headline one in the sea.
             let horizonY = SceneLayout(size: size).horizonY

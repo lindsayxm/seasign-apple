@@ -62,8 +62,8 @@ import UIKit
                 }
                 // The targets are the same whatever is in the box: no
                 // events, one, four, with or without the zip prompt.
-                #expect(layout.eventsBox == CGRect(x: 116.75, y: 91, width: 242.25, height: 78))
-                #expect(layout.dateTile == CGRect(x: 34, y: 91, width: 76.75, height: 78))
+                #expect(layout.eventsBox == CGRect(x: 116.75, y: 105, width: 242.25, height: 78))
+                #expect(layout.dateTile == CGRect(x: 34, y: 105, width: 76.75, height: 78))
                 // What is in it changes, and every row stays inside the box.
                 let expected = min(labels.count, prompt ? 3 : 4) + (prompt ? 1 : 0)
                 #expect(layout.eventRows.count == expected, "\(labels.count) events, prompt \(prompt)")
@@ -80,11 +80,11 @@ import UIKit
     @Test func theMockupSampleMatchesItsFigures() {
         let layout = layout(sample)
         #expect(layout.horizonY == 386)
-        #expect(layout.markRect == CGRect(x: 34, y: 52, width: 24, height: 24))
-        #expect(layout.settingsRect == CGRect(x: 335, y: 52, width: 24, height: 24))
+        #expect(layout.markRect == CGRect(x: 34, y: 66, width: 24, height: 24))
+        #expect(layout.settingsRect == CGRect(x: 335, y: 66, width: 24, height: 24))
         #expect(layout.placeRight == 321)
-        #expect(layout.dateTile == CGRect(x: 34, y: 91, width: 76.75, height: 78))
-        #expect(layout.eventsBox == CGRect(x: 116.75, y: 91, width: 242.25, height: 78))
+        #expect(layout.dateTile == CGRect(x: 34, y: 105, width: 76.75, height: 78))
+        #expect(layout.eventsBox == CGRect(x: 116.75, y: 105, width: 242.25, height: 78))
         #expect(layout.eventColumns == 34)
         #expect(layout.eventRows.map(\.text) == [
             "11:00 A " + String(repeating: "-", count: 11) + " Hanna\u{2019}s Show /",
@@ -93,12 +93,12 @@ import UIKit
             " 8:15 P " + String(repeating: "-", count: 10) + " Night Workout /",
         ])
         // Line boxes 17 tall from 3.6 under the 1.4 border.
-        #expect(layout.eventRows.map(\.origin.y) == [96, 113, 130, 147])
-        #expect(layout.frame == CGRect(x: 34, y: 180, width: 325, height: 246))
-        #expect(layout.frameLabelTop == 187.5 && layout.frameLabelLeft == 42 && layout.frameLabelRight == 349)
+        #expect(layout.eventRows.map(\.origin.y) == [110, 127, 144, 161])
+        #expect(layout.frame == CGRect(x: 34, y: 194, width: 325, height: 232))
+        #expect(layout.frameLabelTop == 201.5 && layout.frameLabelLeft == 42 && layout.frameLabelRight == 349)
         #expect(layout.plate == CGRect(x: 7, y: 428, width: 379, height: 417))
         #expect(layout.rimRadius == 39)
-        #expect(layout.rimGap == 176...440)
+        #expect(layout.rimGap == 190...440)
         #expect(layout.titlesTop == 461 && layout.titleWidth == 290)
         #expect(layout.titleCapacity == 5)
         #expect(layout.titleRowTop(4) == CGFloat(461 + 4 * 51))
@@ -152,7 +152,7 @@ import UIKit
     @Test func oneEventTakesTheFirstRowAndTheBoxKeepsItsSize() {
         let one = layout(Array(sample.prefix(1)))
         #expect(one.eventRows.count == 1)
-        #expect(one.eventRows[0].origin.y == 96)
+        #expect(one.eventRows[0].origin.y == 110)
         #expect(one.eventsBox == layout(sample).eventsBox)
     }
 
@@ -274,7 +274,7 @@ import UIKit
         let layout = layout([], prompt: true)
         #expect(layout.eventRows.count == 1)
         #expect(layout.promptIndex == 0)
-        #expect(layout.eventRows[0].origin.y == 96)
+        #expect(layout.eventRows[0].origin.y == 110)
         #expect(layout.eventRows[0].text == "-- Set your zip code in Settings /")
     }
 
@@ -300,7 +300,7 @@ import UIKit
         #expect(layout.titleCapacity == 2)
         #expect(layout.titleRowTop(1) + 34 <= layout.tiles[0].minY - 17)
         #expect(layout.titleRowTop(2) + 34 > layout.tiles[0].minY - 17)
-        #expect(layout.eventsBox.minY == 91 && layout.markRect.minY == 52)
+        #expect(layout.eventsBox.minY == 105 && layout.markRect.minY == 66)
         // The frame still clears the date tile.
         #expect(layout.frame.minY > layout.dateTile.maxY)
         #expect(layout.frame.maxY < layout.plate.minY)
