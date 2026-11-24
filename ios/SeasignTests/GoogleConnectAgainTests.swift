@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import SwiftData
 import Testing
 
@@ -26,6 +27,11 @@ final class RecordingGoogleTokenStore: GoogleTokenStore, @unchecked Sendable {
     }
 
     var stored: GoogleSecret? { inner.stored }
+
+    /// Reads and saves throw this until set to nil.
+    func setFailure(_ failure: KeychainFailure?) {
+        inner.setFailure(failure)
+    }
 
     func read() throws -> GoogleSecret? { try inner.read() }
 
@@ -417,10 +423,11 @@ final class RevokedAtSave: @unchecked Sendable {
     /// channels not stopped.
     private func expectAUnchanged(
         _ model: GoogleCalendarModel, _ context: ModelContext, _ store: RecordingGoogleTokenStore,
-        ids: [UUID], before: Int, sourceLocation: SourceLocation = #_sourceLocation
+        ids: [UUID], before: Int, problem: GoogleCalendarModel.ConnectProblem = .unavailable,
+        pollToken: String = FakeGoogle.access, sourceLocation: SourceLocation = #_sourceLocation
     ) async throws {
         #expect(model.connection == .connected, sourceLocation: sourceLocation)
-        #expect(model.connectProblem == .unavailable, sourceLocation: sourceLocation)
+        #expect(model.connectProblem == problem, sourceLocation: sourceLocation)
         #expect(!model.isConnecting, sourceLocation: sourceLocation)
         #expect(store.stored?.secret == FakeGoogle.refresh, sourceLocation: sourceLocation)
         #expect(model.calendars.map(\.id) == ids, sourceLocation: sourceLocation)
@@ -435,12 +442,14 @@ final class RevokedAtSave: @unchecked Sendable {
         #expect(endpoint.revoked.isEmpty, sourceLocation: sourceLocation)
         // Polling goes on with A's token.
         await model.refresh(force: true)
-        #expect(stub.seen.last { $0.operationID == GoogleAPIStub.postEvents }?.token == FakeGoogle.access, sourceLocation: sourceLocation)
+        #expect(stub.seen.last { $0.operationID == GoogleAPIStub.postEvents }?.token == pollToken, sourceLocation: sourceLocation)
     }
 
     /// Item 1: a new list without a primary entry cannot tell the account.
     /// Before task 178 it was taken for another account: A was revoked,
-    /// which would also end the new grant if it was A's.
+    /// which would also end the new grant if it was A's. Trying again gets
+    /// the same list, so the message says to disconnect and connect again
+    /// (the user's decision, 2026-11-24).
     @Test func aNewListWithNoPrimaryCannotTellTheAccountSoAWorkingConnectionStaysAsItWas() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let store = RecordingGoogleTokenStore()
@@ -454,7 +463,7 @@ final class RevokedAtSave: @unchecked Sendable {
         try await bounded { await model.connect(signIn: signIn) }
 
         #expect(requests(GoogleAPIStub.getCalendars, from: before).map(\.token) == [Self.accessB])
-        try await expectAUnchanged(model, context, store, ids: ids, before: before)
+        try await expectAUnchanged(model, context, store, ids: ids, before: before, problem: .accountNotShown)
     }
 
     /// Item 1, after the sign-in ended: a list without a primary cannot
@@ -801,5 +810,322 @@ final class RevokedAtSave: @unchecked Sendable {
         #expect(watches.first?.calendars == ["other@example.test"])
         #expect(model.watch.isLive)
         #expect(titles(model) == ["Swim"])
+    }
+
+    // MARK: Task 178, after review
+
+    /// Finding 1, the guard after the exchange: a poll meets invalid_grant
+    /// while the Connect again's code is exchanged. That is not a
+    /// Disconnect: the Connect goes on as after the sign-in ended, and the
+    /// grant the user just made is kept (before, it was handed back).
+    @Test func aSignInThatEndsDuringTheExchangeKeepsTheNewSignIn() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+        let ids = model.calendars.map(\.id)
+
+        answerAccountA(refresh: "fake-refresh-two", access: Self.accessA2)
+        // The new token outlives the clock moved below (its life counts from when it was asked for).
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(access: Self.accessA2, refresh: "fake-refresh-two", expiresIn: 7200))
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        endpoint.hold(grant: "authorization_code")
+        let signIn = signIn
+        let connecting = Task { await model.connect(signIn: signIn) }
+        await endpoint.waitForSent(grant: "authorization_code", count: 1)
+        clock.advance(3600)
+        await model.refresh()
+        try #require(model.connection == .expired)
+        endpoint.release()
+        try await bounded { await connecting.value }
+
+        #expect(model.connection == .connected)
+        #expect(model.connectProblem == nil)
+        #expect(!model.isConnecting)
+        #expect(store.stored?.secret == "fake-refresh-two")
+        // The same account: its choices and calendar for new events stay.
+        #expect(model.calendars.map(\.id) == ids)
+        #expect(model.chosen.map(\.calendarID) == ["me@example.test", "family-id"])
+        #expect(model.newEventsCalendarID == "family-id")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// Finding 1, the guard after the new list is read: the sign-in ends
+    /// while the list is out. The Connect goes on as after it ended.
+    @Test func aSignInThatEndsWhileTheNewListIsReadKeepsTheNewSignIn() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+        let ids = model.calendars.map(\.id)
+
+        answerAccountA(refresh: "fake-refresh-two", access: Self.accessA2)
+        // The new token outlives the clock moved below (its life counts from when it was asked for).
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(access: Self.accessA2, refresh: "fake-refresh-two", expiresIn: 7200))
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        stub.hold(GoogleAPIStub.getCalendars)
+        let signIn = signIn
+        let connecting = Task { await model.connect(signIn: signIn) }
+        await stub.waitUntilParked(GoogleAPIStub.getCalendars, count: 1)
+        clock.advance(3600)
+        await model.refresh()
+        try #require(model.connection == .expired)
+        stub.release(GoogleAPIStub.getCalendars)
+        try await bounded { await connecting.value }
+
+        #expect(model.connection == .connected)
+        #expect(model.connectProblem == nil)
+        #expect(store.stored?.secret == "fake-refresh-two")
+        #expect(model.calendars.map(\.id) == ids)
+        #expect(model.newEventsCalendarID == "family-id")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// Finding 1, while the old sign-in is asked for its primary: it ends
+    /// (invalid_grant) meanwhile. The answer is decided again as after it
+    /// ended (another primary: a fresh start), whichever came first, and
+    /// the new grant is kept.
+    @Test func aSignInThatEndsWhileTheOldSignInIsAskedGoesOnAsAfterItEnded() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+
+        answerAccountB()
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(access: Self.accessB, refresh: Self.refreshB, expiresIn: 7200))
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        stub.hold(GoogleAPIStub.getCalendars)
+        let signIn = signIn
+        let connecting = Task { await model.connect(signIn: signIn) }
+        await stub.waitUntilParked(GoogleAPIStub.getCalendars, count: 1)
+        stub.releaseOldest(GoogleAPIStub.getCalendars)
+        await stub.waitUntilParked(GoogleAPIStub.getCalendars, count: 1)
+        #expect(stub.seen.last { $0.operationID == GoogleAPIStub.getCalendars }?.token == FakeGoogle.access)
+        clock.advance(3600)
+        await model.refresh()
+        try #require(model.connection == .expired)
+        stub.release(GoogleAPIStub.getCalendars)
+        try await bounded { await connecting.value }
+        try await idle(model)
+
+        #expect(model.connection == .connected)
+        #expect(model.connectProblem == nil)
+        #expect(store.stored?.secret == Self.refreshB)
+        #expect(model.calendars.map(\.calendarID) == ["other@example.test", "family-id"])
+        #expect(model.chosen.map(\.calendarID) == ["other@example.test"])
+        #expect(model.newEventsCalendarID == nil)
+        #expect(titles(model) == ["Swim"])
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// Finding 3: a Connect again inside our own 429's Retry-After does not
+    /// read the list again (it would meet the same 429): it ends as that
+    /// 429 does, the hold unchanged, nothing kept or revoked.
+    @Test func aConnectAgainInsideOurOwn429HoldDoesNotAskAgain() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+        let ids = model.calendars.map(\.id)
+
+        answerAccountB()
+        stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: "30"))
+        let signIn = signIn
+        try await bounded { await model.connect(signIn: signIn) }
+        try #require(model.connectProblem == .unavailable)
+        let hold = try #require(model.retryNotBefore)
+        #expect(hold == clock.now.addingTimeInterval(30))
+
+        clock.advance(10)
+        let before = stub.seen.count
+        try await bounded { await model.connect(signIn: signIn) }
+
+        #expect(requests(GoogleAPIStub.getCalendars, from: before).isEmpty)
+        #expect(model.retryNotBefore == hold)
+        clock.advance(20)
+        stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.events(
+            [(0, "Coffee", "2026-11-19T19:00:00Z", "2026-11-19T19:30:00Z"), (1, "Dinner", "2026-11-19T23:00:00Z", "2026-11-20T00:00:00Z")],
+            statuses: [nil, nil]
+        ))
+        try await expectAUnchanged(model, context, store, ids: ids, before: before)
+    }
+
+    enum OldSignInFailure: String, CaseIterable, Sendable {
+        case offline, forbidden, keychain, repeated401
+    }
+
+    /// Finding 4: every failure of the old sign-in's list read cannot tell
+    /// the account: the working connection is kept, nothing is revoked, and
+    /// the message is the passing one. (A sign-in change during that read is
+    /// a Disconnect, handed back, or the sign-in ending, which goes on as
+    /// after it ended: see the tests above.)
+    @Test(arguments: OldSignInFailure.allCases)
+    func everyFailureToAskTheOldSignInCannotTell(_ failure: OldSignInFailure) async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+        let ids = model.calendars.map(\.id)
+        let before = stub.seen.count
+        var pollToken = FakeGoogle.access
+
+        answerAccountB()
+        let signIn = signIn
+        switch failure {
+        case .offline:
+            stub.hold(GoogleAPIStub.getCalendars)
+            let connecting = Task { await model.connect(signIn: signIn) }
+            await stub.waitUntilParked(GoogleAPIStub.getCalendars, count: 1)
+            stub.releaseOldest(GoogleAPIStub.getCalendars)
+            await stub.waitUntilParked(GoogleAPIStub.getCalendars, count: 1)
+            stub.setOffline(true)
+            stub.release(GoogleAPIStub.getCalendars)
+            try await bounded { await connecting.value }
+            stub.setOffline(false)
+        case .forbidden:
+            stub.answer(GoogleAPIStub.getCalendars, token: FakeGoogle.access, GoogleAPIStub.error(.forbidden, "google_forbidden"))
+            try await bounded { await model.connect(signIn: signIn) }
+        case .keychain:
+            // A's token needs renewing (under the margin), and the Keychain is locked.
+            clock.advance(3500)
+            store.setFailure(KeychainFailure(status: errSecInteractionNotAllowed))
+            try await bounded { await model.connect(signIn: signIn) }
+            store.setFailure(nil)
+            pollToken = FakeGoogle.access2
+        case .repeated401:
+            stub.answer(GoogleAPIStub.getCalendars, token: FakeGoogle.access, GoogleAPIStub.error(.unauthorized, "google_auth"))
+            stub.answer(GoogleAPIStub.getCalendars, token: FakeGoogle.access2, GoogleAPIStub.error(.unauthorized, "google_auth"))
+            try await bounded { await model.connect(signIn: signIn) }
+            pollToken = FakeGoogle.access2
+        }
+
+        #expect(requests(GoogleAPIStub.getCalendars, from: before).first?.token == Self.accessB)
+        if failure != .keychain {
+            #expect(requests(GoogleAPIStub.getCalendars, from: before).dropFirst().allSatisfy { $0.token != Self.accessB })
+        }
+        stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.events(
+            [(0, "Coffee", "2026-11-19T19:00:00Z", "2026-11-19T19:30:00Z"), (1, "Dinner", "2026-11-19T23:00:00Z", "2026-11-20T00:00:00Z")],
+            statuses: [nil, nil]
+        ))
+        try await expectAUnchanged(model, context, store, ids: ids, before: before, pollToken: pollToken)
+    }
+
+    /// A list with no primary calendar: Family and Work only.
+    private func answerNoPrimary(_ tokens: [String]) {
+        let list = GoogleAPIStub.calendars(roles: [
+            ("family-id", "Family", false, "owner"),
+            ("a-only-id", "Work", false, "owner"),
+        ])
+        stub.answer(GoogleAPIStub.getCalendars, list)
+        for token in tokens { stub.answer(GoogleAPIStub.getCalendars, token: token, list) }
+    }
+
+    /// No primary known on the phone because the list was never read (the
+    /// first Connect's load failed): the old sign-in is asked, names the
+    /// same primary as the new one, and everything is kept.
+    @Test func noPrimaryKnownBecauseTheListWasNeverReadAsksTheOldSignIn() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        answerAccountA()
+        let model = model(context, store: store)
+        let signIn = signIn
+        stub.setOffline(true)
+        try await bounded { await model.connect(signIn: signIn) }
+        stub.setOffline(false)
+        try #require(model.connection == .connected)
+        try #require(model.calendars.isEmpty)
+        let before = stub.seen.count
+
+        answerAccountA(refresh: "fake-refresh-two", access: Self.accessA2)
+        try await bounded { await model.connect(signIn: signIn) }
+
+        #expect(model.connection == .connected)
+        #expect(model.connectProblem == nil)
+        #expect(store.stored?.secret == "fake-refresh-two")
+        #expect(requests(GoogleAPIStub.getCalendars, from: before).map(\.token) == [Self.accessA2, FakeGoogle.access])
+        #expect(model.calendars.map(\.calendarID) == ["me@example.test", "family-id", "a-only-id"])
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// No primary known because the account's list names none: from a
+    /// working connection the account cannot be told, whether the new list
+    /// names none either or only the old sign-in's does. Nothing changes,
+    /// nothing is revoked, and the message says to disconnect and connect
+    /// again (retrying gets the same list).
+    @Test func noPrimaryKnownBecauseTheListNamesNoneCannotTellFromAWorkingConnection() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        answerAccountA()
+        answerNoPrimary([FakeGoogle.access, FakeGoogle.access2])
+        let model = model(context, store: store)
+        let signIn = signIn
+        try await bounded { await model.connect(signIn: signIn) }
+        try #require(model.connection == .connected)
+        let ids = model.calendars.map(\.id)
+        try #require(model.calendars.map(\.calendarID) == ["family-id", "a-only-id"])
+
+        func expectUnchanged(_ comment: Comment) {
+            #expect(model.connection == .connected, comment)
+            #expect(model.connectProblem == .accountNotShown, comment)
+            #expect(store.stored?.secret == FakeGoogle.refresh, comment)
+            #expect(model.calendars.map(\.id) == ids, comment)
+        }
+
+        // The new list names no primary either.
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(access: Self.accessB, refresh: Self.refreshB, scope: FakeGoogle.allScopes))
+        var before = stub.seen.count
+        try await bounded { await model.connect(signIn: signIn) }
+        expectUnchanged("no primary on either list")
+        #expect(requests(GoogleAPIStub.getCalendars, from: before).map(\.token) == [Self.accessB])
+
+        // The new list names one; the old sign-in's still does not.
+        stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.calendars(roles: [("other@example.test", "Other", true, "owner")]))
+        before = stub.seen.count
+        try await bounded { await model.connect(signIn: signIn) }
+        expectUnchanged("no primary on the old sign-in's list")
+        #expect(requests(GoogleAPIStub.getCalendars, from: before).map(\.token) == [Self.accessB, FakeGoogle.access])
+
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// No primary known, after the sign-in ended: nothing can be hurt, so
+    /// the new sign-in is kept and starts afresh (the choices are new).
+    @Test func noPrimaryKnownAfterTheSignInEndedStartsAfresh() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        answerAccountA()
+        answerNoPrimary([FakeGoogle.access, FakeGoogle.access2])
+        let model = model(context, store: store)
+        let signIn = signIn
+        try await bounded { await model.connect(signIn: signIn) }
+        let ids = model.calendars.map(\.id)
+        try #require(ids.count == 2)
+        // A calendar on, so the poll renews the token and meets invalid_grant.
+        model.setOn(try #require(model.calendars.first), true)
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        await model.refresh(force: true)
+        try await idle(model)
+        try #require(model.connection == .expired)
+
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(access: Self.accessA2, refresh: "fake-refresh-two", scope: FakeGoogle.allScopes))
+        try await bounded { await model.connect(signIn: signIn) }
+
+        #expect(model.connection == .connected)
+        #expect(model.connectProblem == nil)
+        #expect(store.stored?.secret == "fake-refresh-two")
+        #expect(model.calendars.map(\.calendarID) == ["family-id", "a-only-id"])
+        #expect(Set(model.calendars.map(\.id)).isDisjoint(with: ids))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// The user's decision (2026-11-24): a lasting cause says to disconnect
+    /// and connect again; a passing one says to try again.
+    @Test func aConnectAgainThatCannotTellTheAccountSaysToDisconnectAndConnectAgain() {
+        typealias Problem = GoogleCalendarModel.ConnectProblem
+        #expect(Problem.accountNotShown.message
+            == "Google didn't show which account you signed in with, so nothing changed. To add events, disconnect and connect again.")
+        #expect(Problem.unavailable.message == "We couldn't reach Google. Check your connection and try again.")
     }
 }

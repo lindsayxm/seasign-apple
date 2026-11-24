@@ -36,6 +36,10 @@ final class GoogleCalendarModel {
         case addingNotAllowed
         /// Google could not be reached.
         case unavailable
+        /// Connect again from a working connection: Google's calendar list
+        /// named no primary calendar, so the account could not be told and
+        /// nothing changed. Trying again gets the same list (task 178).
+        case accountNotShown
         /// The sign-in could not be written to the Keychain.
         case notSaved
 
@@ -57,6 +61,8 @@ final class GoogleCalendarModel {
                 "Google didn't allow Seasign to add events, so it still only reads your calendars. Connect again when you want to add events."
             case .unavailable:
                 "We couldn't reach Google. Check your connection and try again."
+            case .accountNotShown:
+                "Google didn't show which account you signed in with, so nothing changed. To add events, disconnect and connect again."
             case .notSaved:
                 "The sign-in couldn't be saved on this phone. Try again."
             }
@@ -358,7 +364,7 @@ final class GoogleCalendarModel {
             }
             return
         }
-        guard started == generation else {
+        guard goesOn(after: &started, attempt: attempt) else {
             // Disconnected during the exchange: the new grant is handed back
             // to Google and nothing is kept.
             handBack(fresh.refresh ?? fresh.access, begun: begun)
@@ -386,27 +392,42 @@ final class GoogleCalendarModel {
         var listFailure: (any Error)?
         var primaryRenamedFrom: String?
         if connection != .notConnected {
-            do {
-                list = try await api.googleCalendars(token: fresh.access)
-            } catch {
-                listFailure = error
+            if let held = serverLimitHold() {
+                // Our 429's Retry-After is on: asking now gets another 429.
+                listFailure = held
+            } else {
+                do {
+                    list = try await api.googleCalendars(token: fresh.access)
+                } catch {
+                    listFailure = error
+                }
             }
-            var match: AccountMatch?
-            if started == generation { match = await matchAccount(newList: list) }
-            guard let match, started == generation else {
-                // Disconnected meanwhile: handed back, nothing kept.
-                handBack(refreshToken, begun: begun)
-                return
-            }
+            var match: AccountMatch
+            repeat {
+                guard goesOn(after: &started, attempt: attempt) else {
+                    // Disconnected meanwhile: handed back, nothing kept.
+                    handBack(refreshToken, begun: begun)
+                    return
+                }
+                wasConnected = connection == .connected
+                // Decided again if the sign-in here ended while the old one
+                // was asked (as after it ended: no read, no wait).
+                match = await matchAccount(newList: list)
+            } while started != generation
             switch match {
             case .same(let renamedFrom):
                 primaryRenamedFrom = renamedFrom
             case .cannotTell(let failure):
                 // A working connection stays exactly as it was. Nothing is
                 // revoked: either token's revoke would end the other's grant
-                // if both are the same account's. Our 429 still holds.
-                if let failure = listFailure ?? failure { holdForServerLimit(failure) }
-                connectProblem = .unavailable
+                // if both are the same account's. Our 429 still holds. A
+                // failure may pass; a list without a primary will not.
+                if let failure = listFailure ?? failure {
+                    holdForServerLimit(failure)
+                    connectProblem = .unavailable
+                } else {
+                    connectProblem = .accountNotShown
+                }
                 return
             case .other(let revokeOld):
                 // Disconnect the old account first (its channels stopped with
@@ -469,7 +490,30 @@ final class GoogleCalendarModel {
         /// sign-in still works and is revoked.
         case other(revokeOld: Bool)
         /// Cannot be told while the connection here works: nothing is kept.
+        /// The failure that kept it from being told; nil when a list named
+        /// no primary calendar.
         case cannotTell((any Error)?)
+    }
+
+    /// Whether a Connect whose generation moved while it waited goes on.
+    /// Only when the sign-in here ended meanwhile (a poll, a push or the day
+    /// screen met `invalid_grant`) with no Disconnect or newer Connect since:
+    /// it then goes on as a Connect after the sign-in ended, and its grant is
+    /// kept (task 178). After a Disconnect it is handed back.
+    private func goesOn(after started: inout Int, attempt: Int) -> Bool {
+        if started == generation { return true }
+        guard connection == .expired, attempt == connectAttempt else { return false }
+        started = generation
+        return true
+    }
+
+    /// Our own 429's Retry-After, while it holds, as the failure a read sent
+    /// now would meet; nil when no such hold is on. (A back-off or Google's
+    /// limit on one calendar does not stop a Connect again from asking.)
+    private func serverLimitHold() -> (any Error)? {
+        guard holdIsServerLimit, let retryNotBefore, now() < retryNotBefore else { return nil }
+        let seconds = Int(retryNotBefore.timeIntervalSince(now()).rounded(.up))
+        return SeasignAPI.GoogleFailure.rateLimited(retryAfter: max(1, seconds))
     }
 
     /// Tells whether the sign-in that read `newList` (nil: it could not be
@@ -492,6 +536,7 @@ final class GoogleCalendarModel {
         if let newPrimary, newPrimary == known { return .same(renamedFrom: nil) }
         guard connection == .connected else { return .other(revokeOld: false) }
         guard let newPrimary else { return .cannotTell(nil) }
+        if let held = serverLimitHold() { return .cannotTell(held) }
         let oldPrimary: String?
         do {
             oldPrimary = try await withToken { api, token in try await api.googleCalendars(token: token) }
