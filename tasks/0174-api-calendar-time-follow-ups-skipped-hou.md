@@ -1,11 +1,11 @@
 ---
 id: 174
 title: API: calendar time follow-ups: skipped-hour instants, stale instance beside an override, sweep test time
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: []
 created: 2026-11-22T18:45:19Z
-updated: 2026-11-22T18:45:19Z
+updated: 2026-11-24T15:38:03Z
 ---
 
 ## Goal
@@ -29,3 +29,5 @@ From the two #167 reviews; none blocks the day screen. (1) wallToEpoch returns t
 ## Log
 
 - 2026-11-22T18:45:19Z [li] created (backlog)
+- 2026-11-24T15:38:03Z [li] status: backlog → todo
+- 2026-11-24T15:38:03Z [implementer-1] status: todo → in-progress — claimed by implementer-1

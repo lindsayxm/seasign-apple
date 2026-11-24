@@ -1,11 +1,11 @@
 ---
 id: 178
 title: iOS: Google account-switch follow-ups from the #175 review
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-2
 depends_on: []
 created: 2026-11-23T01:15:22Z
-updated: 2026-11-23T01:15:22Z
+updated: 2026-11-24T15:38:03Z
 ---
 
 ## Goal
@@ -29,3 +29,5 @@ From the #175 review (its review note has lines and scenarios). (1) A calendar l
 ## Log
 
 - 2026-11-23T01:15:22Z [li] created (backlog)
+- 2026-11-24T15:38:03Z [li] status: backlog → todo
+- 2026-11-24T15:38:03Z [implementer-2] status: todo → in-progress — claimed by implementer-2
