@@ -1292,7 +1292,7 @@ final class RevokedAtSave: @unchecked Sendable {
 
     @Test func theBusyNoteSaysSeasignIsBusyAndToTryAgainInAMoment() {
         #expect(GoogleCalendarModel.ConnectProblem.busy.message
-            == "Seasign is busy right now, so nothing changed. Try again in a moment.")
+            == "Seasign is busy right now, so nothing changed. Try again in a minute.")
     }
 
     /// Item 4: the DEBUG launch argument `-debugGoogleConnectProblem <case>`

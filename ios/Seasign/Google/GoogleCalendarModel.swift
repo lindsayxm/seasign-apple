@@ -68,7 +68,7 @@ final class GoogleCalendarModel {
             case .accountNotShown:
                 "Google didn't show which account you signed in with, so nothing changed. To add events, disconnect and connect again."
             case .busy:
-                "Seasign is busy right now, so nothing changed. Try again in a moment."
+                "Seasign is busy right now, so nothing changed. Try again in a minute."
             case .notSaved:
                 "The sign-in couldn't be saved on this phone. Try again."
             }
