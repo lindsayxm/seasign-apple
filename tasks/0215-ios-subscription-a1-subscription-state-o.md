@@ -1,11 +1,11 @@
 ---
 id: 215
 title: iOS subscription A1: subscription state on the phone (Free, Subscribed, Lapsed, Unknown) with StoreKit, tested locally
-status: review
+status: done
 owner: implementer-1
 depends_on: []
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T21:13:23Z
+updated: 2026-11-24T21:15:39Z
 ---
 
 ## Goal
@@ -15,9 +15,9 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 ## Acceptance criteria
 
 - [x] State mapping covered by pure tests for every renewal state, an unknown future state, no history, refund, and a StoreKit error
-- [ ] SKTestSession tests: buy gives subscribed; expire and refund give lapsed; a fresh session gives free; run serially and pass under xcodebuild test on both runtimes, or the task log says exactly why they cannot and what replaces them
+- [x] SKTestSession tests: buy gives subscribed; expire and refund give lapsed; a fresh session gives free; run serially and pass under xcodebuild test on both runtimes, or the task log says exactly why they cannot and what replaces them
 - [x] The .storekit file is not in the built app bundle (checked in the build products)
-- [ ] Suite passes on both runtimes; the app's existing behaviour is unchanged
+- [x] Suite passes on both runtimes; the app's existing behaviour is unchanged
 
 ## Relevant files
 
@@ -59,3 +59,7 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 - 2026-11-24T21:11:30Z [implementer-1] criterion 3 met: The .storekit file is not in the built app bundle (checked in the build products)
 - 2026-11-24T21:11:30Z [implementer-1] re-review of fbffa93: PASS on the hard rule (reviewer, read-only; no xcodebuild). Ticked 3: rework touches no .storekit or project.yml; pbxproj puts Seasign.storekit only in SeasignTests' Resources phase, and the lead's 20:51:50 entry confirms it is only inside SeasignTests.xctest in the build products. 1 stays ticked (new pure tests add expiry, revocation, no-expiry, several-entry and empty-list cases). 2 and 4 left for the lead's runs of fbffa93 on both runtimes. Verified by reading: state(of:now:) (SubscriptionState.swift:103-110) matches the stated table; Subscribed needs verified transaction AND renewal info, state .subscribed, revocationDate nil, expirationDate > now; dates come only from a verified transaction (SubscriptionStore.swift:74-82). state(from:now:) (:124-136): any Unknown or any disagreement is Unknown, empty .statuses Unknown, Transaction.all only on an empty status list (SubscriptionStore.swift:26). refresh() (SubscriptionModel.swift:45-51): every finished read is applied unless a later-started read was already applied, so the newest finished read always lands, a failed or cancelled later read applies Unknown (fail-closed) and blocks an older stale subscribed; nothing can starve. Clock: both construction sites (SeasignApp.swift:143-144, 152) use the default Date(); no argument or defaults key reaches it. Non-blocking: (a) aStaleSubscribedAnswerPastItsExpiryIsLapsed (StoreKitSubscriptionTests.swift:102-122) would also pass if StoreKit answered expired, since the stale [1] is only printed (:114-116), not asserted; the logged red run shows it did exercise the stale path; suggest #expect(model.state == .subscribed) after :113 or drop the print. (b) aSubscriptionThatRunsOutWhileTheProcessWatchesIsLapsed's comment says StoreKit reported state 2 itself; the test does not assert that. (c) Subscribed beside Lapsed is Unknown: fail-closed and fine for the hard rule; whether the real App Store can give two entries with Family Sharing off is not documented as far as I know (the test env gave one after a resubscribe); 217 must give Unknown a Restore/retry path, not a dead end. (d) For 216: the model's state is only re-judged on refresh(), so a subscribed state outlives its expiry until the next read; the gate must call refresh() (and use the answer) before each paid request. (e) For 217: as far as I know, transactions returned by Product.purchase() are not emitted on Transaction.updates, so the purchase call site must verify, finish and refresh itself (check in sosumi). (f) theListenerFinishesTransactions' wait for the first read addresses a real ordering gap (the detached Transaction.updates iterators may not be subscribed yet when buyProduct runs), but the first read is a proxy, not a guarantee; in the app the listener starts in SeasignApp.init before any UI, so a user purchase cannot precede it.
 - 2026-11-24T21:13:23Z [implementer-1] re-review addendum (reviewer): correcting (f): the cause of theListenerFinishesTransactions' flake is not established. changes() creates both iterators synchronously in start(), and the host app's own model has listened in the same process since launch, so a 'listener not yet subscribed' window does not explain 1/3 and 2/5; the wait may mask something else (two Transaction.updates consumers in one process, or Transaction.unfinished lagging). Not a hard-rule issue: a missed update only leaves stale state, which the clock check and 216's re-read bound. On (c): a retry does not help a persistent two-entry disagreement; if a real account can produce one, that paying customer stays Unknown (locked out) until phase B's server check. Reachability is unverified; check in the sandbox. Also a consequence of the clock check: a stale answer across a successful renewal reads Lapsed until StoreKit catches up, so a paying customer could briefly see the renew popup; fail-closed, carry to 217 (refresh on foreground, and Restore).
+- 2026-11-24T21:15:38Z [implementer-1] Lead: suite at fbffa93: 940 tests in 104 suites passed, TEST SUCCEEDED, on iPhone 17 / iOS 27.2 and iPhone 16 / iOS 18.3.1; StoreKitSubscriptionTests alone passed 4 of 4 further runs on 27.2 (12 tests each). The flake's cause in theListenerFinishesTransactions is not established (the reviewer doubts the explanation); watch it.
+- 2026-11-24T21:15:39Z [implementer-1] criterion 2 met: SKTestSession tests: buy gives subscribed; expire and refund give lapsed; a fresh session gives free; run serially and pass under xcodebuild test on both runtimes, or the task log says exactly why they cannot and what replaces them
+- 2026-11-24T21:15:39Z [implementer-1] criterion 4 met: Suite passes on both runtimes; the app's existing behaviour is unchanged
+- 2026-11-24T21:15:39Z [implementer-1] status: review → done
