@@ -314,7 +314,7 @@ private struct BoxBackground: View {
 enum DayTimelineFocus {
     /// An ended event's words and outline: dimmer than the rest, still
     /// readable as accent on the plate (was 0.4 on the charcoal).
-    static let endedOpacity = 0.5
+    static let endedOpacity = 0.7   // 0.5 left ended titles at about 2:1 on the plate (review of task 196); 0.7 gives about 3:1
 
     static func highlighted(rows: [DayRow], day: DateInterval, now: Date) -> Set<Int> {
         let timed = rows.indices.filter { index in

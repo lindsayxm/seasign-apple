@@ -1,11 +1,11 @@
 ---
 id: 197
 title: iOS v12: read view, Do / Get, Saved and History restyled
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [196]
 created: 2026-11-23T20:25:09Z
-updated: 2026-11-23T20:25:09Z
+updated: 2026-11-24T00:44:25Z
 ---
 
 ## Goal
@@ -31,3 +31,4 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 ## Log
 
 - 2026-11-23T20:25:09Z [li] created (todo)
+- 2026-11-24T00:44:25Z [implementer-1] status: todo → in-progress — claimed by implementer-1
