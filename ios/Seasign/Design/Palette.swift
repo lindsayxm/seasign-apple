@@ -42,7 +42,7 @@ enum Palette {
     // Design v12 (`design-ideas/v12-imago/`). The accent itself is the user's
     // choice: views read `\.hudAccent`; `hudAccent` here is its default.
 
-    /// The default HUD accent, the orange-red `rgb(235, 78, 39)`.
+    /// The default HUD accent, the orange-red `rgb(235, 79, 40)`.
     static let hudAccent = HUDAccent.defaultRGB.color
     /// The dark plate under the titles and the bottom tiles, `rgb(8, 9, 12)`.
     static let hudPlateRGB = SRGB(8, 9, 12)

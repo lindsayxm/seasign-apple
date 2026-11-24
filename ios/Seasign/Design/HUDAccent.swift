@@ -14,7 +14,7 @@ struct SRGB: Equatable, Sendable {
         self.blue = blue
     }
 
-    /// From 8-bit components, as the mockups give them (`rgb(235, 78, 39)`).
+    /// From 8-bit components, as the mockups give them (`rgb(235, 79, 40)`).
     init(_ red: Int, _ green: Int, _ blue: Int) {
         self.init(red: Double(red) / 255, green: Double(green) / 255, blue: Double(blue) / 255)
     }
@@ -101,11 +101,11 @@ struct SRGB: Equatable, Sendable {
 /// ceiling holds only at lightness 0; mixing toward white only raises the
 /// luminance, so both floors hold everywhere.
 enum HUDAccent {
-    /// The orange-red sampled from the v12 reference, `rgb(235, 78, 39)`.
-    static let defaultRGB = SRGB(235, 78, 39)
-    /// The default's hue in degrees (about 11.94), where the Settings colour
+    /// The orange-red sampled from the v12 reference, `rgb(235, 79, 40)`.
+    static let defaultRGB = SRGB(235, 79, 40)
+    /// The default's hue in degrees (12), where the Settings colour
     /// block's marker sits when nothing is stored.
-    static let defaultHue: Double = 60 * (78.0 - 39.0) / (235.0 - 39.0)
+    static let defaultHue: Double = 60 * (79.0 - 40.0) / (235.0 - 40.0)
 
     /// The smallest contrast allowed on the plate and for text on a filled tile.
     static let minimumTextContrast = 4.5
@@ -124,7 +124,7 @@ enum HUDAccent {
     /// The luminance every hue is set to: the default's.
     static let targetLuminance = defaultRGB.relativeLuminance
     /// The HSV saturation every hue starts from: the default's (about 0.83).
-    static let saturation: Double = (235.0 - 39.0) / 235.0
+    static let saturation: Double = (235.0 - 40.0) / 235.0
 
     /// The accent for a stored hue; nil, or a hue that is not a finite
     /// number, is the default orange-red exactly.

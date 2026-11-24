@@ -116,7 +116,7 @@ import Testing
         #expect(row.hudHue == nil)
         #expect(row.hudLightness == nil)
         #expect(try accent(context) == HUDAccent.defaultRGB)
-        #expect(try accent(context) == SRGB(235, 78, 39))
+        #expect(try accent(context) == SRGB(235, 79, 40))
         #expect(HUDColourField.shownHue(store.hudHue) == HUDAccent.defaultHue)
         #expect(HUDColourField.shownLightness(store.hudLightness) == 0)
         #expect(HUDColourField.choiceLabel(hue: nil, lightness: nil) == "Default orange-red")
@@ -198,7 +198,7 @@ import Testing
         #expect(HUDColourField.spokenHue(nil) == "default orange-red, 12 degrees")
         #expect(HUDColourField.adjustedHue(210, up: true) == 220)
         #expect(HUDColourField.adjustedHue(210, up: false) == 200)
-        // From the default's 11.94°, to the next step either way.
+        // From the default's 12°, to the next step either way.
         #expect(HUDColourField.adjustedHue(nil, up: true) == 20)
         #expect(HUDColourField.adjustedHue(nil, up: false) == 10)
         #expect(HUDColourField.adjustedHue(213, up: true) == 220)

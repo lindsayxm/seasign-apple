@@ -19,10 +19,10 @@ import UIKit
         #expect(SRGB(255, 255, 255).relativeLuminance == 1)
         #expect(SRGB(0, 0, 0).relativeLuminance == 0)
         #expect(abs(SRGB.contrast(SRGB(255, 255, 255), SRGB(0, 0, 0)) - 21) < 1e-9)
-        #expect(abs(SRGB(235, 78, 39).relativeLuminance - 0.23257) < 1e-4)
-        #expect(abs(SRGB.contrast(SRGB(235, 78, 39), SRGB(8, 9, 12)) - 5.358) < 1e-3)
-        #expect(abs(SRGB.contrast(SRGB(235, 78, 39), SRGB(14, 10, 8)) - 5.304) < 1e-3)
-        #expect(abs(SRGB.contrast(SRGB(235, 78, 39), SRGB(244, 242, 238)) - 3.323) < 1e-3)
+        #expect(abs(SRGB(235, 79, 40).relativeLuminance - 0.23407) < 1e-4)
+        #expect(abs(SRGB.contrast(SRGB(235, 79, 40), SRGB(8, 9, 12)) - 5.387) < 1e-3)
+        #expect(abs(SRGB.contrast(SRGB(235, 79, 40), SRGB(14, 10, 8)) - 5.332) < 1e-3)
+        #expect(abs(SRGB.contrast(SRGB(235, 79, 40), SRGB(244, 242, 238)) - 3.306) < 1e-3)
         // The band, from the plan's checks.
         #expect(abs(HUDAccent.luminanceFloor - 0.18976) < 1e-4)
         #expect(abs(HUDAccent.luminanceCeiling - 0.26303) < 1e-4)
@@ -42,15 +42,15 @@ import UIKit
 
     /// The default passes its own rule; if it did not, the band would be wrong.
     @Test func theDefaultPassesTheRule() {
-        #expect(HUDAccent.defaultRGB == SRGB(235, 78, 39))
+        #expect(HUDAccent.defaultRGB == SRGB(235, 79, 40))
         passes(HUDAccent.defaultRGB, "default")
     }
 
     /// No hue picked is the default exactly, not the function at its hue.
     @Test func noHueIsTheDefaultExactly() {
-        #expect(HUDAccent.rgb(hue: nil) == SRGB(235, 78, 39))
-        #expect(HUDAccent.rgb(hue: .nan) == SRGB(235, 78, 39))
-        #expect(HUDAccent.rgb(hue: .infinity) == SRGB(235, 78, 39))
+        #expect(HUDAccent.rgb(hue: nil) == SRGB(235, 79, 40))
+        #expect(HUDAccent.rgb(hue: .nan) == SRGB(235, 79, 40))
+        #expect(HUDAccent.rgb(hue: .infinity) == SRGB(235, 79, 40))
     }
 
     /// At lightness 0 (the bottom edge of the picker) every whole degree
@@ -92,8 +92,8 @@ import UIKit
     @Test func theDefaultsHueGivesTheDefault() {
         let accent = HUDAccent.rgb(hue: HUDAccent.defaultHue)
         #expect(abs(accent.red - 235.0 / 255) <= 1.0 / 255)
-        #expect(abs(accent.green - 78.0 / 255) <= 1.0 / 255)
-        #expect(abs(accent.blue - 39.0 / 255) <= 1.0 / 255)
+        #expect(abs(accent.green - 79.0 / 255) <= 1.0 / 255)
+        #expect(abs(accent.blue - 40.0 / 255) <= 1.0 / 255)
     }
 
     /// Hues wrap: 360 is 0, -90 is 270.
@@ -144,13 +144,13 @@ import UIKit
     /// The default (no hue) mixes from the orange-red exactly, not from the
     /// function at its hue; lightness out of range or not a number is held.
     @Test func lightnessEndsAndEdges() {
-        #expect(HUDAccent.rgb(hue: nil, lightness: nil) == SRGB(235, 78, 39))
-        #expect(HUDAccent.rgb(hue: nil, lightness: 0) == SRGB(235, 78, 39))
-        #expect(HUDAccent.rgb(hue: nil, lightness: .nan) == SRGB(235, 78, 39))
-        #expect(HUDAccent.rgb(hue: nil, lightness: -2) == SRGB(235, 78, 39))
+        #expect(HUDAccent.rgb(hue: nil, lightness: nil) == SRGB(235, 79, 40))
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0) == SRGB(235, 79, 40))
+        #expect(HUDAccent.rgb(hue: nil, lightness: .nan) == SRGB(235, 79, 40))
+        #expect(HUDAccent.rgb(hue: nil, lightness: -2) == SRGB(235, 79, 40))
         #expect(HUDAccent.rgb(hue: nil, lightness: 1) == white)
         #expect(HUDAccent.rgb(hue: nil, lightness: 7) == white)
-        #expect(HUDAccent.rgb(hue: nil, lightness: .infinity) == SRGB(235, 78, 39))
+        #expect(HUDAccent.rgb(hue: nil, lightness: .infinity) == SRGB(235, 79, 40))
         #expect(HUDAccent.clampedLightness(0.25) == 0.25)
         #expect(HUDAccent.clampedLightness(nil) == 0)
         // Just above 0 is already a step lighter or the same, never darker.
@@ -158,21 +158,21 @@ import UIKit
     }
 
     /// The mix, worked by hand outside Swift (Python, the same formulas):
-    /// the orange-red's L* is 55.337; lightness t aims at L* 55.337 +
-    /// t(100 - 55.337), and each component is mixed toward white in linear
+    /// the orange-red's L* is 55.489; lightness t aims at L* 55.489 +
+    /// t(100 - 55.489), and each component is mixed toward white in linear
     /// light by the share that reaches that luminance, then rounded.
     @Test func theMixMatchesHandWorkedNumbers() {
-        #expect(abs(HUDAccent.cieLightness(luminance: HUDAccent.defaultRGB.relativeLuminance) - 55.3365) < 1e-3)
+        #expect(abs(HUDAccent.cieLightness(luminance: HUDAccent.defaultRGB.relativeLuminance) - 55.4895) < 1e-3)
         #expect(abs(HUDAccent.luminance(cieLightness: 100) - 1) < 1e-12)
         #expect(abs(HUDAccent.luminance(cieLightness: HUDAccent.cieLightness(luminance: 0.4)) - 0.4) < 1e-12)
         #expect(abs(HUDAccent.luminance(cieLightness: HUDAccent.cieLightness(luminance: 0.005)) - 0.005) < 1e-12)
-        #expect(HUDAccent.rgb(hue: nil, lightness: 0.25) == SRGB(238, 132, 118))
-        #expect(HUDAccent.rgb(hue: nil, lightness: 0.4) == SRGB(241, 158, 150))
-        #expect(HUDAccent.rgb(hue: nil, lightness: 0.5) == SRGB(243, 175, 169))
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0.25) == SRGB(238, 132, 119))
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0.4) == SRGB(241, 159, 150))
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0.5) == SRGB(243, 176, 169))
         #expect(HUDAccent.rgb(hue: nil, lightness: 0.75) == SRGB(248, 216, 213))
         // Halfway up is about halfway to white in L*, so the luminance at
-        // 0.5 (0.527 before rounding) sits well below a straight luminance
-        // halfway (0.616).
+        // 0.5 (0.528 before rounding) sits well below a straight luminance
+        // halfway (0.617).
         let half = HUDAccent.rgb(hue: nil, lightness: 0.5).relativeLuminance
         #expect(abs(half - 0.5265) < 0.005)
     }
