@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: []
 created: 2026-11-24T01:33:59Z
-updated: 2026-11-24T06:00:57Z
+updated: 2026-11-24T11:07:18Z
 ---
 
 ## Goal
@@ -31,3 +31,4 @@ Small items left from the v12 build reviews (tasks 193 to 197).
 - 2026-11-24T01:37:30Z [li] Also from the #195 review, not yet carried anywhere: StarFlight.land's guard depends on SwiftUI delivering the drag's end before the @GestureState reset (StarDrop.swift:79, HUDTileBar.swift:86), an order SwiftUI does not document; the iOS 18 proof shot was doubted. Needs a by-hand drag of the star on both runtimes (and on a phone), or a guard that does not depend on the order. Lead check 2026-11-23: accent over the sky looked at on the iPhone 17 with hue-matched cases (blue at mid-day, pink and orange at sunset, cyan with the moon up): every accent part stayed readable, because they all sit over the dark top of the sky.
 - 2026-11-24T04:23:27Z [li] From task 205: rename theBoxNeverShowsMoreThanFourRows and thePromptAndThreeEventsAlwaysFit (they now check three rows and two events); the short zip prompt has not been seen on screen; a second voice timing test (theAnswerWindowClosesAfterAFewSeconds) failed once under load on iPhone 16.
 - 2026-11-24T06:00:57Z [li] From task 206: VoiceOver's hue and lightness adjust actions have never fired in the running app; the choice label at large Dynamic Type; the marker ring overhangs the block's edge at white; three voice timing tests have now failed under load on iPhone 16 (worth making them independent of wall-clock time).
+- 2026-11-24T11:07:18Z [li] From the #207 review (2026-11-24), low and nits: remove the default pitch on TodayOverlayLayout.titleRows(fitting:pitch:); the min(tight, 54) that never takes effect; HeadlinesColumn.swift:6 still says rows 54 apart; the SE doc comment in TodayOverlayLayoutTests sits above the wrong test; add tests for pitch 53, the 91.5 seam, titleRows(fitting: 84, pitch: 46), capacity at 375x812, 390x844 and 320x568, and star-drop bands at the SE size.
