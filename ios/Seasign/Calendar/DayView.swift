@@ -14,6 +14,11 @@ import SwiftUI
 /// "Added · Sun 3:00 PM · Meeting with Rahaf" shows for a few seconds and
 /// an event for today joins the day at once.
 ///
+/// Design v12 (task 196): the HUD's dark plate and mono type; the date in a
+/// white tile like Today's; the mic and + in the accent, each in the frame
+/// of Today's settings button (filled while listening); the notes in the
+/// HUD's text roles, which follow Dynamic Type.
+///
 /// It reads through its own `DayModel`, which refreshes while the screen is
 /// open and the app is active (Today's Google poll stops under any cover).
 struct DayView: View {
@@ -29,6 +34,7 @@ struct DayView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.clockStyle) private var clockStyle
+    @Environment(\.hudAccent) private var accent
 
     init(model: DayModel, adder: AddEventModel? = nil, voice: VoiceEntryModel? = nil) {
         _model = State(initialValue: model)
@@ -48,8 +54,8 @@ struct DayView: View {
         TimelineView(.periodic(from: .now, by: 20)) { timeline in
             content(now: timeline.date)
         }
-        .background(Palette.charcoal.ignoresSafeArea())
-        .statusBarCover()
+        .background(Palette.hudPlate.ignoresSafeArea())
+        .statusBarCover(Palette.hudPlate)
         .preferredColorScheme(.dark)
         // Asks at once whenever the screen opens or the app comes back, then
         // on its own timer; stops when the screen closes or the app leaves
@@ -128,12 +134,9 @@ struct DayView: View {
                 .padding(.leading, 20)
                 .padding(.trailing, 8)
                 .padding(.top, 4)
-            Rectangle()
-                .fill(Palette.rule)
-                .frame(height: 1)
+            HUDRule(accent: true)
                 .padding(.horizontal, 20)
                 .padding(.top, 2)
-                .accessibilityHidden(true)
             // The notes take their own room above the day, which shrinks to
             // fit under them, so they never cover an event.
             if hasNotes {
@@ -191,24 +194,25 @@ struct DayView: View {
     private func listening(_ heard: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(caps: "Listening")
-                .capsRelative(9.5, medium: true, tracking: 0.15)
-                .foregroundStyle(Palette.dayWater)
+                .hudText(.section)
+                .foregroundStyle(accent)
             if heard.isEmpty {
                 Text(caps: "Say the event and when, like “Lunch with Ann tomorrow at noon”.")
-                    .capsRelative(10, tracking: 0.15)
-                    .lineSpacing(4)
+                    .hudText(.note)
+                    .lineSpacing(3)
                     .foregroundStyle(Palette.dimText)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 // Verbatim: the user's own words.
                 Text(caps: heard)
-                    .capsRelative(13, medium: true, tracking: 0.12)
-                    .lineSpacing(4)
+                    .hudText(.field)
+                    .fontWeight(.medium)
+                    .lineSpacing(3)
                     .foregroundStyle(Palette.white)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Text(caps: "Tap the mic again when you're done.")
-                .capsRelative(9.5, tracking: 0.15)
+                .hudText(.detail)
                 .foregroundStyle(Palette.dimText)
         }
         .accessibilityElement(children: .combine)
@@ -218,16 +222,12 @@ struct DayView: View {
     /// Why the mic did not listen; the + stays.
     private func voiceNotice(_ notice: VoiceNotice) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(caps: notice.message)
-                .capsRelative(10, tracking: 0.15)
-                .lineSpacing(4)
-                .foregroundStyle(Palette.sun)
-                .fixedSize(horizontal: false, vertical: true)
+            HUDNote(text: notice.message, warning: true)
             if notice.opensSystemSettings, let url = URL(string: UIApplication.openSettingsURLString) {
                 Link(destination: url) {
                     Text(caps: "Open iPhone Settings")
-                        .capsRelative(10)
-                        .foregroundStyle(Palette.dimText)
+                        .hudText(.link)
+                        .foregroundStyle(accent)
                         .underline()
                         .frame(minHeight: 44)
                 }
@@ -238,8 +238,9 @@ struct DayView: View {
     /// "Added · Sun 3:00 PM · Meeting with Rahaf", gone after a few seconds.
     private func addedNote(_ added: AddEventModel.AddedNote) -> some View {
         Text(caps: added.text)
-            .capsRelative(10, medium: true, tracking: 0.15)
-            .lineSpacing(4)
+            .hudText(.note)
+            .fontWeight(.semibold)
+            .lineSpacing(3)
             .foregroundStyle(Palette.white)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityAddTraits(.updatesFrequently)
@@ -249,15 +250,19 @@ struct DayView: View {
             }
     }
 
-    /// The date, then the mic, the + and the close mark on the same line,
-    /// so nothing is drawn over the day.
+    /// The date in a white tile (Today's date tile), then the mic, the +
+    /// and the close mark on the same line, so nothing is drawn over the day.
     private func header(_ date: HeaderDate) -> some View {
         HStack(alignment: .center, spacing: 0) {
             Text(caps: date.spoken)
-                .capsRelative(11, medium: true, tracking: 0.15)
-                .foregroundStyle(Palette.white)
+                .hudText(.section)
+                .fontWeight(.semibold)
+                .foregroundStyle(Palette.onAccent)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Palette.dateTile, in: HUDShape.rect)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             buttons
@@ -265,7 +270,8 @@ struct DayView: View {
         }
     }
 
-    /// Mic, then +, each a 44-point target, in the line style of Today's icons.
+    /// Mic, then +, each a 44-point target: the icon in the accent inside
+    /// the frame of Today's settings button.
     private var buttons: some View {
         HStack(spacing: 0) {
             if let voice {
@@ -285,21 +291,37 @@ struct DayView: View {
 
     private func iconButton(_ icon: LineIcon, label: String, active: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            LineIconView(icon: icon, size: 20, lineWidth: 1.3)
-                .foregroundStyle(active ? Palette.charcoal : Palette.dimText)
-                .frame(width: 44, height: 44)
-                .background(active ? Palette.white : Color.clear, in: Circle())
-                .contentShape(Rectangle())
+            ZStack {
+                HUDFrameShape()
+                    .fill(active ? accent : Color.clear)
+                HUDFrameShape()
+                    .stroke(accent, style: StrokeStyle(lineWidth: 1.5 * Self.frameSide / 28, lineJoin: .miter))
+                LineIconView(icon: icon, size: 12, lineWidth: 1.3)
+                    .foregroundStyle(active ? Palette.onAccent : accent)
+            }
+            .frame(width: Self.frameSide, height: Self.frameSide)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
     }
 
+    /// The mic's and the +'s frame: Today's settings button's, 24 points.
+    private static let frameSide: CGFloat = 24
+
     private func note(_ text: String) -> some View {
-        Text(caps: text)
-            .capsRelative(10, tracking: 0.15)
-            .lineSpacing(4)
-            .foregroundStyle(Palette.dimText)
-            .fixedSize(horizontal: false, vertical: true)
+        HUDNote(text: text)
+    }
+}
+
+/// The frame of Today's mark and settings button (`HUDGlyph.frame`, rounded
+/// at the upper left and lower right), scaled to the rect.
+struct HUDFrameShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        HUDGlyph.frame.applying(
+            CGAffineTransform(translationX: rect.minX, y: rect.minY)
+                .scaledBy(x: rect.width / 28, y: rect.height / 28)
+        )
     }
 }

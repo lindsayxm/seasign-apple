@@ -106,8 +106,8 @@ enum HUDGlyph: CaseIterable {
     }
 
     /// `M7 1H27V21A6 6 0 0 1 21 27H1V7A6 6 0 0 1 7 1Z`: rounded at the upper
-    /// left and lower right.
-    private static var frame: Path {
+    /// left and lower right. The day screen's mic and + sit in it too.
+    static var frame: Path {
         var path = Path()
         path.move(to: CGPoint(x: 7, y: 1))
         path.addLine(to: CGPoint(x: 27, y: 1))

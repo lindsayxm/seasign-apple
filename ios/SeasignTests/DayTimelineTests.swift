@@ -248,3 +248,73 @@ import Testing
         #expect(DayTimeline.strip(widths: [], available: 250, gap: 4, maxRows: 2, moreWidth: 40) == DayTimeline.Strip(rows: [], hidden: []))
     }
 }
+
+/// Which boxes the day screen fills with the accent (task 196): the events
+/// under way, else the next one to start; never an ended or all-day event.
+@Suite struct DayTimelineFocusTests {
+    private let zone = TimeZone(identifier: "America/New_York")!
+    private let link = UUID()
+
+    private func at(_ time: String) -> Date {
+        ISO8601DateFormatter().date(from: "2026-11-23T\(time):00-05:00")!
+    }
+
+    private var day: DateInterval {
+        DayTimeline.bounds(of: at("12:00"), in: zone)
+    }
+
+    private func rows(_ events: [(String, String, String)], allDay: Set<String> = [], now: Date) -> [DayRow] {
+        events.map { title, start, end in
+            let event = allDay.contains(title)
+                ? UpcomingEvent(link: link, title: title, start: day.start, end: day.end, allDay: true, date: "2026-11-23")
+                : UpcomingEvent(link: link, title: title, start: at(start), end: at(end), allDay: false)
+            return DayRow(
+                event: event, label: EventLabel(event: event, now: now, timeZone: zone, clock: .twelveHour),
+                hasEnded: event.hasEnded(at: now)
+            )
+        }
+    }
+
+    private let day1 = [
+        ("Market", "00:00", "00:00"),
+        ("Run", "07:00", "08:00"),
+        ("Planning", "09:00", "10:30"),
+        ("Call", "09:30", "10:00"),
+        ("Lunch", "12:30", "13:30"),
+        ("Dentist", "15:00", "16:00"),
+        ("Swim", "15:00", "16:30"),
+    ]
+
+    @Test func everyEventUnderWayIsFilled() {
+        let now = at("09:45")
+        let result = DayTimelineFocus.highlighted(rows: rows(day1, allDay: ["Market"], now: now), day: day, now: now)
+        #expect(result == [2, 3])
+    }
+
+    @Test func withNoneUnderWayTheNextIsFilled() {
+        let now = at("11:00")
+        let result = DayTimelineFocus.highlighted(rows: rows(day1, allDay: ["Market"], now: now), day: day, now: now)
+        #expect(result == [4])
+        // Two that start together are both next.
+        let later = at("14:00")
+        #expect(DayTimelineFocus.highlighted(rows: rows(day1, allDay: ["Market"], now: later), day: day, now: later) == [5, 6])
+    }
+
+    @Test func endedAndAllDayEventsAreNeverFilled() {
+        let now = at("17:00")
+        // Only the all-day event is left, and it is in the strip.
+        #expect(DayTimelineFocus.highlighted(rows: rows(day1, allDay: ["Market"], now: now), day: day, now: now).isEmpty)
+        // An event that ends at the now is over.
+        let atEnd = at("08:00")
+        #expect(!DayTimelineFocus.highlighted(rows: rows(day1, allDay: ["Market"], now: atEnd), day: day, now: atEnd).contains(1))
+        #expect(DayTimelineFocus.highlighted(rows: [], day: day, now: now).isEmpty)
+    }
+
+    @Test func aMomentWithNoLengthIsNextUntilItPasses() {
+        let events = [("Medicine", "08:00", "08:00"), ("Call", "09:00", "09:05")]
+        let before = at("07:30")
+        #expect(DayTimelineFocus.highlighted(rows: rows(events, now: before), day: day, now: before) == [0])
+        let after = at("08:01")
+        #expect(DayTimelineFocus.highlighted(rows: rows(events, now: after), day: day, now: after) == [1])
+    }
+}

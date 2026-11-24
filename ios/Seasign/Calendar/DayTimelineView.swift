@@ -6,8 +6,15 @@ import UIKit
 /// running from its start to its end (`DayTimeline` places everything).
 /// Hour lines with the clock in the gutter on the left, a line in the sun's
 /// red at the current time with the time beside it, ended events dimmed as
-/// on the list before it. Thin lines and the app's palette; fixed type
-/// sizes, since the screen does not scroll and the day has to fit.
+/// on the list before it. Fixed type sizes, since the screen does not
+/// scroll and the day has to fit.
+///
+/// Design v12 (task 196): the HUD's mono type on the dark plate; the hour
+/// labels and lines dim; each box and all-day chip outlined in the user's
+/// accent (`\.hudAccent`) with accent words, the event under way (or, with
+/// none, the next one) filled with the accent and dark words
+/// (`DayTimelineFocus`); the now line, its dot and time in white, Today's
+/// colour for what is live, so it never sinks into an accent box.
 ///
 /// VoiceOver reads the all-day events, then each box in order of start:
 /// title, start, end and length (`DayTimeline.spoken`). The lines and
@@ -19,16 +26,21 @@ struct DayTimelineView: View {
     var now: Date
     var clock: ClockStyle
 
+    @Environment(\.hudAccent) private var accent
+
     /// The type and sizes, measured from the fonts that draw them.
     private enum Style {
-        static let titleFont = UIFont(name: FontName.capsMedium, size: 9) ?? .systemFont(ofSize: 9, weight: .medium)
-        static let titleTracking: CGFloat = 0.12
+        static let titleFont = UIFont.monospacedSystemFont(ofSize: 9, weight: .medium)
+        static let titleTracking: CGFloat = 0.02
         static let timeFont = TodayType.mono(8.5)
         static let labelFont = TodayType.mono(8.5)
         static let gutterGap: CGFloat = 6
         static let boxInset: CGFloat = 5
         static let chipHeight: CGFloat = 18
         static let chipGap: CGFloat = 4
+        /// The outline of a box or chip, and its corners: Today's tiles'.
+        static let line: CGFloat = 1
+        static let radius: CGFloat = HUDShape.radius
         static let stripRows = 2
         /// Between the strip and the grid.
         static let stripGap: CGFloat = 6
@@ -106,12 +118,12 @@ struct DayTimelineView: View {
         Text(caps: row.label.title)
             .font(Font(Style.titleFont as CTFont))
             .tracking(Style.titleFont.pointSize * Style.titleTracking)
-            .foregroundStyle(Palette.white)
+            .foregroundStyle(accent)
             .lineLimit(1)
-            .opacity(row.hasEnded ? 0.4 : 1)
+            .opacity(row.hasEnded ? DayTimelineFocus.endedOpacity : 1)
             .padding(.horizontal, Style.boxInset)
             .frame(height: Style.chipHeight)
-            .background(BoxBackground(cutTop: false, cutBottom: false, dimmed: row.hasEnded))
+            .background(BoxBackground(cutTop: false, cutBottom: false, dimmed: row.hasEnded, filled: false))
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isStaticText)
             .accessibilityLabel(Text(verbatim: spoken(row)))
@@ -127,7 +139,7 @@ struct DayTimelineView: View {
             .fixedSize()
             .padding(.horizontal, Style.boxInset)
             .frame(height: Style.chipHeight)
-            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Palette.rule, lineWidth: 0.75))
+            .overlay(RoundedRectangle(cornerRadius: Style.radius).strokeBorder(Palette.rule, lineWidth: Style.line))
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isStaticText)
             .accessibilityLabel(Text(verbatim: "\(hidden.count) more all-day: " + hidden.map(spoken).joined(separator: "; ")))
@@ -139,6 +151,7 @@ struct DayTimelineView: View {
         let areaX = gutter + Style.gutterGap
         let areaWidth = max(40, size.width - areaX)
         let events = rows.map(\.event)
+        let focus = DayTimelineFocus.highlighted(rows: rows, day: day, now: now)
         let layout = DayTimeline.layout(
             events: events, day: day, zone: zone, now: now,
             height: size.height, width: areaWidth, metrics: Style.metrics
@@ -155,13 +168,13 @@ struct DayTimelineView: View {
             // dot and time stay on top, at the gutter's edge.
             if let nowY = layout.nowY {
                 Rectangle()
-                    .fill(Palette.sun)
+                    .fill(Palette.white)
                     .frame(width: areaWidth, height: 1)
                     .position(x: areaX + areaWidth / 2, y: nowY)
                     .accessibilityHidden(true)
             }
             ForEach(layout.boxes, id: \.index) { box in
-                boxView(rows[box.index], box: box)
+                boxView(rows[box.index], box: box, filled: focus.contains(box.index))
                     .offset(x: areaX + box.frame.minX, y: box.frame.minY)
                     .accessibilitySortPriority(Double(layout.boxes.count - (spokenOrder.firstIndex(of: box.index) ?? 0)))
             }
@@ -181,7 +194,7 @@ struct DayTimelineView: View {
                     path.addLine(to: CGPoint(x: x + width, y: mark.y))
                 }
             }
-            .stroke(Palette.rule.opacity(0.55), lineWidth: 0.5)
+            .stroke(Palette.rule.opacity(0.5), lineWidth: 0.5)
             ForEach(layout.hours.filter(\.labelled), id: \.date) { mark in
                 Text(verbatim: DayTimeline.hourLabel(hour: mark.hour, minute: mark.minute, clock: clock))
                     .font(Font(Style.labelFont as CTFont))
@@ -200,14 +213,14 @@ struct DayTimelineView: View {
         let half = Style.labelFont.lineHeight / 2
         return ZStack(alignment: .topLeading) {
             Circle()
-                .fill(Palette.sun)
+                .fill(Palette.white)
                 .frame(width: 5, height: 5)
                 .position(x: x, y: y)
             Text(verbatim: DayTimeline.startText(
                 UpcomingEvent(link: UUID(), title: "", start: now, end: now, allDay: false), zone: zone, clock: clock
             ))
             .font(Font(Style.labelFont as CTFont))
-            .foregroundStyle(Palette.sun)
+            .foregroundStyle(Palette.white)
             .fixedSize()
             .frame(width: gutter, alignment: .trailing)
             .position(x: gutter / 2, y: min(max(y, half), height - half))
@@ -216,11 +229,11 @@ struct DayTimelineView: View {
         .accessibilityHidden(true)
     }
 
-    private func boxView(_ row: DayRow, box: DayTimeline.Box) -> some View {
+    private func boxView(_ row: DayRow, box: DayTimeline.Box, filled: Bool) -> some View {
         let title = Text(caps: row.label.title)
             .font(Font(Style.titleFont as CTFont))
             .tracking(Style.titleFont.pointSize * Style.titleTracking)
-            .foregroundStyle(Palette.white)
+            .foregroundStyle(filled ? Palette.onAccent : accent)
         return Group {
             switch box.content {
             case .title:
@@ -228,32 +241,32 @@ struct DayTimelineView: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
                         title.lineLimit(1).fixedSize()
-                        time(DayTimeline.startText(row.event, zone: zone, clock: clock)).fixedSize()
+                        time(DayTimeline.startText(row.event, zone: zone, clock: clock), filled: filled).fixedSize()
                     }
                     title.lineLimit(1)
                 }
             case .titleAndTime(let lines):
                 VStack(alignment: .leading, spacing: 0) {
                     title.lineLimit(lines)
-                    time(DayTimeline.timeText(row.event, zone: zone, clock: clock)).lineLimit(1)
+                    time(DayTimeline.timeText(row.event, zone: zone, clock: clock), filled: filled).lineLimit(1)
                 }
             }
         }
-        .opacity(row.hasEnded ? 0.4 : 1)
+        .opacity(row.hasEnded ? DayTimelineFocus.endedOpacity : 1)
         .padding(.horizontal, Style.boxInset)
         .padding(.vertical, Style.metrics.padding)
         .frame(width: box.frame.width, height: box.frame.height, alignment: .topLeading)
-        .background(BoxBackground(cutTop: box.startsBefore, cutBottom: box.endsAfter, dimmed: row.hasEnded))
+        .background(BoxBackground(cutTop: box.startsBefore, cutBottom: box.endsAfter, dimmed: row.hasEnded, filled: filled))
         .clipped()
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isStaticText)
         .accessibilityLabel(Text(verbatim: spoken(row)))
     }
 
-    private func time(_ text: String) -> some View {
+    private func time(_ text: String, filled: Bool) -> some View {
         Text(verbatim: text)
             .font(Font(Style.timeFont as CTFont))
-            .foregroundStyle(Palette.dimText)
+            .foregroundStyle(filled ? Palette.onAccent : Palette.dimText)
     }
 
     private func spoken(_ row: DayRow) -> String {
@@ -261,27 +274,56 @@ struct DayTimelineView: View {
     }
 }
 
-/// An event's box: the sea's blue over the charcoal, so the hour lines do
-/// not show through, with a thin edge of the day water. The corners are
-/// square where the event is cut at midnight. An ended event's colour is
-/// dimmed but its ground stays opaque, so the hour lines stay hidden.
+/// An event's box: the plate, so the hour lines and the now line do not
+/// show through, outlined in the accent, or filled with it for the event
+/// under way or next (`DayTimelineFocus`). The corners are square where the
+/// event is cut at midnight. An ended event's outline is dimmed but its
+/// ground stays opaque, so the hour lines stay hidden.
 private struct BoxBackground: View {
     var cutTop: Bool
     var cutBottom: Bool
     var dimmed: Bool
+    var filled: Bool
+
+    @Environment(\.hudAccent) private var accent
 
     var body: some View {
+        let radius = HUDShape.radius
         let shape = UnevenRoundedRectangle(
-            topLeadingRadius: cutTop ? 0 : 3, bottomLeadingRadius: cutBottom ? 0 : 3,
-            bottomTrailingRadius: cutBottom ? 0 : 3, topTrailingRadius: cutTop ? 0 : 3
+            topLeadingRadius: cutTop ? 0 : radius, bottomLeadingRadius: cutBottom ? 0 : radius,
+            bottomTrailingRadius: cutBottom ? 0 : radius, topTrailingRadius: cutTop ? 0 : radius
         )
         ZStack {
-            shape.fill(Palette.charcoal)
+            shape.fill(Palette.hudPlate)
             Group {
-                shape.fill(Palette.sea.opacity(0.32))
-                shape.strokeBorder(Palette.dayWater.opacity(0.5), lineWidth: 0.75)
+                if filled {
+                    shape.fill(accent)
+                } else {
+                    shape.strokeBorder(accent, lineWidth: 1)
+                }
             }
-            .opacity(dimmed ? 0.4 : 1)
+            .opacity(dimmed ? DayTimelineFocus.endedOpacity : 1)
         }
+    }
+}
+
+/// Which boxes on the day's timeline are filled with the accent (task 196):
+/// every timed event under way at `now`, or, when none is, the next one to
+/// start (all of them if several start together). Ended events and the
+/// all-day strip never are. Pure, so the rule is tested.
+enum DayTimelineFocus {
+    /// An ended event's words and outline: dimmer than the rest, still
+    /// readable as accent on the plate (was 0.4 on the charcoal).
+    static let endedOpacity = 0.5
+
+    static func highlighted(rows: [DayRow], day: DateInterval, now: Date) -> Set<Int> {
+        let timed = rows.indices.filter { index in
+            let event = rows[index].event
+            return !rows[index].hasEnded && !DayTimeline.isAllDay(event, day: day) && DayTimeline.isInDay(event, day: day)
+        }
+        let live = timed.filter { rows[$0].event.start <= now }
+        if !live.isEmpty { return Set(live) }
+        guard let next = timed.map({ rows[$0].event.start }).min() else { return [] }
+        return Set(timed.filter { rows[$0].event.start == next })
     }
 }

@@ -164,6 +164,132 @@ import Testing
     }
 }
 
+/// A touch on the hue track (task 196): a scroll that starts on the track
+/// changes nothing; a sideways drag or a tap sets the hue; a touch that is
+/// cancelled, or Settings closing during one, saves what it set.
+@Suite(.serialized) @MainActor struct HueTouchTests {
+    /// One call on a touch (`#expect` cannot hold a mutating call).
+    private func step(_ touch: inout HueTouch, _ call: (inout HueTouch) -> Bool) -> Bool {
+        call(&touch)
+    }
+    @Test func aScrollThatStartsOnTheTrackChangesNothing() {
+        var touch = HueTouch()
+        // Within the slop nothing is decided and nothing is set.
+        #expect(!step(&touch) { $0.moved(CGSize(width: 2, height: 5)) })
+        #expect(touch.kind == .undecided)
+        // Mostly down: a scroll, for the rest of the touch.
+        #expect(!step(&touch) { $0.moved(CGSize(width: 3, height: 12)) })
+        #expect(touch.kind == .ignored)
+        // Even if it then wanders sideways.
+        #expect(!step(&touch) { $0.moved(CGSize(width: 80, height: 20)) })
+        #expect(!step(&touch) { $0.ended(CGSize(width: 80, height: 20)) })
+        #expect(!step(&touch) { $0.cancelled() })
+        // Upwards too.
+        var up = HueTouch()
+        #expect(!step(&up) { $0.moved(CGSize(width: -4, height: -30)) })
+        #expect(!step(&up) { $0.ended(CGSize(width: -4, height: -30)) })
+    }
+
+    @Test func aSidewaysDragSetsTheHueAsItMovesAndSavesAtTheEnd() {
+        var touch = HueTouch()
+        #expect(!step(&touch) { $0.moved(CGSize(width: 5, height: 1)) })
+        #expect(step(&touch) { $0.moved(CGSize(width: 9, height: 3)) })
+        #expect(touch.kind == .tracking)
+        #expect(touch.owesSave)
+        // Once sideways, the hue keeps following, even with some drift.
+        #expect(step(&touch) { $0.moved(CGSize(width: 20, height: 40)) })
+        #expect(step(&touch) { $0.ended(CGSize(width: 20, height: 40)) })
+        // The end saved: the reset that follows owes nothing.
+        #expect(!step(&touch) { $0.cancelled() })
+        #expect(touch == HueTouch())
+    }
+
+    /// The UIKit pan on the track begins only for a sideways first move;
+    /// once begun it follows the finger, even if the move was small.
+    @Test func onlyASidewaysFirstMoveStartsTheDrag() {
+        #expect(HueTouch.isSideways(CGSize(width: 10, height: 2)))
+        #expect(HueTouch.isSideways(CGSize(width: -10, height: 9)))
+        #expect(!HueTouch.isSideways(CGSize(width: 2, height: 10)))
+        #expect(!HueTouch.isSideways(CGSize(width: 3, height: -12)))
+        #expect(!HueTouch.isSideways(CGSize(width: 5, height: 5)))
+        #expect(!HueTouch.isSideways(.zero))
+        var touch = HueTouch()
+        touch.beganSideways()
+        #expect(step(&touch) { $0.moved(CGSize(width: 3, height: 1)) })
+        #expect(touch.owesSave)
+        #expect(step(&touch) { $0.ended(CGSize(width: 3, height: 1)) })
+    }
+
+    @Test func aTapSetsTheHueWhereItLands() {
+        var touch = HueTouch()
+        #expect(step(&touch) { $0.ended(.zero) })
+        var jitter = HueTouch()
+        #expect(!step(&jitter) { $0.moved(CGSize(width: 1, height: 3)) })
+        #expect(step(&jitter) { $0.ended(CGSize(width: 1, height: 3)) })
+    }
+
+    /// SwiftUI does not promise whether a drag's end or its state's reset
+    /// comes first; either order gives the same result.
+    @Test func theOrderOfEndAndResetDoesNotMatter() {
+        // A scroll whose end comes after the reset still sets nothing.
+        var scroll = HueTouch()
+        _ = scroll.moved(CGSize(width: 2, height: 40))
+        #expect(!step(&scroll) { $0.cancelled() })
+        #expect(!step(&scroll) { $0.ended(CGSize(width: 2, height: 40)) })
+        // A sideways drag whose reset comes first: the reset saves what was
+        // set, and the end sets the hue where it lifted and saves again.
+        var drag = HueTouch()
+        _ = drag.moved(CGSize(width: 30, height: 0))
+        #expect(step(&drag) { $0.cancelled() })
+        #expect(step(&drag) { $0.ended(CGSize(width: 30, height: 0)) })
+    }
+
+    @Test func aCancelledDragSavesWhatItSet() throws {
+        var touch = HueTouch()
+        #expect(step(&touch) { $0.moved(CGSize(width: 15, height: 0)) })
+        #expect(step(&touch) { $0.cancelled() })
+        // A cancelled scroll owes nothing.
+        var scroll = HueTouch()
+        _ = scroll.moved(CGSize(width: 0, height: 15))
+        #expect(!step(&scroll) { $0.cancelled() })
+        // What the view does with it: the hue written during the drag is
+        // saved and kept, not undone.
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = SkyStore(context: context)
+        store.setHUDHue(30)
+        store.setHUDHue(140, save: false)
+        #expect(context.hasChanges)
+        store.saveHUDHue()
+        #expect(!context.hasChanges)
+        #expect(store.hudHue == 140)
+        // With nothing waiting it does nothing.
+        store.saveHUDHue()
+        #expect(store.hudHue == 140)
+    }
+
+    /// Settings closing during a drag: the hue reaches the store on disk.
+    @Test func closingSettingsMidDragKeepsTheHue() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "HueTouchTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let files = LocalStore.Files(
+            user: directory.appending(path: "default.store"),
+            cache: directory.appending(path: "SkyCache.store")
+        )
+        do {
+            let opened = try LocalStore.open(files)
+            let store = SkyStore(context: opened.container.mainContext)
+            store.setHUDHue(30)
+            store.setHUDHue(250, save: false)
+            // The section's onDisappear.
+            store.saveHUDHue()
+        }
+        let again = try LocalStore.open(files)
+        #expect(try ModelContext(again.container).fetch(FetchDescriptor<Settings>()).map(\.hudHue) == [250])
+    }
+}
+
 /// Set from an Observation `onChange`, which may run off the main actor.
 private final class Told: @unchecked Sendable {
     var value = false

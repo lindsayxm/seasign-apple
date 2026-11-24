@@ -3,8 +3,9 @@ import SwiftUI
 /// The + entry and the confirm popup (task 171), one sheet over the day
 /// screen whose content follows `AddEventModel.stage`: the one-line field,
 /// then the draft with Confirm and Cancel, what is missing from the line,
-/// what Google needs first, or why the event was not added. Charcoal and
-/// Jost caps, with the Settings field style.
+/// what Google needs first, or why the event was not added. Design v12
+/// (task 196): the HUD's dark plate and mono type at text styles (HUDForm,
+/// as Settings), the title, hairlines and buttons in the user's accent.
 struct AddEventSheet: View {
     @Bindable var model: AddEventModel
     /// After a mic entry (task 172): the popup says while it is read aloud
@@ -15,19 +16,19 @@ struct AddEventSheet: View {
     var openSettings: () -> Void
 
     @Environment(\.clockStyle) private var clockStyle
+    @Environment(\.hudAccent) private var accent
     @FocusState private var fieldFocused: Bool
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                Rectangle()
-                    .fill(Palette.rule)
-                    .frame(height: 1)
+                HUDRule(accent: true)
                 if let status = voiceStatus {
                     Text(caps: status)
-                        .capsRelative(9.5, medium: true, tracking: 0.15)
-                        .foregroundStyle(Palette.dayWater)
+                        .hudText(.label)
+                        .fontWeight(.medium)
+                        .foregroundStyle(accent)
                         .accessibilityAddTraits(.updatesFrequently)
                 }
                 content
@@ -47,10 +48,10 @@ struct AddEventSheet: View {
             )
         }
         .scrollDismissesKeyboard(.interactively)
-        .background(Palette.charcoal.ignoresSafeArea())
+        .background(Palette.hudPlate.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .presentationDetents([.medium, .large])
-        .presentationBackground(Palette.charcoal)
+        .presentationBackground(Palette.hudPlate)
         // A confirmed event is being sent: the sheet stays until Google answers.
         .interactiveDismissDisabled(model.isSending)
     }
@@ -76,8 +77,8 @@ struct AddEventSheet: View {
     private var header: some View {
         HStack(alignment: .center) {
             Text(caps: title)
-                .capsRelative(13, medium: true)
-                .foregroundStyle(Palette.white)
+                .hudText(.title)
+                .foregroundStyle(accent)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
             if !model.isSending {
@@ -147,22 +148,18 @@ struct AddEventSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(caps: "What and when")
-                    .capsRelative(9.5, tracking: 0.15)
+                    .hudText(.label)
                     .foregroundStyle(Palette.dimText)
                     .accessibilityHidden(true)
                 TextField("", text: $model.line, prompt: Text("Lunch with Ann tomorrow at noon").foregroundStyle(Palette.rule))
-                    .font(.capsRelative(13))
-                    .foregroundStyle(Palette.white)
-                    .tint(Palette.dayWater)
+                    .hudField()
                     .frame(minHeight: 44)
                     .textInputAutocapitalization(.sentences)
                     .submitLabel(.done)
                     .focused($fieldFocused)
                     .onSubmit { model.submit() }
                     .accessibilityLabel("What and when")
-                Rectangle()
-                    .fill(Palette.rule)
-                    .frame(height: 1)
+                HUDRule(accent: true)
             }
             note("Write it as you would say it, like “Meeting with Rahaf Sunday at 3pm”. Nothing is added until you confirm.", problem: false)
             buttons {
@@ -179,8 +176,8 @@ struct AddEventSheet: View {
         return VStack(alignment: .leading, spacing: 12) {
             // Verbatim: the title is the user's own words.
             Text(caps: lines.title)
-                .capsRelative(15, medium: true, tracking: 0.12)
-                .lineSpacing(4)
+                .font(.system(.headline, design: .monospaced, weight: .semibold))
+                .lineSpacing(3)
                 .foregroundStyle(Palette.white)
                 .fixedSize(horizontal: false, vertical: true)
             row("Day", lines.day)
@@ -202,11 +199,11 @@ struct AddEventSheet: View {
     private func row(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(caps: label)
-                .capsRelative(9.5, tracking: 0.15)
+                .hudText(.label)
                 .foregroundStyle(Palette.dimText)
                 .frame(width: 78, alignment: .leading)
             Text(caps: value)
-                .capsRelative(11.5, tracking: 0.12)
+                .hudText(.rowName)
                 .foregroundStyle(Palette.white)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -215,11 +212,7 @@ struct AddEventSheet: View {
     // MARK: Pieces
 
     private func note(_ text: String, problem: Bool) -> some View {
-        Text(caps: text)
-            .capsRelative(10, tracking: 0.12)
-            .lineSpacing(4)
-            .foregroundStyle(problem ? Palette.sun : Palette.dimText)
-            .fixedSize(horizontal: false, vertical: true)
+        HUDNote(text: text, warning: problem)
     }
 
     private func buttons<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
@@ -235,13 +228,8 @@ struct AddEventSheet: View {
             action()
         } label: {
             Text(caps: label)
-                .capsRelative(11, medium: true)
-                .foregroundStyle(enabled ? Palette.charcoal : Palette.dimText)
-                .padding(.horizontal, 18)
-                .frame(minHeight: 44)
-                .background(enabled ? Palette.white : Palette.rule.opacity(0.4), in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudFilled)
         .disabled(!enabled)
     }
 
@@ -251,11 +239,7 @@ struct AddEventSheet: View {
             action()
         } label: {
             Text(caps: label)
-                .capsRelative(11)
-                .foregroundStyle(Palette.dimText)
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudLink(minWidth: 44))
     }
 }
