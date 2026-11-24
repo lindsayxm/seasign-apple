@@ -1,11 +1,11 @@
 ---
 id: 205
 title: iOS Today: three events in larger type, larger feed titles (tester feedback)
-status: in-progress
+status: review
 owner: implementer-1
 depends_on: []
 created: 2026-11-24T03:55:57Z
-updated: 2026-11-24T04:11:22Z
+updated: 2026-11-24T04:14:02Z
 ---
 
 ## Goal
@@ -27,6 +27,7 @@ A tester found Today's text too small. The user asks: show only the next 3 calen
 
 ## What's been tried
 
+- Installing the app built for the iPhone 17 (iOS 27.2 destination) on the iPhone SE simulator (iOS 18.3) crashes at launch: libswiftCompatibilitySpan.dylib not loaded. Use the app from the iOS 18.3 build (the iPhone 16 test build's Debug-iphonesimulator/Seasign.app) for the SE.
 
 ## Log
 
@@ -36,3 +37,6 @@ A tester found Today's text too small. The user asks: show only the next 3 calen
 - 2026-11-24T04:04:02Z [implementer-1] Deviation: the zip prompt 'Set your zip code in Settings' (29 chars) would be cut mid-word below 32 columns ('...Setti/'). TodayOverlayLayout.zipPrompt(columns:) draws it whole when it fits (Pro Max) and otherwise the short 'Set zip code in Settings' (fits 27+). VoiceOver label unchanged. The no-sites line 'Follow sites in Settings...' at 12 pt (~370 pt) is now held to the title band width so minimumScaleFactor(0.8) shrinks it instead of running off screen.
 - 2026-11-24T04:04:02Z [implementer-1] Tests rewritten (none deleted): TodayOverlayLayoutTests (rows 3, columns 27/29/30/34, row y 111/133/155, prompt index 2 and short text, side-gap rule now half a cell to a cell, SE titleCapacity 1, title break 'A short explainer on quantum' / 'mechanics and its uses', 22/19-point heights), TodayPullTests spinner y (4.6 and 22/2, 19/2), HUDAccentTests title tracking 0.5/12. Added theZipPromptIsNeverCutMidWord.
 - 2026-11-24T04:11:22Z [implementer-1] Verified: xcodebuild test 831 tests passed, TEST SUCCEEDED on iPhone 17 (OS 27.2) and iPhone 16 (OS 18.3.1) (830 baseline + new theZipPromptIsNeverCutMidWord). Screenshots in scratchpad/t205: iphone17-midday.png, iphone17-night.png, iphone17-realdata-mockevents.png (no-sites line shrunk inside the band), se-midday.png (one title), before-after.png. iPhone 17 shows 30 characters per event row and 38 per title line (37 at 393). Zip prompt state not screenshotted (the simulator's store has a zip; -debugPlace hides the prompt); covered by layout tests.
+- 2026-11-24T04:14:02Z [implementer-1] tried: Installing the app built for the iPhone 17 (iOS 27.2 destination) on the iPhone SE simulator (iOS 18.3) crashes at launch: libswiftCompatibilitySpan.dylib not loaded. Use the app from the iOS 18.3 build (the iPhone 16 test build's Debug-iphonesimulator/Seasign.app) for the SE.
+- 2026-11-24T04:14:02Z [implementer-1] Zip prompt on screen not seen: the iPhone 17 and SE stores both hold a zip (Chicago) and -debugPlace suppresses the prompt; the new drawn text is covered by TodayOverlayLayoutTests.theZipPromptIsNeverCutMidWord only. Left running on the iPhone 17 with its normal data (screenshot scratchpad/t205/iphone17-normal-data.png).
+- 2026-11-24T04:14:02Z [implementer-1] status: in-progress → review
