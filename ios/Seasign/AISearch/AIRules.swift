@@ -261,8 +261,9 @@ enum AIPrecondition: Equatable, Sendable {
     case keyUnreadable
     /// No subscription was ever bought (`SubscriptionState.free`).
     case subscriptionNeeded
-    /// The subscription has lapsed (`SubscriptionState.lapsed`).
-    case subscriptionEnded
+    /// The subscription has lapsed (`SubscriptionState.lapsed`, billing
+    /// retry included).
+    case subscriptionNotActive
     /// The subscription could not be checked, or has not been yet
     /// (`SubscriptionState.unknown`).
     case subscriptionUnchecked
@@ -272,7 +273,7 @@ enum AIPrecondition: Equatable, Sendable {
         guard AIRule.mayRun(subscription) else {
             switch subscription.state {
             case .free: self = .subscriptionNeeded
-            case .lapsed: self = .subscriptionEnded
+            case .lapsed: self = .subscriptionNotActive
             case .unknown, .subscribed: self = .subscriptionUnchecked
             }
             return
@@ -294,7 +295,7 @@ enum AIPrecondition: Equatable, Sendable {
     var message: String? {
         switch self {
         case .subscriptionNeeded: "AI search needs a subscription."
-        case .subscriptionEnded: "AI search is off because your subscription has ended."
+        case .subscriptionNotActive: "AI search is off because your subscription isn't active."
         case .subscriptionUnchecked: "AI search waits until your subscription can be checked."
         case .ready: nil
         case .needsKey: "Add your API key below to let AI search."

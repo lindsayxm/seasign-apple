@@ -10,9 +10,11 @@ import SwiftData
 /// - THE HARD RULE: nothing is sent and nothing AI-found is shown unless the
 ///   subscription is active (`AIRule`, asked through `AIPrecondition` and
 ///   `SearchGate`). Before every search the subscription is read again
-///   (`SubscriptionSource.refresh`) and that answer decides. Whenever a read
-///   lands with anything but Subscribed, the toggle goes back to Use My List;
-///   it does not come back on by itself when the subscription does.
+///   (`SubscriptionSource.refresh`) and that answer decides. The stored
+///   choice (`mode`) is never rewritten because of the subscription: while
+///   it is not Subscribed the toggle shows Use My List (`shownMode`) and
+///   cannot be moved, and once a read says Subscribed the stored choice
+///   applies again by itself.
 /// - With Use My List selected no `POST /v1/discover` call is ever made
 ///   (`SearchGate`), and AI-found items are hidden (`FeedModel.showsAI`).
 /// - A search is counted when it is sent, before the request leaves, in the
@@ -74,6 +76,10 @@ final class AISearchModel {
     /// How the last search went wrong, for Settings only.
     private(set) var problem: AISearchProblem?
     private(set) var isSearching = false
+    /// A search attempt is reading the subscription before it decides. A
+    /// second attempt meanwhile (a second tap on Search now) is dropped, so
+    /// it can neither send nor charge anything.
+    private(set) var isCheckingSubscription = false
     private(set) var lastSearch: LastSearch?
     /// The provider was changed while a key is saved: Settings reminds the
     /// user the key must be that provider's.
@@ -135,15 +141,11 @@ final class AISearchModel {
             mode = .myList
             write { $0.aiModeRaw = AIMode.myList.rawValue }
         }
-        // The hard rule at launch. A subscription not read yet (the starting
-        // Unknown) leaves the choice alone, as a locked Keychain does: AI is
-        // inactive meanwhile, and the first read that lands decides. One
-        // that has already answered is applied now.
-        if subscription.hasAnswered {
-            subscriptionJudged(subscription.access)
-        }
-        subscription.whenJudged { [weak self] access in
-            self?.subscriptionJudged(access)
+        // The subscription never rewrites the choice; it only decides
+        // whether the choice is in effect (`isActive`, `shownMode`). Each
+        // read that lands updates what is shown.
+        subscription.whenJudged { [weak self] _ in
+            self?.updateVisibility()
         }
         reloadCounts()
         updateVisibility()
@@ -163,11 +165,17 @@ final class AISearchModel {
         AIPrecondition(subscription: subscription.access, key: keyStatus, interests: interests)
     }
 
-    /// AI search is on and can run: subscribed (`AIRule`), the toggle on Let
-    /// AI Search, and a key and at least one interest set. AI-found items
-    /// show only while this is true (`FeedModel.showsAI`).
+    /// AI search is on and can run: subscribed (`AIRule`), the stored choice
+    /// on Let AI Search, and a key and at least one interest set. AI-found
+    /// items show only while this is true (`FeedModel.showsAI`).
     var isActive: Bool {
         mode == .aiSearch && precondition == .ready
+    }
+
+    /// What the pill shows: the stored choice while subscribed, Use My List
+    /// otherwise (the stored choice is kept for when it is subscribed again).
+    var shownMode: AIMode {
+        AIRule.mayRun(subscription.access) ? mode : .myList
     }
 
     /// The day searches are counted on now: in the zip's time zone when it is
@@ -191,22 +199,33 @@ final class AISearchModel {
 
     /// Whether "Search now" can be tapped.
     var canSearchNow: Bool {
-        gate(now: now(), subscription: subscription.access).decide(.manual, now: now()) == .send
+        !isCheckingSubscription
+            && gate(now: now(), subscription: subscription.access).decide(.manual, now: now()) == .send
     }
 
     // MARK: Changing settings
 
-    /// Moves the pill. Let AI Search is refused (returns false) unless
-    /// subscribed and until a key and an interest are set;
-    /// `precondition.message` says why.
+    /// Moves the pill (the person's tap). Refused (returns false, nothing
+    /// stored) in either direction unless subscribed, so a tap while not
+    /// subscribed never changes the choice that comes back with the
+    /// subscription; Let AI Search is also refused until a key and an
+    /// interest are set. `precondition.message` says why.
     @discardableResult
     func setMode(_ newMode: AIMode) -> Bool {
+        guard AIRule.mayRun(subscription.access) else { return false }
         if newMode == .aiSearch, precondition != .ready { return false }
-        guard newMode != mode else { return true }
+        store(mode: newMode)
+        return true
+    }
+
+    /// Stores the choice. Used by the pill and by the rules that take AI
+    /// search off for reasons of its own (no key, no interests), never
+    /// because of the subscription.
+    private func store(mode newMode: AIMode) {
+        guard newMode != mode else { return }
         mode = newMode
         write { $0.aiModeRaw = newMode.rawValue }
         updateVisibility()
-        return true
     }
 
     func setProvider(_ newProvider: AIProvider) {
@@ -230,7 +249,7 @@ final class AISearchModel {
         interestsText = text
         write { $0.aiInterestsText = text }
         if mode == .aiSearch, interests.isEmpty {
-            setMode(.myList)
+            store(mode: .myList)
         }
         updateVisibility()
     }
@@ -280,7 +299,7 @@ final class AISearchModel {
             $0.aiKeyRefused = nil
             $0.aiLastProblemRaw = nil
         }
-        if mode == .aiSearch { setMode(.myList) }
+        if mode == .aiSearch { store(mode: .myList) }
         updateVisibility()
     }
 
@@ -311,7 +330,7 @@ final class AISearchModel {
         keyStatus = key == nil ? .missing : .saved
         if problem == .keyUnreadable { setProblem(nil) }
         if key == nil, mode == .aiSearch {
-            setMode(.myList)
+            store(mode: .myList)
         }
         updateVisibility()
         return key
@@ -346,13 +365,15 @@ final class AISearchModel {
     }
 
     private func run(_ trigger: SearchGate.Trigger) async {
-        guard !isFrozen else { return }
+        // With Use My List chosen there is nothing to check: the gate would
+        // refuse it anyway. One attempt at a time reads the subscription.
+        guard !isFrozen, mode == .aiSearch, !isCheckingSubscription else { return }
         // The hard rule: the subscription is read again before every search,
         // and this answer, from a read started now, decides. A running app
         // may not be told of an expiry, so the last state is not trusted.
-        // A read that lands with anything but Subscribed has already moved
-        // the toggle back (`subscriptionJudged`).
+        isCheckingSubscription = true
         let fresh = await subscription.refresh()
+        isCheckingSubscription = false
         // From here to the request everything is synchronous on the main
         // actor: the check, the count and `isSearching` change together, so
         // a second call that arrives meanwhile (or whose own read lands just
@@ -482,17 +503,6 @@ final class AISearchModel {
             fresh[row.day, default: 0] += row.count
         }
         if fresh != counts { counts = fresh }
-    }
-
-    /// After every subscription read that lands (and at launch if one has):
-    /// anything but Subscribed puts the toggle back on Use My List, which
-    /// also hides AI-found items. Subscribed again changes nothing: the
-    /// person switches AI search back on themselves.
-    private func subscriptionJudged(_ access: SubscriptionAccess) {
-        if !AIRule.mayRun(access), mode == .aiSearch {
-            setMode(.myList)
-        }
-        updateVisibility()
     }
 
     private func updateVisibility() {

@@ -123,9 +123,8 @@ struct SeasignApp: App {
             // from a fixed store, with no StoreKit calls (task 215), for the
             // environment and for AI search alike. `-debugAI` without it is
             // Subscribed, said here rather than left to `subscriptionForAI`'s
-            // default. A state other than Subscribed moves the AI toggle to
-            // Use My List in whichever store AI search uses: with `-debugAI`
-            // the samples' store in memory, without it the user's own.
+            // default. The subscription never rewrites the stored AI choice,
+            // so no state here writes to the user's store.
             let debugSubscription = SubscriptionRules.debugNamed(defaults.string(forKey: "debugSubscription"))
                 ?? (showAI ? .subscribed : nil)
             let subscription = debugSubscription
@@ -147,10 +146,9 @@ struct SeasignApp: App {
             )
             // With `-debugAI` the real Keychain is never used, even when the
             // samples could not be built: the fallback holds the fake key in
-            // memory and sends nothing. It sits on the user's store, so it
-            // is always Subscribed: no other state may move the user's toggle.
+            // memory and sends nothing.
             let ai = sample.ai ?? (showAI
-                ? AISearchModel.debugFallback(feed: sample.feed, context: container.mainContext, subscription: debugSubscribed())
+                ? AISearchModel.debugFallback(feed: sample.feed, context: container.mainContext, subscription: aiSubscription)
                 : AISearchModel(context: container.mainContext, feed: sample.feed, subscription: aiSubscription, zone: zone))
             RemotePushRelay.shared.attach(google)
             return .ready(container, today, lists, events, google, sample.feed, sample.saved, ai, subscription)
@@ -187,13 +185,6 @@ struct SeasignApp: App {
     }
 
     #if DEBUG
-    /// Subscribed, from a fixed store with no StoreKit calls, read at once.
-    private static func debugSubscribed() -> SubscriptionModel {
-        let model = SubscriptionModel(store: FixedSubscriptionStore(state: .subscribed))
-        model.start()
-        return model
-    }
-
     /// The DEBUG feed, saved and AI samples share one store in memory. With
     /// any flag on, Saved uses that store too (empty unless `showSaved`),
     /// so saving a sample headline never writes into the user's own store.

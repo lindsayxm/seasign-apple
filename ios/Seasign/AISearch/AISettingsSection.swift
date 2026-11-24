@@ -30,7 +30,8 @@ struct AISettingsSection: View {
                 label: "AI search",
                 left: "Use My List",
                 right: "Let AI Search",
-                isRight: model.mode == .aiSearch
+                // Use My List while not subscribed, whatever is stored.
+                isRight: model.shownMode == .aiSearch
             ) { right in
                 // Interests typed with the keyboard still up count.
                 commitInterests()
@@ -38,7 +39,7 @@ struct AISettingsSection: View {
             }
 
             if let reason = model.precondition.message {
-                note(reason, warning: model.mode == .myList)
+                note(reason, warning: model.shownMode == .myList)
             }
             note("With Let AI Search enabled, articles are added to your feed based on your interests. This helps find information on new or emerging topics not yet on your radar. This feature requires an API key.")
 

@@ -108,7 +108,7 @@ private final class RuleClock: @unchecked Sendable {
     private static func message(for state: SubscriptionState) -> String {
         switch state {
         case .free: "AI search needs a subscription."
-        case .lapsed: "AI search is off because your subscription has ended."
+        case .lapsed: "AI search is off because your subscription isn't active."
         case .unknown, .subscribed: "AI search waits until your subscription can be checked."
         }
     }
@@ -157,52 +157,64 @@ private final class RuleClock: @unchecked Sendable {
 
     // MARK: A change to not subscribed
 
-    /// For each state but Subscribed: the toggle goes to Use My List (and is
-    /// stored there), AI-found items leave Today and History but stay
-    /// cached, the toggle cannot move back, and no search is sent, automatic
-    /// or manual, even days later.
+    /// For each state but Subscribed, with the stored choice left on Let AI
+    /// Search (the stricter case): nothing is sent, automatic or manual, even
+    /// days later, and nothing is counted; AI is not in effect, AI-found
+    /// items leave Today and History but stay cached; the pill shows Use My
+    /// List and cannot move; and the stored choice is untouched.
     @Test(arguments: notSubscribed)
-    func aChangeToNotSubscribedSwitchesAIOffAndSendsNothing(_ state: SubscriptionState) async throws {
+    func aChangeToNotSubscribedTurnsAIOffAndSendsNothing(_ state: SubscriptionState) async throws {
         let s = try await setup()
         await s.ai.searchNow()
         #expect(stub.count == 1)
         #expect(s.feed.showsAI)
-        #expect(s.feed.entries.contains{ $0.isAI })
+        #expect(s.feed.entries.contains { $0.isAI })
 
         s.store.reading = FixedSubscriptionStore.reading(for: state)
         await s.subscription.refresh()
         #expect(s.subscription.state == state)
-        #expect(s.ai.mode == .myList)
-        #expect(try storedMode(s.context) == "my_list")
         #expect(!s.ai.isActive)
         #expect(!s.feed.showsAI)
-        #expect(!s.feed.entries.contains{ $0.isAI })
+        #expect(!s.feed.entries.contains { $0.isAI })
         #expect(s.feed.headlines(now: clock.now, timeZone: clock.zone).allSatisfy { !$0.isAI })
         // Still cached: not fetched again later at a cost.
-        #expect(s.feed.allEntries.contains{ $0.isAI })
+        #expect(s.feed.allEntries.contains { $0.isAI })
 
+        #expect(s.ai.shownMode == .myList)
         #expect(!s.ai.setMode(.aiSearch))
-        #expect(s.ai.mode == .myList)
+        #expect(s.ai.shownMode == .myList)
         #expect(s.ai.precondition.message == Self.message(for: state))
         #expect(!s.ai.canSearchNow)
+        // The person's choice is kept for when the subscription is back.
+        #expect(s.ai.mode == .aiSearch)
+        #expect(try storedMode(s.context) == "ai_search")
 
+        let used = s.ai.usedToday
+        await s.ai.refreshIfDue()
+        await s.ai.searchNow()
+        #expect(stub.count == 1)
+        #expect(s.ai.usedToday == used)
         clock.advance(2 * 86_400)
         await s.ai.refreshIfDue()
         await s.ai.searchNow()
         #expect(stub.count == 1)
         #expect(s.ai.usedToday == 0)
+        #expect(try storedMode(s.context) == "ai_search")
     }
 
-    /// The listener's path: a change StoreKit reports reaches the toggle
-    /// without anyone asking.
+    /// The listener's path: a change StoreKit reports takes AI out of effect
+    /// without anyone asking, and leaves the choice alone.
     @Test(arguments: notSubscribed)
-    func aChangeTheListenerHearsSwitchesAIOff(_ state: SubscriptionState) async throws {
+    func aChangeTheListenerHearsTurnsAIOff(_ state: SubscriptionState) async throws {
         let s = try await setup()
+        #expect(s.feed.showsAI)
         s.subscription.start()
         s.store.reading = FixedSubscriptionStore.reading(for: state)
         s.store.poke()
-        #expect(await pollUntil { s.ai.mode == .myList })
-        #expect(!s.feed.showsAI)
+        #expect(await pollUntil { !s.feed.showsAI })
+        #expect(!s.ai.isActive)
+        #expect(s.ai.shownMode == .myList)
+        #expect(try storedMode(s.context) == "ai_search")
         await s.subscription.stop()
     }
 
@@ -223,56 +235,99 @@ private final class RuleClock: @unchecked Sendable {
             #expect(s.store.reads == readsBefore + 1)
             #expect(stub.count == 0)
             #expect(s.ai.usedToday == 0)
-            #expect(s.ai.mode == .myList)
             #expect(!s.feed.showsAI)
+            #expect(try storedMode(s.context) == "ai_search")
         }
     }
 
     // MARK: Launch
 
-    /// Before the first read lands the state is the starting Unknown: AI is
-    /// inactive and nothing is sent, but the stored choice is left alone, so
-    /// a subscriber is not switched off at every launch. The first answer
-    /// decides: Subscribed brings AI in; a failed read switches it off.
-    @Test func aLaunchBeforeTheFirstReadLeavesTheChoiceAlone() async throws {
+    /// Before the first read lands the state is the starting Unknown. With
+    /// the stored choice on Let AI Search and a first read of free, lapsed
+    /// or failed, neither an automatic nor a manual search sends anything or
+    /// counts anything. Once a read says Subscribed the next due automatic
+    /// search is sent, once.
+    @Test(arguments: [SubscriptionReading.noStatus(hasHistory: false), FixedSubscriptionStore.reading(for: .lapsed), .failed])
+    func nothingIsSentFromAnUnreadStartUntilAReadSaysSubscribed(_ firstRead: SubscriptionReading) async throws {
         let first = try await setup()
         #expect(try storedMode(first.context) == "ai_search")
 
-        let store = ScriptedSubscriptionStore(FixedSubscriptionStore.reading(for: .subscribed))
+        let store = ScriptedSubscriptionStore(firstRead)
         let unread = SubscriptionModel(store: store)
         let (feed, ai) = model(context: first.context, subscription: unread)
+        #expect(!unread.hasAnswered)
         #expect(ai.mode == .aiSearch)
         #expect(!ai.isActive)
         #expect(!feed.showsAI)
+        #expect(ai.shownMode == .myList)
         #expect(ai.precondition == .subscriptionUnchecked)
+
+        await ai.refreshIfDue()
+        #expect(unread.hasAnswered)
+        await ai.searchNow()
+        await ai.refreshIfDue()
+        #expect(store.reads == 3)
+        #expect(stub.count == 0)
+        #expect(ai.usedToday == 0)
+        #expect(!feed.showsAI)
         #expect(try storedMode(first.context) == "ai_search")
 
-        // The launch's automatic search waits for its own read, then sends.
-        await ai.refreshIfDue()
-        #expect(stub.count == 1)
+        store.reading = FixedSubscriptionStore.reading(for: .subscribed)
+        await unread.refresh()
         #expect(ai.isActive)
         #expect(feed.showsAI)
-
-        let failing = ScriptedSubscriptionStore(.failed)
-        let failingModel = SubscriptionModel(store: failing)
-        let (feedAgain, again) = model(context: first.context, subscription: failingModel)
-        #expect(again.mode == .aiSearch)
-        await failingModel.refresh()
-        #expect(again.mode == .myList)
-        #expect(!feedAgain.showsAI)
-        #expect(try storedMode(first.context) == "my_list")
+        await ai.refreshIfDue()
+        #expect(stub.count == 1)
+        await ai.refreshIfDue()
+        #expect(stub.count == 1)
+        #expect(ai.usedToday == 1)
     }
 
-    /// An answer already in when the model is built is applied at once.
+    /// The stored choice survives a state that is not Subscribed and a
+    /// relaunch made in it; a relaunch whose read says Subscribed has AI in
+    /// effect with nothing done by the person.
     @Test(arguments: notSubscribed)
-    func aLaunchWithAnAnswerAlreadyInAppliesIt(_ state: SubscriptionState) async throws {
+    func theStoredChoiceSurvivesARelaunch(_ state: SubscriptionState) async throws {
         let first = try await setup()
         let answered = SubscriptionModel(store: ScriptedSubscriptionStore(FixedSubscriptionStore.reading(for: state)))
         await answered.refresh()
         let (feed, ai) = model(context: first.context, subscription: answered)
-        #expect(ai.mode == .myList)
+        #expect(ai.mode == .aiSearch)
+        #expect(ai.shownMode == .myList)
         #expect(!feed.showsAI)
-        #expect(try storedMode(first.context) == "my_list")
+        #expect(try storedMode(first.context) == "ai_search")
+
+        let back = SubscriptionModel(store: ScriptedSubscriptionStore(FixedSubscriptionStore.reading(for: .subscribed)))
+        let (feedAgain, again) = model(context: first.context, subscription: back)
+        await back.refresh()
+        #expect(again.isActive)
+        #expect(again.shownMode == .aiSearch)
+        #expect(feedAgain.showsAI)
+    }
+
+    // MARK: The toggle
+
+    /// While not subscribed the pill shows Use My List and a tap either way
+    /// stores nothing; subscribed again, it shows the stored choice.
+    @Test(arguments: notSubscribed)
+    func theToggleShowsUseMyListAndATapStoresNothing(_ state: SubscriptionState) async throws {
+        for stored in [AIMode.aiSearch, .myList] {
+            let s = try await setup(on: stored == .aiSearch)
+            #expect(try storedMode(s.context) == (stored == .aiSearch ? "ai_search" : nil))
+            s.store.reading = FixedSubscriptionStore.reading(for: state)
+            await s.subscription.refresh()
+            let before = try storedMode(s.context)
+            #expect(s.ai.shownMode == .myList)
+            #expect(!s.ai.setMode(.aiSearch))
+            #expect(!s.ai.setMode(.myList))
+            #expect(s.ai.mode == stored)
+            #expect(try storedMode(s.context) == before)
+
+            s.store.reading = FixedSubscriptionStore.reading(for: .subscribed)
+            await s.subscription.refresh()
+            #expect(s.ai.shownMode == stored)
+            #expect(s.feed.showsAI == (stored == .aiSearch))
+        }
     }
 
     // MARK: Subscribed
@@ -290,37 +345,114 @@ private final class RuleClock: @unchecked Sendable {
         #expect(s.ai.capReached)
         #expect(s.store.reads == readsBefore + 3)
         #expect(s.ai.mode == .aiSearch)
+        #expect(s.ai.shownMode == .aiSearch)
         #expect(s.feed.showsAI)
     }
 
-    /// Coming back to Subscribed does not switch AI search on by itself;
-    /// the person can switch it on again.
+    /// Back to Subscribed, the stored choice applies again by itself: AI-found
+    /// headlines show again and automatic searches resume under the usual
+    /// gate and cap.
     @Test(arguments: notSubscribed)
-    func regainingTheSubscriptionDoesNotSwitchAIOn(_ state: SubscriptionState) async throws {
-        let s = try await setup()
+    func aiResumesByItselfWhenSubscribedAgain(_ state: SubscriptionState) async throws {
+        let s = try await setup(cap: 1)
+        await s.ai.searchNow()
+        #expect(stub.count == 1)
         s.store.reading = FixedSubscriptionStore.reading(for: state)
         await s.subscription.refresh()
-        #expect(s.ai.mode == .myList)
+        #expect(!s.feed.entries.contains { $0.isAI })
+        clock.advance(2 * 86_400)
+        await s.ai.refreshIfDue()
+        #expect(stub.count == 1)
 
         s.store.reading = FixedSubscriptionStore.reading(for: .subscribed)
         await s.subscription.refresh()
-        #expect(s.ai.mode == .myList)
-        #expect(!s.feed.showsAI)
-        await s.ai.refreshIfDue()
-        await s.ai.searchNow()
-        #expect(stub.count == 0)
-
-        #expect(s.ai.setMode(.aiSearch))
+        #expect(s.ai.isActive)
+        #expect(s.ai.shownMode == .aiSearch)
         #expect(s.feed.showsAI)
+        await s.ai.refreshIfDue()
+        #expect(stub.count == 2)
+        // The cap (1) still holds.
         await s.ai.searchNow()
-        #expect(stub.count == 1)
+        #expect(stub.count == 2)
     }
 
-    /// Three searches whose subscription reads overlap and land out of order:
-    /// one request is sent while the first is in flight, and it is counted
-    /// before it leaves. The check and the count still happen in one turn
-    /// after each read lands.
-    @Test func searchesWhoseReadsOverlapSendOnce() async throws {
+    /// A second tap on Search now while the first is still reading the
+    /// subscription sends nothing and charges nothing extra, and the button
+    /// cannot be tapped meanwhile.
+    @Test func aSecondTapDuringTheReadSendsNothingExtra() async throws {
+        let (subscription, store, ai) = try await heldSetup()
+        _ = subscription
+        let first = Task { await ai.searchNow() }
+        try #require(await pollUntil { store.started == 2 })
+        #expect(ai.isCheckingSubscription)
+        #expect(!ai.canSearchNow)
+        let second = Task { await ai.searchNow() }
+        let third = Task { await ai.refreshIfDue() }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(store.started == 2)
+        store.answer(read: 1, with: FixedSubscriptionStore.reading(for: .subscribed))
+        await first.value
+        // Dropped attempts read nothing. Any read one did start is answered,
+        // so a broken guard fails on the count below instead of hanging.
+        for extra in 2..<max(2, store.started) {
+            store.answer(read: extra, with: FixedSubscriptionStore.reading(for: .subscribed))
+        }
+        await second.value
+        await third.value
+        #expect(stub.count == 1)
+        #expect(ai.usedToday == 1)
+        #expect(!ai.isCheckingSubscription)
+    }
+
+    /// A search's read overlaps another read (the listener's) that started
+    /// later and lands first: the search goes by that later answer, and one
+    /// request is sent, counted before it leaves.
+    @Test func aSearchWhoseReadIsOvertakenSendsOnce() async throws {
+        let (subscription, store, ai) = try await heldSetup()
+        stub.hold(true)
+        let search = Task { await ai.searchNow() }
+        try #require(await pollUntil { store.started == 2 })
+        let listener = Task { await subscription.refresh() }
+        try #require(await pollUntil { store.started == 3 })
+        store.answer(read: 2, with: FixedSubscriptionStore.reading(for: .subscribed))
+        await listener.value
+        store.answer(read: 1, with: FixedSubscriptionStore.reading(for: .lapsed))
+        try #require(await pollUntil { stub.waitingCount >= 1 })
+        for _ in 0..<50 { await Task.yield() }
+        #expect(stub.count == 1)
+        #expect(ai.usedToday == 1)
+        // While it is in flight nothing else goes.
+        let again = Task { await ai.searchNow() }
+        try #require(await pollUntil { store.started == 4 })
+        store.answer(read: 3, with: FixedSubscriptionStore.reading(for: .subscribed))
+        await again.value
+        #expect(stub.count == 1)
+        stub.release()
+        await search.value
+        #expect(stub.count == 1)
+        #expect(ai.usedToday == 1)
+    }
+
+    /// The same overlap the other way: the search's read is the later one
+    /// and says lapsed. Nothing is sent.
+    @Test func aLaterReadSayingLapsedStopsTheSend() async throws {
+        let (subscription, store, ai) = try await heldSetup()
+        let listener = Task { await subscription.refresh() }
+        try #require(await pollUntil { store.started == 2 })
+        let search = Task { await ai.searchNow() }
+        try #require(await pollUntil { store.started == 3 })
+        store.answer(read: 2, with: FixedSubscriptionStore.reading(for: .lapsed))
+        await search.value
+        store.answer(read: 1, with: FixedSubscriptionStore.reading(for: .subscribed))
+        await listener.value
+        #expect(stub.count == 0)
+        #expect(ai.usedToday == 0)
+        #expect(subscription.state == .lapsed)
+    }
+
+    /// AI search on, over a model whose first read has landed Subscribed and
+    /// whose later reads wait for the test.
+    private func heldSetup() async throws -> (SubscriptionModel, HeldSubscriptionStore, AISearchModel) {
         let store = HeldSubscriptionStore()
         let subscription = SubscriptionModel(store: store)
         let first = Task { await subscription.refresh() }
@@ -330,39 +462,13 @@ private final class RuleClock: @unchecked Sendable {
         let (_, ai) = model(context: try inMemoryContext(), subscription: subscription)
         ai.setInterests("tide pools")
         #expect(ai.setMode(.aiSearch))
-
-        stub.hold(true)
-        let searches = [
-            Task { await ai.searchNow() },
-            Task { await ai.refreshIfDue() },
-            Task { await ai.searchNow() },
-        ]
-        try #require(await pollUntil { store.started == 4 })
-        for read in [3, 1, 2] {
-            store.answer(read: read, with: FixedSubscriptionStore.reading(for: .subscribed))
-        }
-        try #require(await pollUntil { stub.waitingCount >= 1 })
-        for _ in 0..<50 { await Task.yield() }
-        #expect(stub.count == 1)
-        #expect(ai.usedToday == 1)
-        stub.release()
-        for search in searches { await search.value }
-        #expect(stub.count == 1)
+        return (subscription, store, ai)
     }
 
     /// A lapse while the read before a send is in flight: the read says
     /// lapsed, so nothing is sent.
     @Test func aLapseReportedByTheReadInFlightSendsNothing() async throws {
-        let store = HeldSubscriptionStore()
-        let subscription = SubscriptionModel(store: store)
-        let first = Task { await subscription.refresh() }
-        try #require(await pollUntil { store.started == 1 })
-        store.answer(read: 0, with: FixedSubscriptionStore.reading(for: .subscribed))
-        await first.value
-        let (feed, ai) = model(context: try inMemoryContext(), subscription: subscription)
-        ai.setInterests("tide pools")
-        #expect(ai.setMode(.aiSearch))
-
+        let (_, store, ai) = try await heldSetup()
         let search = Task { await ai.searchNow() }
         try #require(await pollUntil { store.started == 2 })
         #expect(ai.isActive)
@@ -370,8 +476,8 @@ private final class RuleClock: @unchecked Sendable {
         await search.value
         #expect(stub.count == 0)
         #expect(ai.usedToday == 0)
-        #expect(ai.mode == .myList)
-        #expect(!feed.showsAI)
+        #expect(!ai.isActive)
+        #expect(ai.mode == .aiSearch)
     }
 
     // MARK: Saved
@@ -431,7 +537,8 @@ private final class RuleClock: @unchecked Sendable {
         let ai = try #require(samples.ai)
         #expect(ai.isDebugFrozenInMemory)
         await lapsed.refresh()
-        #expect(ai.mode == .myList)
+        #expect(ai.mode == .aiSearch)
+        #expect(ai.shownMode == .myList)
         #expect(!samples.feed.showsAI)
         #expect(ai.precondition.message == Self.message(for: .lapsed))
         #expect(try storedMode(context) == nil)
