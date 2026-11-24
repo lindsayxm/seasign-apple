@@ -1,11 +1,11 @@
 ---
 id: 174
 title: API: calendar time follow-ups: skipped-hour instants, stale instance beside an override, sweep test time
-status: review
+status: in-progress
 owner: implementer-1
 depends_on: []
 created: 2026-11-22T18:45:19Z
-updated: 2026-11-24T15:55:09Z
+updated: 2026-11-24T16:07:05Z
 ---
 
 ## Goal
@@ -14,9 +14,9 @@ From the two #167 reviews; none blocks the day screen. (1) wallToEpoch returns t
 
 ## Acceptance criteria
 
-- [ ] No event is ever returned with end before start; skipped-hour times resolve to the instant of the jump; tests for Beirut, Berlin and New York
+- [x] No event is ever returned with end before start; skipped-hour times resolve to the instant of the jump; tests for Beirut, Berlin and New York
 - [ ] A replaced instance is never shown beside its override whatever its length; test with the weekly 7-day series
-- [ ] The sweep test runs well inside its timeout (narrow it to zones with a midnight change, or precompute); npm test and tsc pass; spec unchanged
+- [x] The sweep test runs well inside its timeout (narrow it to zones with a midnight change, or precompute); npm test and tsc pass; spec unchanged
 
 ## Relevant files
 
@@ -37,3 +37,8 @@ From the two #167 reviews; none blocks the day screen. (1) wallToEpoch returns t
 - 2026-11-24T15:55:09Z [implementer-1] Fix 3: the all-zones dayBounds sweep now checks, per zone, the days around each 2026 offset change (found with Intl alone in api/test/zone-changes.ts) plus the first of each month, and asserts the change days were found (Santiago 09-06, Havana 03-08, New York 03-08, Beirut 03-29 among them). With the gap fix disabled by hand it names Havana 03-08, Santiago 09-06 and Azores 03-29, so it keeps its teeth. Sweep 768 ms; calendar-day test time 9.00 s before, 2.5 s after. npm test 22 files / 1987 passed; tsc clean; npm run openapi gives no diff.
 - 2026-11-24T15:55:09Z [implementer-1] For the lead: an EXDATE or RECURRENCE-ID written in UTC by the RFC reading for a TZID time in a skipped hour no longer matches when the file has no VTIMEZONE (checked: daily DTSTART;TZID=Europe/Berlin:...T023000 with EXDATE:20260329T013000Z, read 2026-03-28T12:00Z: the 29th now shows at 01:00Z; with a VTIMEZONE it is still dropped). If the RFC reading is preferred for TZID times, only the iana case of resolveWall needs to change; floating and all-day placement need the jump either way.
 - 2026-11-24T15:55:09Z [implementer-1] status: in-progress → review
+- 2026-11-24T16:06:20Z [implementer-1] criterion 1 met: No event is ever returned with end before start; skipped-hour times resolve to the instant of the jump; tests for Beirut, Berlin and New York
+- 2026-11-24T16:06:20Z [implementer-1] criterion 3 met: The sweep test runs well inside its timeout (narrow it to zones with a midnight change, or precompute); npm test and tsc pass; spec unchanged
+- 2026-11-24T16:06:20Z [implementer-1] review: changes needed. Verified myself: npx tsc --noEmit exit 0; npm test 22 files / 1987 tests passed (59.6 s); calendar-day + calendar-time alone 40 passed, sweep 916 ms, new property test 1449 ms; npm run openapi gives no diff. wallToEpoch checked new vs pre-0b5ae04 in Node over every zone, every change 1900-2030 (~195k wall times): no time the clocks show changed reading (fall-back unchanged), every skipped time lands on the jump, never decreasing; Lord Howe 30-min, Santiago/Havana/Beirut/Asuncion midnight, Apia 2011 and Kwajalein 1993 whole skipped days, Manila 1844 all correct. Gap cache only answers walls already proven skipped and holds exact tz data, bounded at 300 zones: no stale or leaking answer. Narrowed sweep catches exactly the zone-days the full 2026 sweep catches for four broken dayBounds variants. Criteria 1 and 3 ticked. Criterion 2 unticked: the length fix holds (on-call 7-day, single event, old code showed both), but these commits introduce a counterexample: daily DTSTART;TZID=Europe/Berlin:...T023000 with no VTIMEZONE plus an override RECURRENCE-ID:20260329T013000Z (the RFC 5545 UTC form) now shows the 29th instance at 01:00Z beside the override; before 0b5ae04 it was suppressed (same for EXDATE). Regression is confined to zones east of UTC, where the old 'second' reading happened to equal the RFC reading; for New York the old code already missed the RFC UTC form (06:30Z vs 07:30Z). Files with a VTIMEZONE are unchanged (checked). Second finding: the parse-time gap search is not charged to the budget; a crafted 0.9 MB file of 19,900 TZID EXDATEs in skipped hours of different years takes ~1.3-1.7 s per parse in Node against ~0.25-0.37 s before (about 5x), so 10 links per request is ~15 s against the 3.5 s estimate in memory/decisions/2026-11-16-rate-limits-and-deploy-limits.md. Recommendation for the lead: change the iana case of resolveWall to the RFC reading (offset before the gap: the larger of the two candidate instants, no search). That restores the UTC EXDATE/RECURRENCE-ID match, agrees with the same file with a VTIMEZONE and with how Google/Apple show such times (03:30), and removes the parse-time search entirely; floating, all-day and dayBounds keep the jump. Criterion 1 still holds because instant durations are clamped at 0 and end = start + duration. This departs from criterion 1's wording for TZID times and needs the TZID test in calendar-time.test.ts changed, so it is the lead's call.
+- 2026-11-24T16:07:05Z [implementer-1] status: review → in-progress
+- 2026-11-24T16:07:05Z [implementer-1] Lead decision after the review: TZID times (the iana case of resolveWall) in a skipped hour use the RFC 5545 reading (the offset before the gap, the later of the two candidate instants, no search), so files read the same with or without a VTIMEZONE and UTC EXDATE / RECURRENCE-ID keep matching. Floating times, all-day events and dayBounds keep the jump. Criterion 1's 'instant of the jump' applies to those request-time placements only. Back to the implementer for this and for a CPU test with the reviewer's crafted file shape.
