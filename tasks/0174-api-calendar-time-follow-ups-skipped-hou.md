@@ -1,11 +1,11 @@
 ---
 id: 174
 title: API: calendar time follow-ups: skipped-hour instants, stale instance beside an override, sweep test time
-status: review
+status: done
 owner: implementer-1
 depends_on: []
 created: 2026-11-22T18:45:19Z
-updated: 2026-11-24T16:10:34Z
+updated: 2026-11-24T16:13:56Z
 ---
 
 ## Goal
@@ -15,7 +15,7 @@ From the two #167 reviews; none blocks the day screen. (1) wallToEpoch returns t
 ## Acceptance criteria
 
 - [x] No event is ever returned with end before start; skipped-hour times resolve to the instant of the jump; tests for Beirut, Berlin and New York
-- [ ] A replaced instance is never shown beside its override whatever its length; test with the weekly 7-day series
+- [x] A replaced instance is never shown beside its override whatever its length; test with the weekly 7-day series
 - [x] The sweep test runs well inside its timeout (narrow it to zones with a midnight change, or precompute); npm test and tsc pass; spec unchanged
 
 ## Relevant files
@@ -44,3 +44,6 @@ From the two #167 reviews; none blocks the day screen. (1) wallToEpoch returns t
 - 2026-11-24T16:07:05Z [implementer-1] Lead decision after the review: TZID times (the iana case of resolveWall) in a skipped hour use the RFC 5545 reading (the offset before the gap, the later of the two candidate instants, no search), so files read the same with or without a VTIMEZONE and UTC EXDATE / RECURRENCE-ID keep matching. Floating times, all-day events and dayBounds keep the jump. Criterion 1's 'instant of the jump' applies to those request-time placements only. Back to the implementer for this and for a CPU test with the reviewer's crafted file shape.
 - 2026-11-24T16:10:34Z [implementer-1] Rework (lead decision): resolveWall's iana case now uses tzidToEpoch, the RFC 5545 reading (offset before the gap = the later of the two readings, at most three zone lookups, no search). wallToEpoch (floating, all-day, dayBounds) keeps the jump; both share readWall. Tests written first, 9 failing on HEAD ebfcab2: Berlin and New York UTC RECURRENCE-ID and UTC EXDATE without a VTIMEZONE, same instants with and without a VTIMEZONE (Berlin, New York), TZID start instants in Beirut/Berlin/New York (end >= start asserted too), the updated TZID test (now RFC: Berlin 02:30-03:30 is 01:30Z with no length, New York 07:30Z with no length, Beirut 00:30 + 1h is 22:30Z-23:30Z), and the reviewer's crafted file (10 zones x 1,990 EXDATE;TZID in skipped hours 1971-2026, 891 KB): under the 5,000 ms bar and fewer than 3.5 formatToParts calls per value, counted with a spy (HEAD 339,197, bar 69,650; now 54,644 in Node, 276 ms per parse). npm test 22 files / 1995 passed; tsc clean; npm run openapi no diff; Node sweep and placement property check for 2026 still clean.
 - 2026-11-24T16:10:34Z [implementer-1] status: in-progress → review
+- 2026-11-24T16:13:34Z [implementer-1] criterion 2 met: A replaced instance is never shown beside its override whatever its length; test with the weekly 7-day series
+- 2026-11-24T16:13:34Z [implementer-1] review (re-review of 519de78): pass. Ran: npx tsc --noEmit exit 0; npm test 22 files / 1995 tests passed (20.2 s); npm run openapi exit 0, no diff under openapi/. Finding 1 fixed: without a VTIMEZONE, Berlin daily 02:30 with EXDATE:20260329T013000Z drops the 29th and RECURRENCE-ID:20260329T013000Z replaces it (no instance beside the override); New York EXDATE:20260308T073000Z now matches too (the pre-0b5ae04 code never did). With a VTIMEZONE all five probe cases are identical to pre-0b5ae04. tzidToEpoch checked through parseCalendar against the pre-0b5ae04 code over every zone, every offset change 1900-2030 (~195k TZID times): every time the clocks show is placed exactly as before (fall-back unchanged); every skipped time is wall minus the offset before the gap (Lord Howe 30 min, Chatham, Troll, Santiago/Havana/Beirut/Asuncion midnight, Apia/Fakaofo 2011, Kwajalein 1993, Enderbury/Kiritimati 1994 whole skipped days). Floating placement and dayBounds still land on the jump (all zones 2000-2030, Apia, Lord Howe). Finding 2 fixed: the crafted 0.9 MB file parses in ~0.27-0.38 s in Node against ~0.22-0.25 s before 0b5ae04 (was ~1.3-1.7 s at d6a466e); 11,990 far-back RECURRENCE-IDs ~0.22 s vs ~0.11 s. Call-count guard is sound: formatToParts calls on my file are 39,820 before 0b5ae04, 377,943 at d6a466e (search per value) and 59,720 now (3.0 per value), so the 3.5-per-value bar fails any per-value search; the spy is on the prototype and offsetAt looks the method up per call, and the test interleaves gaps so the gap cache cannot hide a search. Zero-length consequence (Berlin 02:45-03:15 single gives start = end = 01:45Z): identical with and without a VTIMEZONE (checked), follows from RFC 5545 plus the existing clamp, acceptable; a series with the same times keeps its 30 min wall length (01:45Z-02:15Z) on both paths, which is how the existing same-zone duration rule already worked. Criterion 1's 'instant of the jump' holds for request-time placements as the lead scoped it. All three criteria ticked.
+- 2026-11-24T16:13:56Z [implementer-1] status: review → done
