@@ -224,6 +224,27 @@ import Testing
         #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == .save(1))
     }
 
+    /// Task 207: on the iPhone SE the two rows are 50 apart; their bands
+    /// meet halfway between the rows, a drop on either saves it, and nothing
+    /// lies under the second.
+    @Test func theBandsFollowTheTighterPitchOnTheSE() {
+        let se = TodayOverlayLayout(size: CGSize(width: 375, height: 667), labels: [], showsZipPrompt: false)
+        #expect(se.titleCapacity == 2 && se.titlePitch == 50)
+        let bands = (0..<se.titleCapacity).map { se.titleBand($0) }
+        #expect(bands.allSatisfy { $0.height == 50 })
+        #expect(bands[0].maxY == bands[1].minY)
+        // Halfway through the 12-point gap between the rows.
+        #expect(bands[0].maxY == se.titleRowTop(1) - 6)
+        #expect(StarDrop.outcome(at: CGPoint(x: 120, y: se.titleRowTop(1) + 8), bands: bands) { _ in false } == .save(1))
+        #expect(StarDrop.row(at: CGPoint(x: 120, y: se.titleRowTop(1) - 5), bands: bands) == 1)
+        #expect(StarDrop.row(at: CGPoint(x: 120, y: se.titleRowTop(1) - 7), bands: bands) == 0)
+        #expect(StarDrop.row(at: CGPoint(x: 120, y: se.titleRowTop(0) + 8), bands: bands) == 0)
+        // Below the second row's band: no title, and the band stays clear of
+        // the tiles.
+        #expect(StarDrop.row(at: CGPoint(x: 120, y: bands[1].maxY + 1), bands: bands) == nil)
+        #expect(bands[1].maxY <= se.tiles[0].minY)
+    }
+
     /// A tap on the tile is not a drag, and the drag starts before Today's
     /// pull would watch it.
     @Test func aTapIsNotADrag() {

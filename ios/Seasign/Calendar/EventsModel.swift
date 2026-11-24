@@ -167,10 +167,12 @@ final class EventsModel {
         snapshot?.status(for: link.id)
     }
 
-    /// Whether a scheduled check would ask now: there are links and the
+    /// Whether the events are due for a check: there are links and the
     /// events are missing, lack a link, belong to another zone or are at
-    /// least `refreshInterval` old. Today reads it as the app comes back to
-    /// the foreground, to decide whether that return asks with `force`.
+    /// least `refreshInterval` old. It does not look at whether the app is
+    /// active or at a hold (a scheduled check would still skip then). Today
+    /// reads it as the app comes back to the foreground, to decide whether
+    /// that return asks with `force`.
     var isDue: Bool {
         guard !isFrozen, !links.isEmpty else { return false }
         guard let snapshot, snapshot.timezone == timeZone().identifier else { return true }

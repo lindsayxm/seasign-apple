@@ -282,14 +282,16 @@ struct TodayOverlayLayout {
     /// shows two titles. With no such pitch it stays 54 and one row shows.
     static func titlePitch(fitting room: CGFloat) -> CGFloat {
         guard titleRows(fitting: room, pitch: Mockup.titlePitch) == 1 else { return Mockup.titlePitch }
-        // No rounding tolerance here: the second row must end clear of the tiles.
+        // No rounding tolerance here: the second row must end clear of the
+        // tiles. One row only at 54 means the room is under 91.5, so `tight`
+        // is 53 at most.
         let tight = (room - Mockup.titleRowHeight).rounded(.down)
-        return tight >= Mockup.titlePitchFloor ? min(tight, Mockup.titlePitch) : Mockup.titlePitch
+        return tight >= Mockup.titlePitchFloor ? tight : Mockup.titlePitch
     }
 
     /// How many whole two-line rows fit in `room` points on `pitch`, never
     /// more than five.
-    static func titleRows(fitting room: CGFloat, pitch: CGFloat = Mockup.titlePitch) -> Int {
+    static func titleRows(fitting room: CGFloat, pitch: CGFloat) -> Int {
         var count = 0
         // A hair of tolerance for rounding.
         while count < HeadlineFit.maxCount,

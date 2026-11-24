@@ -201,6 +201,29 @@ import Testing
         #expect(other.boxes.allSatisfy { other.nowY(in: $0, started: true) == nil })
     }
 
+    /// Task 208, from its review: now exactly on a box's top or bottom is
+    /// inside it (at 0 and at the box's height), and a box drawn at the
+    /// minimum height holds the line from its top.
+    @Test func theNowLineOnABoxsEdgesIsInsideIt() throws {
+        let planning = event("Planning", "2026-11-23T09:00:00-05:00", "2026-11-23T10:30:00-05:00")
+        let onTop = layout([planning], now: at("2026-11-23T09:00:00-05:00"))
+        let box = try #require(onTop.boxes.first)
+        #expect(onTop.nowY(in: box, started: true) == 0)
+        let onBottom = layout([planning], now: at("2026-11-23T10:30:00-05:00"))
+        #expect(onBottom.nowY(in: box, started: true).map { abs($0 - 30) < 0.001 } == true)
+        #expect(onBottom.nowY(in: box, started: true).map { abs($0 - box.frame.height) < 0.001 } == true)
+        // A minute either side: outside.
+        #expect(layout([planning], now: at("2026-11-23T08:59:00-05:00")).nowY(in: box, started: true) == nil)
+        #expect(layout([planning], now: at("2026-11-23T10:31:00-05:00")).nowY(in: box, started: true) == nil)
+        // An event with no length is drawn one title line tall; at its start
+        // the line is on its top.
+        let zero = event("Call", "2026-11-23T12:00:00-05:00", "2026-11-23T12:00:00-05:00")
+        let short = layout([zero], now: at("2026-11-23T12:00:00-05:00"))
+        let shortBox = try #require(short.boxes.first)
+        #expect(shortBox.frame.height == metrics.minimumBoxHeight)
+        #expect(short.nowY(in: shortBox, started: true) == 0)
+    }
+
     @Test func hourLinesAreLabelledByTheClockExceptAtTheEdgesAndNearNow() {
         let now = at("2026-11-23T14:05:00-05:00")
         let result = layout([], now: now)

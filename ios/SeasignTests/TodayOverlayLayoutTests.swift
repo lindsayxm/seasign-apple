@@ -166,7 +166,7 @@ import UIKit
     }
 
     /// Never more than three rows, however many events (task 205; was four).
-    @Test func theBoxNeverShowsMoreThanFourRows() {
+    @Test func theBoxNeverShowsMoreThanThreeRows() {
         let many = labels(Array(repeating: "A very long event title that will be cut", count: 7))
         let layout = layout(many)
         #expect(layout.eventRows.count == 3)
@@ -176,7 +176,7 @@ import UIKit
     /// With no zip, the prompt takes the last row and two events stay
     /// (task 205; was three). The full prompt is cut at 29 characters, so
     /// the short one is drawn whole; VoiceOver still says the full one.
-    @Test func thePromptAndThreeEventsAlwaysFit() {
+    @Test func thePromptAndTwoEventsAlwaysFit() {
         let layout = layout(sample, prompt: true)
         #expect(layout.eventRows.count == 3)
         #expect(layout.promptIndex == 2)
@@ -324,10 +324,6 @@ import UIKit
         #expect(layout.eventRows.map { $0.text.firstIndex(of: "-") } == layout.eventRows.map { _ in layout.eventRows[0].text.firstIndex(of: "-") })
     }
 
-    /// iPhone SE size: the titles give way first, whole rows at a time; the
-    /// top and the tiles keep their places. Task 205: at 12 points on a 54
-    /// pitch one title fits (two did at 10.5 on 51). Task 207: so the pitch
-    /// tightens to 50 there and two fit.
     /// Task 207: the pitch tightens only where it turns one row into two.
     @Test func thePitchTightensOnlyToFitASecondRow() {
         // Two or more rows fit at 54, or none does: 54.
@@ -338,11 +334,41 @@ import UIKit
         #expect(TodayOverlayLayout.titlePitch(fitting: 88.68) == 50)
         #expect(TodayOverlayLayout.titleRows(fitting: 88.68, pitch: 50) == 2)
         #expect(TodayOverlayLayout.titlePitch(fitting: 84) == 46)
+        #expect(TodayOverlayLayout.titleRows(fitting: 84, pitch: 46) == 2)
+        // The largest tightened pitch is 53, just under the seam at 91.5.
+        #expect(TodayOverlayLayout.titlePitch(fitting: 91) == 53)
+        #expect(TodayOverlayLayout.titleRows(fitting: 91, pitch: 53) == 2)
+        #expect(TodayOverlayLayout.titlePitch(fitting: 91.49) == 53)
+        // At 91.5 two rows fit at 54 (with the half-point tolerance), so the
+        // pitch stays 54.
+        #expect(TodayOverlayLayout.titleRows(fitting: 91.5, pitch: 54) == 2)
+        #expect(TodayOverlayLayout.titlePitch(fitting: 91.5) == 54)
         // Too little room for a second row even 8 apart: 54, one row.
         #expect(TodayOverlayLayout.titlePitch(fitting: 83.9) == 54)
         #expect(TodayOverlayLayout.titleRows(fitting: 83.9, pitch: 54) == 1)
     }
 
+    /// Task 207: only the iPhone SE tightens. The other small sizes keep 54
+    /// and the rows that fit at it (the #207 review's figures).
+    @Test func theOtherSmallScreensKeepTheMockupPitch() {
+        let expected: [(CGSize, Int)] = [
+            (CGSize(width: 375, height: 812), 4),
+            (CGSize(width: 390, height: 844), 4),
+            (CGSize(width: 320, height: 568), 1),
+        ]
+        for (size, capacity) in expected {
+            let layout = layout(size: size)
+            #expect(layout.titlePitch == 54, "\(size)")
+            #expect(layout.titleCapacity == capacity, "\(size)")
+            // The last row ends clear of the tiles.
+            #expect(layout.titleRowTop(capacity - 1) + 38 <= layout.tiles[0].minY - 17 + 0.5, "\(size)")
+        }
+    }
+
+    /// iPhone SE size: the titles give way first, whole rows at a time; the
+    /// top and the tiles keep their places. Task 205: at 12 points on a 54
+    /// pitch one title fits (two did at 10.5 on 51). Task 207: so the pitch
+    /// tightens to 50 there and two fit.
     @Test func aSmallScreenScalesEverything() {
         let layout = layout(sample, size: se)
         #expect(abs(layout.horizonY - 386 * 375 / 393) < 0.001)
