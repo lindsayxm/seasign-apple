@@ -1,11 +1,11 @@
 ---
 id: 196
 title: iOS v12: full-day calendar and add-event sheet restyled
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [195]
 created: 2026-11-23T20:25:09Z
-updated: 2026-11-23T20:25:09Z
+updated: 2026-11-24T00:00:10Z
 ---
 
 ## Goal
@@ -29,3 +29,4 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 ## Log
 
 - 2026-11-23T20:25:09Z [li] created (todo)
+- 2026-11-24T00:00:10Z [implementer-1] status: todo → in-progress — claimed by implementer-1

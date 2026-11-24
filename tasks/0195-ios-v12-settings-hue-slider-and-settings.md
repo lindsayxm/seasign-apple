@@ -1,11 +1,11 @@
 ---
 id: 195
 title: iOS v12: Settings hue slider and Settings restyle
-status: review
+status: done
 owner: implementer-1
 depends_on: [194]
 created: 2026-11-23T20:25:09Z
-updated: 2026-11-23T23:52:16Z
+updated: 2026-11-24T00:00:10Z
 ---
 
 ## Goal
@@ -14,8 +14,8 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 
 ## Acceptance criteria
 
-- [ ] Slider changes the accent across the app immediately and survives relaunch; Default restores orange-red (tests at the model level)
-- [ ] Screenshots of Settings and of Today in two non-default hues on the iPhone 17; xcodebuild test passes on both runtimes
+- [x] Slider changes the accent across the app immediately and survives relaunch; Default restores orange-red (tests at the model level)
+- [x] Screenshots of Settings and of Today in two non-default hues on the iPhone 17; xcodebuild test passes on both runtimes
 
 ## Relevant files
 
@@ -34,3 +34,8 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 - 2026-11-23T23:47:15Z [implementer-1] Open / for the lead: (1) VoiceOver by ear not checked; axe reports the slider as AXSlider with AXValue 'nan' (the simulator bridge parses a slider value as a number; the string value is set via accessibilityValue) - worth a by-ear check or switching to accessibilityRepresentation { Slider } if VoiceOver does not read it. (2) Palette.sun warnings sit close to the default orange-red accent (see 02/03/04 shots). (3) Moving the slider when no settings row exists creates the row with zip 60611 (SkyStore.settings(), same as the voice setting). (4) Notes and labels stay in capitals (Text(caps:)), now mono; long notes in mono caps are dense. (5) Wording added: section 'HUD colour', 'Default', 'Default orange-red' / 'Hue N°', the note under the slider, preview sample text; Settings' close is now the X (label 'Close') instead of the word CLOSE. (6) Slider drag starts at once (minimumDistance 0), so a vertical scroll that starts on the 44-pt track does not scroll.
 - 2026-11-23T23:47:15Z [implementer-1] status: in-progress → review
 - 2026-11-23T23:52:16Z [implementer-1] Follow-up checks: (a) star drop on the deployment runtime: iPhone 16 / iOS 18.3.1 (BEA28589, not the Pro Max), dd195 build, -debugFeed -debugSaved: dragged the star from SAVE onto title 02 with axe; Saved then held 'It’s getting too dry…' (/private/tmp/claude-501/-Users-li-seasign-seasign-apple/6b67084e-3b16-4a0b-9976-164876a415f4/scratchpad/t195/21-ios18-saved-after-star-drop.png). So onEnded still arrives before the GestureState reset there too. (b) /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6b67084e-3b16-4a0b-9976-164876a415f4/scratchpad/t195/01-settings-top-default.png and /private/tmp/claude-501/-Users-li-seasign-seasign-apple/6b67084e-3b16-4a0b-9976-164876a415f4/scratchpad/t195/02-settings-google.png retaken after the note under the slider was reworded (dropped '…and the sky', since the sky is not covered by the colour rule). (c) The by-hand slider drag used XcodeBuildMCP's bundled axe by coordinates (the slider is not a snapshot_ui target). (d) SheetScaffold is used by Settings only; the shared change seen elsewhere is CloseMark (day screen, History); the read view uses neither. Not looked at: Settings at large Dynamic Type sizes; Settings and the slider on iOS 18 (tests only there).
+- 2026-11-23T23:56:54Z [implementer-1] criterion 1 met: Slider changes the accent across the app immediately and survives relaunch; Default restores orange-red (tests at the model level)
+- 2026-11-23T23:56:54Z [implementer-1] criterion 2 met: Screenshots of Settings and of Today in two non-default hues on the iPhone 17; xcodebuild test passes on both runtimes
+- 2026-11-23T23:56:54Z [implementer-1] review: PASS (code reading and screenshots only; per the lead no xcodebuild was re-run). C1 verified by reading HUDColourSettingsSection.swift / HUDAccentRoot and HUDColourSettingsTests (real checks: row creation, Observation before save, relaunch via LocalStore.open on temp files, Default -> SRGB(235,78,39)), plus shots 09-12 (drag -> blue at once, relaunch keeps 209, Default back to orange-red). C2: shots 01-08 and 13-17 on iPhone 17 present; the test half is verified from the raw logs (test17.log iPhone 17/27.2 and test16.log iPhone 16/18.3.1: 816 tests in 96 suites passed, 0 failures, HUDColourSettingsTests and aLandingWithNoDragOrOffTodaySavesNothing ran), not from a re-run. Settings restyle: actions, bindings, .disabled conditions and accessibility labels unchanged in all six sections; the AI key is still a SecureField and shows only 'Key saved'; calendar rows show the host only; no new logging. Debug scene header now has the isHeader trait and the accent instead of Palette.sun (cosmetic). Low findings, none blocking: (1) HueTrack DragGesture(minimumDistance: 0) (HUDColourSettingsSection.swift:183) over a full-width 44-pt track inside the ScrollView: a scroll that starts on the track changes the app colour (and is saved on end), not only blocks the scroll. (2) A drag cancelled before onEnded leaves the save:false write unsaved in mainContext; it is not reverted, so the app keeps the new hue, and it persists only through autosave or the next save (code reading). (3) StarFlight.land now depends on onEnded arriving before the @GestureState reset's onChange (HUDTileBar.swift:86); SwiftUI does not document this; the implementer checked it by hand on both runtimes (shots 20, 21). (4) Palette.sun warnings (HUDForm.swift:127) are hard to tell from the default orange-red accent (shot 02). (5) setHUDHue calls settings(), a fetch, on every drag movement; the != guard skips no-op writes; HUDAccentRoot re-renders per whole degree. Not measured, likely fine. Unchecked by anyone: Settings at large Dynamic Type, Settings/slider on iOS 18 visually, VoiceOver by ear (axe reports AXValue nan).
+- 2026-11-24T00:00:10Z [implementer-1] Lead: reviewer passed both criteria on reading. Lead re-ran the suite on iPhone 17 / iOS 27.2: 816 tests in 96 suites passed, TEST SUCCEEDED; iPhone 16 rests on the implementer's log. Carried to task 196: a vertical scroll that starts on the slider must not change the colour (review finding 1); the hue is saved when Settings closes even if the drag never ended (finding 2). Open for the user: dark yellows and greens, capitals in Settings notes, warning colour close to the default accent.
+- 2026-11-24T00:00:10Z [implementer-1] status: review → done
