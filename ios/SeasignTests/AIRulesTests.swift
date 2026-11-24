@@ -144,10 +144,10 @@ import Testing
 
 @Suite struct AIPreconditionTests {
     @Test func needsAKeyAndAnInterest() {
-        #expect(AIPrecondition(hasKey: true, interests: ["x"]) == .ready)
-        #expect(AIPrecondition(hasKey: false, interests: ["x"]) == .needsKey)
-        #expect(AIPrecondition(hasKey: true, interests: []) == .needsInterests)
-        #expect(AIPrecondition(hasKey: false, interests: []) == .needsKeyAndInterests)
+        #expect(AIPrecondition(subscription: subscribedAccess, hasKey: true, interests: ["x"]) == .ready)
+        #expect(AIPrecondition(subscription: subscribedAccess, hasKey: false, interests: ["x"]) == .needsKey)
+        #expect(AIPrecondition(subscription: subscribedAccess, hasKey: true, interests: []) == .needsInterests)
+        #expect(AIPrecondition(subscription: subscribedAccess, hasKey: false, interests: []) == .needsKeyAndInterests)
         #expect(AIPrecondition.ready.message == nil)
         #expect(AIPrecondition.needsKey.message?.contains("API key") == true)
         #expect(AIPrecondition.needsInterests.message?.contains("interest") == true)
@@ -156,9 +156,9 @@ import Testing
     /// "Could not read the Keychain" is not "no key": it never asks for the
     /// key, whatever the interests.
     @Test func anUnreadableKeychainIsNotAMissingKey() throws {
-        #expect(AIPrecondition(key: .unknown, interests: ["x"]) == .keyUnreadable)
-        #expect(AIPrecondition(key: .unknown, interests: []) == .keyUnreadable)
-        #expect(AIPrecondition(key: .missing, interests: ["x"]) == .needsKey)
+        #expect(AIPrecondition(subscription: subscribedAccess, key: .unknown, interests: ["x"]) == .keyUnreadable)
+        #expect(AIPrecondition(subscription: subscribedAccess, key: .unknown, interests: []) == .keyUnreadable)
+        #expect(AIPrecondition(subscription: subscribedAccess, key: .missing, interests: ["x"]) == .needsKey)
         for text in [AIPrecondition.keyUnreadable.message, AISearchProblem.keyUnreadable.message] {
             let message = try #require(text)
             #expect(!message.localizedCaseInsensitiveContains("add your"))
@@ -277,6 +277,7 @@ import Testing
     private let now = instant("2026-11-15T23:05:00Z")
 
     private func gate(
+        subscription: SubscriptionAccess = subscribedAccess,
         mode: AIMode = .aiSearch,
         key: KeyStatus = .saved,
         interests: [String] = ["tide pools"],
@@ -288,7 +289,7 @@ import Testing
         retryNotBefore: Date? = nil
     ) -> SearchGate {
         SearchGate(
-            mode: mode, key: key, interests: interests, cap: cap, usedToday: used,
+            subscription: subscription, mode: mode, key: key, interests: interests, cap: cap, usedToday: used,
             lastSentAt: lastSentAt, keyRefused: keyRefused, isSearching: isSearching,
             retryNotBefore: retryNotBefore
         )

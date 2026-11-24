@@ -311,8 +311,15 @@ final class ScriptedSubscriptionStore: SubscriptionStore, @unchecked Sendable {
         continuation.yield()
     }
 
+    private var readCount = 0
+    /// How many reads have been made.
+    var reads: Int { lock.withLock { readCount } }
+
     func read() async -> SubscriptionReading {
-        reading
+        lock.withLock {
+            readCount += 1
+            return current
+        }
     }
 
     func changes() -> AsyncStream<Void> {

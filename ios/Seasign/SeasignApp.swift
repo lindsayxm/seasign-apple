@@ -119,10 +119,25 @@ struct SeasignApp: App {
             // the first sample's notes at the limit; `-debugAIKeyUnreadable YES` (with `-debugAI`) a
             // key store that will not answer, as a locked Keychain.
             let showAI = defaults.bool(forKey: "debugAI")
+            // `-debugSubscription free|subscribed|lapsed|unknown`: that state
+            // from a fixed store, with no StoreKit calls (task 215), for the
+            // environment and for AI search alike. `-debugAI` without it is
+            // Subscribed, said here rather than left to `subscriptionForAI`'s
+            // default. A state other than Subscribed moves the AI toggle to
+            // Use My List in whichever store AI search uses: with `-debugAI`
+            // the samples' store in memory, without it the user's own.
+            let debugSubscription = SubscriptionRules.debugNamed(defaults.string(forKey: "debugSubscription"))
+                ?? (showAI ? .subscribed : nil)
+            let subscription = debugSubscription
+                .map { SubscriptionModel(store: FixedSubscriptionStore(state: $0)) }
+                ?? SubscriptionModel(store: StoreKitSubscriptionStore())
+            subscription.start()
+            let aiSubscription = subscriptionForAI(override: debugSubscription == nil ? nil : subscription)
             let savedProblem = SavedModel.Problem.debugNamed(defaults.string(forKey: "debugSavedProblem"))
             let sample = debugSamples(
                 feed: feed,
                 saved: saved,
+                subscription: aiSubscription,
                 showFeed: defaults.bool(forKey: "debugFeed") || showAI,
                 showSaved: defaults.bool(forKey: "debugSaved"),
                 showAI: showAI,
@@ -132,25 +147,25 @@ struct SeasignApp: App {
             )
             // With `-debugAI` the real Keychain is never used, even when the
             // samples could not be built: the fallback holds the fake key in
-            // memory and sends nothing.
+            // memory and sends nothing. It sits on the user's store, so it
+            // is always Subscribed: no other state may move the user's toggle.
             let ai = sample.ai ?? (showAI
-                ? AISearchModel.debugFallback(feed: sample.feed, context: container.mainContext)
-                : AISearchModel(context: container.mainContext, feed: sample.feed, zone: zone))
+                ? AISearchModel.debugFallback(feed: sample.feed, context: container.mainContext, subscription: debugSubscribed())
+                : AISearchModel(context: container.mainContext, feed: sample.feed, subscription: aiSubscription, zone: zone))
             RemotePushRelay.shared.attach(google)
-            // `-debugSubscription free|subscribed|lapsed|unknown`: that state
-            // from a fixed store, with no StoreKit calls (task 215).
-            let subscription = SubscriptionRules.debugNamed(defaults.string(forKey: "debugSubscription"))
-                .map { SubscriptionModel(store: FixedSubscriptionStore(state: $0)) }
-                ?? SubscriptionModel(store: StoreKitSubscriptionStore())
-            subscription.start()
             return .ready(container, today, lists, events, google, sample.feed, sample.saved, ai, subscription)
             #else
-            let ai = AISearchModel(context: container.mainContext, feed: feed, zone: zone)
-            RemotePushRelay.shared.attach(liveGoogle)
             // Listens for StoreKit transactions from launch, as Apple asks,
             // so purchases made elsewhere and unfinished ones are finished.
             let subscription = SubscriptionModel(store: StoreKitSubscriptionStore())
             subscription.start()
+            let ai = AISearchModel(
+                context: container.mainContext,
+                feed: feed,
+                subscription: subscriptionForAI(override: nil),
+                zone: zone
+            )
+            RemotePushRelay.shared.attach(liveGoogle)
             return .ready(container, today, lists, live, liveGoogle, feed, saved, ai, subscription)
             #endif
         } catch {
@@ -158,7 +173,27 @@ struct SeasignApp: App {
         }
     }
 
+    /// The subscription AI search obeys: `override` when given (DEBUG's
+    /// `-debugSubscription` and `-debugAI`), otherwise the pre-gate default.
+    ///
+    /// TASK 217 REMOVES THE DEFAULT. Until the gate is built and the product
+    /// exists in App Store Connect, StoreKit's answer is Unknown on every
+    /// phone (task 215), so obeying the real `SubscriptionModel` would switch
+    /// AI search off for everyone today. `SubscribedUntilTheGate` keeps
+    /// AI search as it was before task 216 for everyone, in this one place
+    /// (it is private to this file). Task 217 passes the real model here.
+    static func subscriptionForAI(override: (any SubscriptionSource)?) -> any SubscriptionSource {
+        override ?? SubscribedUntilTheGate()
+    }
+
     #if DEBUG
+    /// Subscribed, from a fixed store with no StoreKit calls, read at once.
+    private static func debugSubscribed() -> SubscriptionModel {
+        let model = SubscriptionModel(store: FixedSubscriptionStore(state: .subscribed))
+        model.start()
+        return model
+    }
+
     /// The DEBUG feed, saved and AI samples share one store in memory. With
     /// any flag on, Saved uses that store too (empty unless `showSaved`),
     /// so saving a sample headline never writes into the user's own store.
@@ -172,6 +207,7 @@ struct SeasignApp: App {
     static func debugSamples(
         feed: FeedModel,
         saved: SavedModel,
+        subscription: any SubscriptionSource,
         showFeed: Bool,
         showSaved: Bool,
         showAI: Bool,
@@ -193,9 +229,9 @@ struct SeasignApp: App {
         if showAI {
             if sampleFeed !== feed {
                 sampleFeed.addSampleAIItems()
-                ai = AISearchModel.sample(feed: sampleFeed, context: context, keyUnreadable: aiKeyUnreadable)
+                ai = AISearchModel.sample(feed: sampleFeed, context: context, subscription: subscription, keyUnreadable: aiKeyUnreadable)
             } else {
-                ai = AISearchModel.debugFallback(feed: sampleFeed, context: context)
+                ai = AISearchModel.debugFallback(feed: sampleFeed, context: context, subscription: subscription)
             }
         }
         return (sampleFeed, sampleSaved, ai)
@@ -211,4 +247,21 @@ struct SeasignApp: App {
         return today
     }
     #endif
+}
+
+/// TASK 217 REMOVES THIS. The pre-gate default behind `SeasignApp.subscriptionForAI`:
+/// Subscribed, already answered, never changing, so AI search behaves for
+/// everyone as it did before task 216 until the gate is built. Private to
+/// this file, so `subscriptionForAI` is the only way to it.
+@MainActor
+private final class SubscribedUntilTheGate: SubscriptionSource {
+    let access = SubscriptionAccess(state: .subscribed, isSignedIn: false)
+    let hasAnswered = true
+
+    func refresh() async -> SubscriptionAccess {
+        access
+    }
+
+    /// It never changes, so there is never anything to tell.
+    func whenJudged(_ handler: @escaping @MainActor (SubscriptionAccess) -> Void) {}
 }

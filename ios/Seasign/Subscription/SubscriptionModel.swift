@@ -1,14 +1,34 @@
 import Foundation
 import Observation
 
-/// The subscription state the app shows and gates on. Nothing reads it yet
-/// (task 215); the AI gate (task 216) and the Settings popup come next.
+/// What AI search (task 216) reads about the subscription: the state as
+/// last judged, a fresh read on demand, and a call after every read that
+/// lands. `SubscriptionModel` is the real one.
+@MainActor
+protocol SubscriptionSource: AnyObject {
+    /// The state as last judged; `unknown` until a read has landed.
+    var access: SubscriptionAccess { get }
+    /// Whether any read has landed yet. Before that, `access` is the
+    /// starting `unknown`, which allows nothing but is not an answer.
+    var hasAnswered: Bool { get }
+    /// Reads again and returns the state judged from a read that started
+    /// after this call (this one, or a later one that landed first).
+    @discardableResult func refresh() async -> SubscriptionAccess
+    /// Calls `handler` with the state after every read that lands, whether
+    /// or not it changed (a first read that fails is still Unknown).
+    func whenJudged(_ handler: @escaping @MainActor (SubscriptionAccess) -> Void)
+}
+
+/// The subscription state the app shows and gates on. AI search obeys it
+/// through `SubscriptionSource` (task 216); the Settings popup comes next.
 ///
 /// It starts `unknown`, so nothing paid is allowed until StoreKit has
 /// answered `subscribed`.
 @MainActor @Observable
-final class SubscriptionModel {
+final class SubscriptionModel: SubscriptionSource {
     private(set) var state: SubscriptionState = .unknown
+    /// A read has landed (`state` is an answer, not the starting value).
+    private(set) var hasAnswered = false
     /// Sign in with Apple arrives in phase C; false until then.
     var isSignedIn = false
 
@@ -36,18 +56,31 @@ final class SubscriptionModel {
     @ObservationIgnored private var readsStarted = 0
     /// The number of the latest-started read whose answer was used.
     @ObservationIgnored private var latestUsed = 0
+    @ObservationIgnored private var judgedHandlers: [@MainActor (SubscriptionAccess) -> Void] = []
+
+    func whenJudged(_ handler: @escaping @MainActor (SubscriptionAccess) -> Void) {
+        judgedHandlers.append(handler)
+    }
 
     /// Reads the store again. Reads may overlap (the listener and, later,
     /// callers before a paid request); an answer is used only if no read
     /// that started after it has already been used, so an older, staler
-    /// answer never replaces a newer one.
-    func refresh() async {
+    /// answer never replaces a newer one. Returns the state as judged after
+    /// this read: its own answer, or that of a read that started later and
+    /// landed first. Either way it comes from a read started after the call,
+    /// which is what a paid request must go by (task 216).
+    @discardableResult
+    func refresh() async -> SubscriptionAccess {
         readsStarted += 1
         let number = readsStarted
         let reading = await store.read()
-        guard number > latestUsed else { return }
+        guard number > latestUsed else { return access }
         latestUsed = number
         state = SubscriptionRules.state(from: reading, now: now())
+        hasAnswered = true
+        let judged = access
+        for handler in judgedHandlers { handler(judged) }
+        return judged
     }
 
     /// Reads once, then again on every change the store reports. Started

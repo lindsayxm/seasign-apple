@@ -63,6 +63,7 @@ private final class AIClock: @unchecked Sendable {
             context: context,
             keyStore: keys,
             feed: feed,
+            subscription: TestSubscription(.subscribed),
             now: { clock.now },
             zone: { clock.zone }
         )
@@ -127,7 +128,7 @@ private final class AIClock: @unchecked Sendable {
         let clock = clock
         let again = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: context, keyStore: first.keys,
-            feed: first.feed, now: { clock.now }, zone: { clock.zone }
+            feed: first.feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
         )
         #expect(again.mode == .aiSearch)
         #expect(again.provider == .perplexity)
@@ -327,7 +328,7 @@ private final class AIClock: @unchecked Sendable {
         let clock = clock
         let again = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: s.context, keyStore: s.keys,
-            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+            feed: s.feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
         )
         clock.advance(3600)
         await again.refreshIfDue()
@@ -409,7 +410,7 @@ private final class AIClock: @unchecked Sendable {
         let failing = FailingWrites()
         let ai = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: context, keyStore: InMemoryKeyStore(APIKey(typed: fakeKey)),
-            feed: feed, now: { clock.now }, zone: { clock.zone }, commit: failing.commit
+            feed: feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }, commit: failing.commit
         )
         ai.setInterests("tide pools")
         #expect(ai.setMode(.aiSearch))
@@ -430,7 +431,7 @@ private final class AIClock: @unchecked Sendable {
         let clock = clock
         let restored = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: s.context, keyStore: InMemoryKeyStore(),
-            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+            feed: s.feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
         )
         #expect(restored.mode == .myList)
         #expect(!restored.isActive)
@@ -447,7 +448,7 @@ private final class AIClock: @unchecked Sendable {
         locked.setFailure(KeychainFailure(status: -25308))
         let again = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: s.context, keyStore: locked,
-            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+            feed: s.feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
         )
         #expect(again.mode == .aiSearch)
         #expect(again.problem == .keyUnreadable)
@@ -465,7 +466,7 @@ private final class AIClock: @unchecked Sendable {
         locked.setFailure(KeychainFailure(status: -25308))
         let ai = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: s.context, keyStore: locked,
-            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+            feed: s.feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
         )
         #expect(ai.keyStatus == .unknown)
         #expect(!ai.hasKey)
@@ -500,7 +501,7 @@ private final class AIClock: @unchecked Sendable {
         locked.setFailure(KeychainFailure(status: -25308))
         let ai = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: s.context, keyStore: locked,
-            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+            feed: s.feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
         )
         locked.setFailure(nil)
         await ai.refreshIfDue()
@@ -517,7 +518,7 @@ private final class AIClock: @unchecked Sendable {
         locked.setFailure(KeychainFailure(status: -25308))
         let ai = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: s.context, keyStore: locked,
-            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+            feed: s.feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
         )
         #expect(ai.mode == .aiSearch)
         locked.setFailure(nil)
@@ -555,7 +556,7 @@ private final class AIClock: @unchecked Sendable {
         let clock = clock
         let again = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: s.context, keyStore: s.keys,
-            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+            feed: s.feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
         )
         #expect(again.problem == nil)
         #expect(try s.context.fetch(FetchDescriptor<Settings>()).first?.aiLastProblemRaw == nil)
@@ -610,7 +611,7 @@ private final class AIClock: @unchecked Sendable {
         let clock = clock
         let again = AISearchModel(
             api: stubbedDiscoverAPI(stub), context: s.context, keyStore: s.keys,
-            feed: s.feed, now: { clock.now }, zone: { clock.zone }
+            feed: s.feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
         )
         #expect(again.keyRefused)
         #expect(again.problem == .invalidKey)
@@ -846,7 +847,7 @@ private final class AIClock: @unchecked Sendable {
         let feed = FeedModel(context: context)
         let saved = SavedModel(context: context)
         let samples = SeasignApp.debugSamples(
-            feed: feed, saved: saved, showFeed: true, showSaved: false, showAI: true,
+            feed: feed, saved: saved, subscription: TestSubscription(.subscribed), showFeed: true, showSaved: false, showAI: true,
             feedSample: { _ in throw SampleFailure() }
         )
         let ai = try #require(samples.ai)
@@ -858,7 +859,7 @@ private final class AIClock: @unchecked Sendable {
         let context = try inMemoryContext()
         let samples = SeasignApp.debugSamples(
             feed: FeedModel(context: context), saved: SavedModel(context: context),
-            showFeed: true, showSaved: false, showAI: true
+            subscription: TestSubscription(.subscribed), showFeed: true, showSaved: false, showAI: true
         )
         #expect(try #require(samples.ai).isDebugFrozenInMemory)
     }
@@ -867,7 +868,7 @@ private final class AIClock: @unchecked Sendable {
     @Test func theFallbackSendsNothing() async throws {
         let context = try inMemoryContext()
         let feed = FeedModel(context: context)
-        let ai = AISearchModel.debugFallback(feed: feed, context: context)
+        let ai = AISearchModel.debugFallback(feed: feed, context: context, subscription: TestSubscription(.subscribed))
         #expect(ai.isDebugFrozenInMemory)
         #expect(ai.hasKey)
         ai.setInterests("tide pools")
@@ -886,7 +887,7 @@ private final class AIClock: @unchecked Sendable {
         let feed = FeedModel(context: context)
         let saved = SavedModel(context: context)
         let samples = SeasignApp.debugSamples(
-            feed: feed, saved: saved, showFeed: false, showSaved: false, showAI: false,
+            feed: feed, saved: saved, subscription: TestSubscription(.subscribed), showFeed: false, showSaved: false, showAI: false,
             savedProblem: .notesNotSaved
         )
         #expect(samples.saved !== saved)
@@ -896,7 +897,7 @@ private final class AIClock: @unchecked Sendable {
         #expect(SavedModel.Problem.debugNamed("notSaved") == .notSaved)
         #expect(SavedModel.Problem.debugNamed("nonsense") == nil)
         // No flag: the user's own models.
-        let none = SeasignApp.debugSamples(feed: feed, saved: saved, showFeed: false, showSaved: false, showAI: false)
+        let none = SeasignApp.debugSamples(feed: feed, saved: saved, subscription: TestSubscription(.subscribed), showFeed: false, showSaved: false, showAI: false)
         #expect(none.saved === saved && none.saved.problem == nil)
     }
 
@@ -904,7 +905,7 @@ private final class AIClock: @unchecked Sendable {
         let context = try inMemoryContext()
         let samples = SeasignApp.debugSamples(
             feed: FeedModel(context: context), saved: SavedModel(context: context),
-            showFeed: true, showSaved: false, showAI: true, aiKeyUnreadable: true
+            subscription: TestSubscription(.subscribed), showFeed: true, showSaved: false, showAI: true, aiKeyUnreadable: true
         )
         let ai = try #require(samples.ai)
         #expect(ai.isDebugFrozenInMemory)
@@ -950,7 +951,7 @@ private final class AIClock: @unchecked Sendable {
             let keys = InMemoryKeyStore()
             let ai = AISearchModel(
                 api: stubbedDiscoverAPI(stub), context: context, keyStore: keys,
-                feed: feed, now: { clock.now }, zone: { clock.zone }
+                feed: feed, subscription: TestSubscription(.subscribed), now: { clock.now }, zone: { clock.zone }
             )
             try ai.saveKey("  " + fakeKey + "\n")
             ai.setInterests("tide pools")

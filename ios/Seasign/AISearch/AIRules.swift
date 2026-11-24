@@ -236,6 +236,21 @@ enum KeyStatus: Equatable, Sendable {
     case unknown
 }
 
+/// THE HARD RULE (`memory/decisions/2026-11-24-subscription-gate-and-ai-lapse-rule.md`):
+/// no AI on anything but an active subscription, ever, so that nothing is
+/// charged once a subscription has lapsed. This is the one place that
+/// decides whether AI may run; `SearchGate` (every search, automatic or
+/// manual) and `AIPrecondition` (the toggle, its message, `isActive` and so
+/// the display of AI-found items) both ask it.
+enum AIRule {
+    /// True only for `subscribed`. Free, lapsed and unknown (including "not
+    /// read yet") all say no. Signing in does not change the answer yet:
+    /// phase C adds that.
+    static func mayRun(_ access: SubscriptionAccess) -> Bool {
+        access.allowsPaidFeatures
+    }
+}
+
 /// Whether AI search can be switched on, and if not, why.
 enum AIPrecondition: Equatable, Sendable {
     case ready
@@ -244,8 +259,24 @@ enum AIPrecondition: Equatable, Sendable {
     case needsKeyAndInterests
     /// The Keychain cannot be read right now; the key may well be there.
     case keyUnreadable
+    /// No subscription was ever bought (`SubscriptionState.free`).
+    case subscriptionNeeded
+    /// The subscription has lapsed (`SubscriptionState.lapsed`).
+    case subscriptionEnded
+    /// The subscription could not be checked, or has not been yet
+    /// (`SubscriptionState.unknown`).
+    case subscriptionUnchecked
 
-    init(key: KeyStatus, interests: [String]) {
+    /// The subscription comes first: without it nothing else would help.
+    init(subscription: SubscriptionAccess, key: KeyStatus, interests: [String]) {
+        guard AIRule.mayRun(subscription) else {
+            switch subscription.state {
+            case .free: self = .subscriptionNeeded
+            case .lapsed: self = .subscriptionEnded
+            case .unknown, .subscribed: self = .subscriptionUnchecked
+            }
+            return
+        }
         switch (key, !interests.isEmpty) {
         case (.unknown, _): self = .keyUnreadable
         case (.saved, true): self = .ready
@@ -255,13 +286,16 @@ enum AIPrecondition: Equatable, Sendable {
         }
     }
 
-    init(hasKey: Bool, interests: [String]) {
-        self.init(key: hasKey ? .saved : .missing, interests: interests)
+    init(subscription: SubscriptionAccess, hasKey: Bool, interests: [String]) {
+        self.init(subscription: subscription, key: hasKey ? .saved : .missing, interests: interests)
     }
 
     /// Shown next to the toggle while it cannot move to Let AI Search.
     var message: String? {
         switch self {
+        case .subscriptionNeeded: "AI search needs a subscription."
+        case .subscriptionEnded: "AI search is off because your subscription has ended."
+        case .subscriptionUnchecked: "AI search waits until your subscription can be checked."
         case .ready: nil
         case .needsKey: "Add your API key below to let AI search."
         case .needsInterests: "Add at least one interest below to let AI search."
@@ -391,6 +425,8 @@ struct SearchGate: Equatable, Sendable {
 
     enum Decision: Equatable, Sendable {
         case send
+        /// `AIRule` says no: not subscribed (the hard rule).
+        case notSubscribed
         case myListMode
         case notReady(AIPrecondition)
         case capReached
@@ -399,6 +435,10 @@ struct SearchGate: Equatable, Sendable {
         case alreadySearching
     }
 
+    /// Checked before anything else (`AIRule`). No default, so no caller can
+    /// leave it out. `AISearchModel` passes the answer of a read made just
+    /// before the send.
+    var subscription: SubscriptionAccess
     var mode: AIMode
     /// Only `.saved` can send; `.unknown` never does.
     var key: KeyStatus
@@ -414,9 +454,11 @@ struct SearchGate: Equatable, Sendable {
     var retryNotBefore: Date? = nil
 
     func decide(_ trigger: Trigger, now: Date) -> Decision {
+        // The hard rule: nothing is sent unless subscribed, whatever else holds.
+        guard AIRule.mayRun(subscription) else { return .notSubscribed }
         // With Use My List selected nothing is ever sent, whatever else holds.
         guard mode == .aiSearch else { return .myListMode }
-        let precondition = AIPrecondition(key: key, interests: interests)
+        let precondition = AIPrecondition(subscription: subscription, key: key, interests: interests)
         guard precondition == .ready else { return .notReady(precondition) }
         guard !isSearching else { return .alreadySearching }
         guard usedToday < DailyCap.clamp(cap) else { return .capReached }

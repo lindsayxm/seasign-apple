@@ -111,9 +111,9 @@ private final class TestBundleMarker {}
             })
             try session.expireSubscription(productIdentifier: Self.productID)
             await model.refresh()
-            if case .statuses(let facts) = await store.read() {
-                print("task 215: renewal states after expireSubscription: \(facts.map(\.renewalState.rawValue))")
-            }
+            // The stale answer this test is about: before the clock moves,
+            // the model still says subscribed.
+            #expect(model.state == .subscribed)
             clock.now = try #require(transaction.expirationDate).addingTimeInterval(1)
             await model.refresh()
             #expect(model.state == .lapsed)
@@ -123,8 +123,9 @@ private final class TestBundleMarker {}
 
     /// A subscription that simply runs out while the process watches (auto
     /// renew off, one renewal every two seconds) is read as Lapsed on the
-    /// real clock. StoreKit reported this expiry itself (renewal state 2),
-    /// unlike `expireSubscription`.
+    /// real clock. StoreKit reports this expiry itself (renewal state 2),
+    /// unlike `expireSubscription`, though on iOS 18.3 a moment after the
+    /// expiry date.
     @Test func aSubscriptionThatRunsOutWhileTheProcessWatchesIsLapsed() async throws {
         try await withSession { session, store in
             session.timeRate = .oneRenewalEveryTwoSeconds
@@ -137,6 +138,15 @@ private final class TestBundleMarker {}
             #expect(await pollUntil(timeout: .seconds(15)) {
                 guard Date() > expiry else { return false }
                 return await state(store) == .lapsed
+            })
+            // What StoreKit itself reported: expired (renewal state 2). On
+            // iOS 27.2 it already says so when the model reads Lapsed; on
+            // iOS 18.3 it still said subscribed at that moment (the clock
+            // check read Lapsed first) and expired a moment later (task 216),
+            // so this waits for it.
+            #expect(await pollUntil(timeout: .seconds(10)) {
+                guard case .statuses(let facts) = await store.read() else { return false }
+                return facts.map(\.renewalState) == [.expired]
             })
         }
     }
