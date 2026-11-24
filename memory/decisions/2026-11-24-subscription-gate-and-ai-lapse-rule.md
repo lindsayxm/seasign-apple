@@ -7,3 +7,13 @@ The user's decisions of 2026-11-24. The plan is `plans/2026-11-24-account-and-su
 - **The zip code is free.** A user without a subscription can change the zip code and nothing else in Settings.
 - **Real emails are not required.** Collecting them could be useful; the lead's recommendation after research is Sign in with Apple only (the app always gets a real or relay address), with an optional opt-in email field possibly later.
 - Tasks 13 and 14 keep their numbers but their "optional sign-in, app works signed out" design is replaced by the plan once approved.
+
+Added later on 2026-11-24, the user's answers to the plan's first draft:
+
+- **Prepopulated sites:** Hacker News `https://news.ycombinator.com/`, Wired Science `https://www.wired.com/category/science/`, Ars Technica Space `https://arstechnica.com/space/`.
+- **Order of the upgrade:** whatever App Store reviewers like most. The plan uses purchase first, then Sign in with Apple. Still to confirm with the user: a person who pays and closes the sign-in keeps Settings on that phone.
+- **Free zip code change:** a "Change zip code" row on the upgrade popup.
+- **Price:** 2.99 a month, no free trial for now.
+- **On lapse:** sync and the Google Calendar push pause, as well as AI being off.
+- **The AI key in Settings:** further work on hold until the user decides how AI keys will be handled.
+- **Real email collection:** skipped for now.
