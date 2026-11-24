@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: [215]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T20:46:52Z
+updated: 2026-11-24T21:13:49Z
 ---
 
 ## Goal
@@ -33,3 +33,4 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 - 2026-11-24T19:10:14Z [li] User, 2026-11-24: AI-found articles the person saved stay visible in Saved on a lapsed subscription (already fetched, no cost). AI-found items in the feed (Today, History) are hidden when not Subscribed.
 - 2026-11-24T19:12:45Z [li] User, 2026-11-24: the point of the rule is that no additional charges are incurred after a lapse; whether already-fetched AI headlines stay visible does not matter, do what is easier. Lead: keep the existing behaviour (FeedModel.showsAI follows AISearchModel.isActive, so they are hidden when AI search is not active); no extra hiding code. The essential tests are that no POST /v1/discover is sent unless Subscribed.
 - 2026-11-24T20:46:52Z [li] From task 215 (lead): (1) allowsPaidFeatures is Subscribed alone; signed-in does not block AI until phase C adds the server check. (2) Re-read the subscription state before any request that costs money (a manual or automatic search): the test environment's expiry sent no update to a running app, so a running app may go on believing it is subscribed; make overlapping refreshes safe (the answer used must be from a read started after the request was asked for). (3) Until the product exists in App Store Connect the StoreKit read fails and the state is Unknown on every phone, so after this task AI is off everywhere except under -debugSubscription subscribed: the tests and DEBUG sample paths that need AI must inject Subscribed, and the lead tells the user before a gated build goes on a simulator they use.
+- 2026-11-24T21:13:49Z [li] From the #215 re-review: the state is only re-judged on refresh(), so a Subscribed state outlives its expiry until the next read: the gate must await refresh() and use that answer before each paid request. Small test fixes to make in this task: in StoreKitSubscriptionTests.aStaleSubscribedAnswerPastItsExpiryIsLapsed assert the model still says subscribed before the clock moves (drop the print); in the natural-expiry test assert what StoreKit reported.

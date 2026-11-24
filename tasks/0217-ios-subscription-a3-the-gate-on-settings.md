@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: [216]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T20:46:52Z
+updated: 2026-11-24T21:13:49Z
 ---
 
 ## Goal
@@ -33,3 +33,4 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 
 - 2026-11-24T19:09:50Z [li] created (backlog)
 - 2026-11-24T20:46:52Z [li] From task 215 (lead): until the product exists in App Store Connect every real read is Unknown, so the gate would lock the user out of Settings on their own Debug builds. Add a DEBUG-only way to set the subscription state that persists across launches (the existing Settings › Debug scene pattern, reachable from the popup too), besides the -debugSubscription launch argument; Release builds have neither. Unknown shows the popup like Free, with wording that does not claim the person has no subscription (for example a 'Couldn't check your subscription' line and a retry) — bring the exact wording to the lead for the user.
+- 2026-11-24T21:13:49Z [li] From the #215 re-review: (1) transactions returned by Product.purchase() are, as far as the reviewer knows, not delivered on Transaction.updates (verify in sosumi): the purchase code must verify, finish and refresh itself. (2) Unknown needs Restore and a retry, and the state is re-read when the app comes to the foreground: with the expiry clock check, a paying customer whose renewal StoreKit has not yet reported reads Lapsed for a moment and could see the renew popup. (3) If StoreKit ever gives two disagreeing entries the state is Unknown until they agree; nothing on the phone resolves it (sandbox check after the deploy; phase B's server check).
