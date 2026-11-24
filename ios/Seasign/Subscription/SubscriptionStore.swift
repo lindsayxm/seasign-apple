@@ -21,13 +21,10 @@ struct StoreKitSubscriptionStore: SubscriptionStore {
                 return .failed
             }
             let statuses = try await subscription.status
-            let facts = statuses.map { status in
-                RenewalFact(
-                    renewalState: status.state,
-                    isVerified: Self.isVerified(status.transaction) && Self.isVerified(status.renewalInfo)
-                )
-            }
-            return .answered(statuses: facts, hasHistory: await hasHistory())
+            // `Transaction.all` is read only when there is no status, to tell
+            // Free from a status call that answered empty.
+            guard !statuses.isEmpty else { return .noStatus(hasHistory: await hasHistory()) }
+            return .statuses(statuses.map(Self.fact))
         } catch {
             return .failed
         }
@@ -72,6 +69,18 @@ struct StoreKitSubscriptionStore: SubscriptionStore {
         return false
     }
 
+    /// One status entry. The dates come from the transaction only when it
+    /// verified; an unverified entry never counts as subscribed anyway.
+    private static func fact(_ status: Product.SubscriptionInfo.Status) -> RenewalFact {
+        let transaction: Transaction? = if case .verified(let transaction) = status.transaction { transaction } else { nil }
+        return RenewalFact(
+            renewalState: status.state,
+            isVerified: transaction != nil && isVerified(status.renewalInfo),
+            expirationDate: transaction?.expirationDate,
+            revocationDate: transaction?.revocationDate
+        )
+    }
+
     private static func isVerified<T>(_ result: VerificationResult<T>) -> Bool {
         if case .verified = result { return true }
         return false
@@ -109,9 +118,10 @@ struct FixedSubscriptionStore: SubscriptionStore {
     /// A reading the rules turn into `state`.
     static func reading(for state: SubscriptionState) -> SubscriptionReading {
         switch state {
-        case .free: .answered(statuses: [], hasHistory: false)
-        case .subscribed: .answered(statuses: [RenewalFact(renewalState: .subscribed, isVerified: true)], hasHistory: true)
-        case .lapsed: .answered(statuses: [RenewalFact(renewalState: .expired, isVerified: true)], hasHistory: true)
+        case .free: .noStatus(hasHistory: false)
+        // Far from any clock a test or a screenshot uses.
+        case .subscribed: .statuses([RenewalFact(renewalState: .subscribed, isVerified: true, expirationDate: .distantFuture)])
+        case .lapsed: .statuses([RenewalFact(renewalState: .expired, isVerified: true, expirationDate: .distantPast)])
         case .unknown: .failed
         }
     }

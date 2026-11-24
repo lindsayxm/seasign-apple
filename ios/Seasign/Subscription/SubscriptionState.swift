@@ -53,13 +53,20 @@ struct RenewalFact: Equatable, Sendable {
     /// Both the transaction and the renewal info passed StoreKit's
     /// verification.
     var isVerified: Bool
+    /// The verified transaction's expiry, nil when it has none or did not
+    /// verify.
+    var expirationDate: Date?
+    /// The verified transaction's revocation (refund), nil when none.
+    var revocationDate: Date?
 }
 
 /// What one read of StoreKit gave.
 enum SubscriptionReading: Equatable, Sendable {
-    /// StoreKit answered. `statuses` is the group's status list;
-    /// `hasHistory` is whether any transaction for the product exists.
-    case answered(statuses: [RenewalFact], hasHistory: Bool)
+    /// The group's status list, as StoreKit gave it.
+    case statuses([RenewalFact])
+    /// StoreKit's status list was empty; `hasHistory` is whether any
+    /// transaction for the product is on record (read only in this case).
+    case noStatus(hasHistory: Bool)
     /// The product did not load or the status call threw.
     case failed
 }
@@ -80,21 +87,52 @@ enum SubscriptionRules {
         }
     }
 
-    /// The state from one read of StoreKit. Fails closed:
+    /// One status entry at `now`. A `subscribed` renewal state is not taken
+    /// on StoreKit's word alone: StoreKit went on answering "subscribed" in a
+    /// running process after the subscription expired (task 215), so the
+    /// verified transaction must also be unrevoked and unexpired.
+    /// - unverified: `unknown`;
+    /// - `subscribed` with a revocation date: `lapsed` (refunded or revoked);
+    /// - `subscribed` with no expiry date: `unknown` (an auto-renewable
+    ///   subscription always has one, so this cannot be checked);
+    /// - `subscribed` with the expiry at or before `now`: `lapsed`;
+    /// - `subscribed` otherwise: `subscribed`;
+    /// - any other state: as `state(for:)`, whatever the dates say.
+    /// A phone clock set back defeats the expiry check; phase B's server
+    /// check is the answer to that.
+    static func state(of fact: RenewalFact, now: Date) -> SubscriptionState {
+        guard fact.isVerified else { return .unknown }
+        let state = state(for: fact.renewalState)
+        guard state == .subscribed else { return state }
+        if fact.revocationDate != nil { return .lapsed }
+        guard let expiry = fact.expirationDate else { return .unknown }
+        return expiry > now ? .subscribed : .lapsed
+    }
+
+    /// The state from one read of StoreKit at `now`. Fails closed:
     /// - a failed read is `unknown`;
     /// - no status and no history is `free`; no status but some history is
     ///   `unknown` (StoreKit's status call answers an empty list when it
     ///   errors, task 215's experiment, so empty alone is not proof of Free);
-    /// - a verified `subscribed` entry makes it `subscribed`;
-    /// - otherwise any unverified or unrecognised entry makes it `unknown`;
-    /// - otherwise (all entries verified and lapsed) `lapsed`.
-    static func state(from reading: SubscriptionReading) -> SubscriptionState {
-        guard case .answered(let statuses, let hasHistory) = reading else { return .unknown }
-        if statuses.isEmpty { return hasHistory ? .unknown : .free }
-        let states = statuses.map { $0.isVerified ? state(for: $0.renewalState) : .unknown }
-        if states.contains(.subscribed) { return .subscribed }
-        if states.contains(.unknown) { return .unknown }
-        return .lapsed
+    /// - each entry is judged by `state(of:now:)`;
+    /// - any `unknown` entry makes it `unknown`;
+    /// - entries that all agree give that state;
+    /// - `subscribed` beside `lapsed` is `unknown`. Family Sharing is off,
+    ///   so StoreKit should give one entry for the group (a returning
+    ///   subscriber is one entry, task 215's test); two that disagree cannot
+    ///   be told apart on the phone (a stale "subscribed" beside a fresh
+    ///   "revoked" looks just like this), so nothing paid is allowed.
+    static func state(from reading: SubscriptionReading, now: Date) -> SubscriptionState {
+        switch reading {
+        case .failed:
+            return .unknown
+        case .noStatus(let hasHistory):
+            return hasHistory ? .unknown : .free
+        case .statuses(let facts):
+            let states = Set(facts.map { state(of: $0, now: now) })
+            guard states.count == 1, let only = states.first else { return .unknown }
+            return only
+        }
     }
 
     #if DEBUG

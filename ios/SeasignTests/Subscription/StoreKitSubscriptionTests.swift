@@ -19,21 +19,28 @@ private final class TestBundleMarker {}
         // `Bundle.main` is the host app; the file is in the test bundle.
         let url = try #require(Bundle(for: TestBundleMarker.self).url(forResource: "Seasign", withExtension: "storekit"))
         let session = try SKTestSession(contentsOf: url)
-        session.resetToDefaultState()
+        // The environment outlives a run, so nothing is left over from one.
+        await Self.reset(session)
         session.disableDialogs = true
-        // The environment outlives a run, so no simulated error is left over.
-        try await session.setSimulatedError(nil, forAPI: .loadProducts)
-        try await session.setSimulatedError(nil, forAPI: .subscriptionStatus)
-        session.clearTransactions()
-        defer {
-            session.clearTransactions()
-            session.resetToDefaultState()
+        do {
+            try await body(session, StoreKitSubscriptionStore())
+        } catch {
+            await Self.reset(session)
+            throw error
         }
-        try await body(session, StoreKitSubscriptionStore())
+        await Self.reset(session)
+    }
+
+    /// No simulated errors, no transactions, default settings.
+    private static func reset(_ session: SKTestSession) async {
+        try? await session.setSimulatedError(nil, forAPI: .loadProducts)
+        try? await session.setSimulatedError(nil, forAPI: .subscriptionStatus)
+        session.clearTransactions()
+        session.resetToDefaultState()
     }
 
     private func state(_ store: StoreKitSubscriptionStore) async -> SubscriptionState {
-        SubscriptionRules.state(from: await store.read())
+        SubscriptionRules.state(from: await store.read(), now: Date())
     }
 
     /// StoreKit takes a moment to report a change (on iOS 18 the status
@@ -86,6 +93,74 @@ private final class TestBundleMarker {}
         }
     }
 
+    /// The case the clock check is for. Once this process has read the
+    /// subscription as active, StoreKit goes on answering "subscribed" after
+    /// `expireSubscription` (experiment 1). Judged at a time after that
+    /// transaction's own expiry (the model's clock moved past it), the
+    /// stale answer is Lapsed. What is real here is StoreKit's stale answer;
+    /// the passing of time is the injected clock.
+    @Test func aStaleSubscribedAnswerPastItsExpiryIsLapsed() async throws {
+        try await withSession { session, store in
+            let clock = SubscriptionTestClock(Date())
+            let model = SubscriptionModel(store: store, now: { clock.now })
+            let transaction = try await session.buyProduct(identifier: Self.productID)
+            await transaction.finish()
+            #expect(await pollUntil {
+                await model.refresh()
+                return model.state == .subscribed
+            })
+            try session.expireSubscription(productIdentifier: Self.productID)
+            await model.refresh()
+            if case .statuses(let facts) = await store.read() {
+                print("task 215: renewal states after expireSubscription: \(facts.map(\.renewalState.rawValue))")
+            }
+            clock.now = try #require(transaction.expirationDate).addingTimeInterval(1)
+            await model.refresh()
+            #expect(model.state == .lapsed)
+            #expect(model.allowsPaidFeatures == false)
+        }
+    }
+
+    /// A subscription that simply runs out while the process watches (auto
+    /// renew off, one renewal every two seconds) is read as Lapsed on the
+    /// real clock. StoreKit reported this expiry itself (renewal state 2),
+    /// unlike `expireSubscription`.
+    @Test func aSubscriptionThatRunsOutWhileTheProcessWatchesIsLapsed() async throws {
+        try await withSession { session, store in
+            session.timeRate = .oneRenewalEveryTwoSeconds
+            let transaction = try await session.buyProduct(identifier: Self.productID)
+            await transaction.finish()
+            try session.disableAutoRenewForTransaction(identifier: UInt(transaction.id))
+            #expect(await becomes(.subscribed, store))
+            let expiry = try #require(transaction.expirationDate)
+            #expect(expiry.timeIntervalSinceNow < 10)
+            #expect(await pollUntil(timeout: .seconds(15)) {
+                guard Date() > expiry else { return false }
+                return await state(store) == .lapsed
+            })
+        }
+    }
+
+    /// A returning subscriber (expired, then bought again) is one status
+    /// entry, Subscribed: the several-entries rule does not lock them out.
+    @Test func resubscribingAfterAnExpiryGivesSubscribed() async throws {
+        try await withSession { session, store in
+            let old = try await session.buyProduct(
+                identifier: Self.productID,
+                options: [.purchaseDate(Date().addingTimeInterval(-40 * 86_400), renewalBehavior: .cancelImmediately)]
+            )
+            await old.finish()
+            let new = try await session.buyProduct(identifier: Self.productID)
+            await new.finish()
+            #expect(await becomes(.subscribed, store))
+            guard case .statuses(let facts) = await store.read() else {
+                Issue.record("no status list")
+                return
+            }
+            #expect(facts.count == 1)
+        }
+    }
+
     @Test func aRefundGivesLapsed() async throws {
         try await withSession { session, store in
             let transaction = try await session.buyProduct(identifier: Self.productID)
@@ -96,11 +171,11 @@ private final class TestBundleMarker {}
         }
     }
 
+    /// No purchase here: with products failing, the host app's listener
+    /// could not finish one, and an unfinished transaction left in this
+    /// process confused `theListenerFinishesTransactions` (task 215's log).
     @Test func aProductThatWillNotLoadIsUnknown() async throws {
         try await withSession { session, store in
-            let transaction = try await session.buyProduct(identifier: Self.productID)
-            await transaction.finish()
-            #expect(await becomes(.subscribed, store))
             try await session.setSimulatedError(.generic(.networkError(URLError(.notConnectedToInternet))), forAPI: .loadProducts)
             #expect(await store.read() == .failed)
             #expect(await state(store) == .unknown)
@@ -151,8 +226,10 @@ private final class TestBundleMarker {}
         try await withSession { session, store in
             let model = SubscriptionModel(store: store)
             model.start()
-            try await session.buyProduct(identifier: Self.productID)
-            #expect(await pollUntil { await Self.unfinishedCount() == 0 })
+            // Its first read done, the listener is running before the purchase.
+            #expect(await pollUntil { model.state == .free })
+            let transaction = try await session.buyProduct(identifier: Self.productID)
+            #expect(await pollUntil { await Self.isUnfinished(transaction) == false })
             await model.stop()
         }
     }
@@ -161,11 +238,17 @@ private final class TestBundleMarker {}
         if #available(iOS 26, *) { true } else { false }
     }
 
-    private static func unfinishedCount() async -> Int {
-        var count = 0
-        for await result in Transaction.unfinished where (try? result.payloadValue.productID) == productID {
-            count += 1
+    /// Whether this purchase is still unfinished. Matched on ID and purchase
+    /// date: IDs start again at 0 after `clearTransactions`, and an earlier
+    /// test's transaction whose finishing failed (under a simulated error)
+    /// stays in this process's unfinished list.
+    private static func isUnfinished(_ transaction: Transaction) async -> Bool {
+        for await result in Transaction.unfinished {
+            if let other = try? result.payloadValue,
+               other.id == transaction.id, other.purchaseDate == transaction.purchaseDate {
+                return true
+            }
         }
-        return count
+        return false
     }
 }

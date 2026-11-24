@@ -22,15 +22,32 @@ final class SubscriptionModel {
     }
 
     @ObservationIgnored private let store: any SubscriptionStore
+    /// The time the rules judge an expiry against (the phone's clock in the
+    /// app; set by tests).
+    @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var listener: Task<Void, Never>?
 
-    init(store: any SubscriptionStore) {
+    init(store: any SubscriptionStore, now: @escaping @Sendable () -> Date = { Date() }) {
         self.store = store
+        self.now = now
     }
 
-    /// Reads the store again.
+    /// Numbers each read in the order it started.
+    @ObservationIgnored private var readsStarted = 0
+    /// The number of the latest-started read whose answer was used.
+    @ObservationIgnored private var latestUsed = 0
+
+    /// Reads the store again. Reads may overlap (the listener and, later,
+    /// callers before a paid request); an answer is used only if no read
+    /// that started after it has already been used, so an older, staler
+    /// answer never replaces a newer one.
     func refresh() async {
-        state = SubscriptionRules.state(from: await store.read())
+        readsStarted += 1
+        let number = readsStarted
+        let reading = await store.read()
+        guard number > latestUsed else { return }
+        latestUsed = number
+        state = SubscriptionRules.state(from: reading, now: now())
     }
 
     /// Reads once, then again on every change the store reports. Started
