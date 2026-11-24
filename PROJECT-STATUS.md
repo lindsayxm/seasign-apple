@@ -213,3 +213,19 @@ Entry format:
   - The iPhone 17 simulator has the latest build and five sample Do / Get items typed by an implementer. The iPhone 16 Pro Max simulator (the user's Google connection) still has the pre-v12 build.
   - `design-ideas/v12-imago/speach-icon.png` is the user's, untracked. The `fonts/` folder (Nulshock) is no longer in the repository folder; the lead did not remove it. The x-api MCP server was not loaded in this session; a new session should have it.
   - The mockup's page in `design-ideas/v12-imago/` does not have the 14-point top padding or the later wording; the app is ahead of it.
+
+## 2026-11-24 — tester feedback on Today's text; HUD color picker with lightness
+
+- Done:
+  - #205 (tester feedback): Today shows the next 3 events (was 4) at 13 points; feed titles at 12 points. The iPhone SE now shows one title; with no zip the events box says "Set zip code in Settings" where the full sentence does not fit.
+  - #206: the hue slider in Settings is replaced by a color block: hue left to right, the existing colors along the bottom fading to white at the top (`Settings.hudLightness`, measured in CIE L*; old-schema test `Task205Schema`; DEBUG `-debugLightness`). The old 3:1 ceiling against the white date tile is lifted at the user's request; the two 4.5:1 floors hold over the whole block. Details in `memory/architecture.md` ("v12 design in the app") and `memory/decisions/2026-11-23-v12-replaces-v11.md`.
+- In flight: nothing claimed by the lead. #203 is the user's own task, in `review` under owner `li`.
+- Next:
+  1. The user's open choices: whether the iPhone SE should get its second title back (a tighter gap between titles); whether the block should need a short press so a scroll that starts on it does not change the color; dark yellows and greens along the block's bottom edge; the now line behind a filled event.
+  2. #198: the v12 follow-ups, now including VoiceOver on the color block, the voice timing tests that fail under machine load, and two out-of-date test names.
+  3. Older items still stand: #204 (X handles, on hold), #157 deploy on hold, #180, #178, #164, #174, #173, #20.
+- Notes:
+  - Last verified by the lead at `894d7f4`: iOS suite 840 tests passed on iPhone 17 / iOS 27.2 and, on a rerun, on iPhone 16 / iOS 18.3.1. The first iPhone 16 run failed two voice timing tests (`anythingButAWholeConfirmOrCancelDoesNothing`, `theAnswerWindowClosesAfterAFewSeconds`) while the machine's load average was near 77; neither task touched them. No API change.
+  - The last fix on #206 (`fa8eb83`: the block's pan takes part only in touches that go down inside it; on iOS 18 the earlier version stopped slow swipes from scrolling anywhere in Settings) was checked by hand on both runtimes by the implementer and by the tests, not by a reviewer.
+  - Not verified by anyone: VoiceOver's hue and lightness controls in the running app; large Dynamic Type; the short zip prompt on screen; the Pro Max layout of #205 on screen.
+  - The iPhone 17 simulator has the latest build, on the default color. The iPhone 16 Pro Max simulator still has the pre-v12 build. `design-ideas/v12-imago/speach-icon.png` is the user's, untracked.
