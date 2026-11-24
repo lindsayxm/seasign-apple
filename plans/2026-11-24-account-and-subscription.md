@@ -1,6 +1,6 @@
 # Account and subscription: the gate on Settings
 
-Date: 2026-11-24. Owner: lead session. Status: third draft, with all of the user's answers of 2026-11-24 worked in. No implementation until the user says to start. Replaces the design of tasks 13 and 14 (optional free sign-in and sync) in `plans/2026-11-15-v1-build.md`; nothing is built yet.
+Date: 2026-11-24. Owner: lead session. Status: approved by the user on 2026-11-24 ("after these issues finish begin the plan we wrote for subscription"). Implementation starts when task 198 closes. Replaces the design of tasks 13 and 14 (optional free sign-in and sync) in `plans/2026-11-15-v1-build.md`; nothing is built yet.
 
 ## What the user asked for (2026-11-24)
 
@@ -98,7 +98,7 @@ The popup's terms and privacy links both go to `https://artisan.technology/seasi
 1. Subscription state on the phone with StoreKit, tested with Xcode's local StoreKit test file: Free, Subscribed, Lapsed; purchase, restore, expiry, refund.
 2. The AI rule above, with its tests.
 3. The settings popup as in "The upgrade flow": UPGRADE NOW, 2.99 a month and what is included, Restore Purchases, and the "Change zip code" row.
-4. The three prepopulated sites on a fresh install, each first checked through the API's site resolver (feed found, headlines come back); a Free user's feed refreshes from them like anyone's, and the API already caches each site for everyone. "Add your calendar... ↑" in the events box. A new subscriber keeps the same three and can remove them.
+4. The three prepopulated sites on a fresh install. Checked on 2026-11-24 through the local API: all three resolve and return headlines (Hacker News 30 by its feed `https://news.ycombinator.com/rss`; Ars Technica Space 13 by `https://arstechnica.com/space/feed/`; Wired Science 30). The resolver finds no feed on Wired's page and reads its links, which gives no publish dates, so Wired is seeded in feed mode with `https://www.wired.com/feed/category/science/latest/rss` (answers 200 with dated items) and the page address `https://www.wired.com/category/science/`; a Free user's feed refreshes from them like anyone's, and the API already caches each site for everyone. "Add your calendar... ↑" in the events box. A new subscriber keeps the same three and can remove them.
 5. Starting list items on a fresh install: "Go outside" on the Do list and "Concert tickets" on the Get list. Every fresh install gets them, Free included (confirmed by the user: they show what the lists are for), and they can be ticked and cleared like any other item. Seeded once, when the store is first created, like the default zip; never put back after the user removes them.
 6. Settings read-only when Lapsed.
 7. The AI rule's gate is built. Nothing else about the AI key or its Settings section changes: that work is on hold by the user's decision.

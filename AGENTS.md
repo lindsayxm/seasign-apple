@@ -46,7 +46,7 @@ Hooks and the permissions in `.claude/settings.json` enforce several of these. I
 
 ## STACK
 
-Native iOS app talking to a JSON API on Cloudflare. Business logic (weather, calendar links, followed sites, AI search) lives in the API so a later Android client can reuse it; the iOS app is UI plus local storage. The app works signed out: data stays in SwiftData until the user signs in, and the v1 routes need no account.
+Native iOS app talking to a JSON API on Cloudflare. Business logic (weather, calendar links, followed sites, AI search) lives in the API so a later Android client can reuse it; the iOS app is UI plus local storage. The app works without an account: data stays in SwiftData, and the v1 routes need no account. Since 2026-11-24 Settings (all but the zip code) needs a paid subscription, and an account exists only with one (`plans/2026-11-24-account-and-subscription.md`). **Hard rule: no AI features on a lapsed subscription, ever** (`memory/decisions/2026-11-24-subscription-gate-and-ai-lapse-rule.md`); every task that touches AI search or the subscription state keeps it, tests it, and has it checked in review.
 
 **API (`api/`)**
 
@@ -80,7 +80,8 @@ Native iOS app talking to a JSON API on Cloudflare. Business logic (weather, cal
 | Language / UI | Swift 6, SwiftUI, Observation (`@Observable`), iOS 18+ |
 | Project | XcodeGen (`ios/project.yml`) |
 | Local store | SwiftData; the UI reads local data first, then syncs from the API |
-| Auth | AuthenticationServices (Sign in with Apple) → Apple ID token sent to Better Auth → session token stored in the Keychain |
+| Auth | AuthenticationServices (Sign in with Apple) → Apple ID token sent to Better Auth → session token stored in the Keychain. Offered only straight after a successful subscription purchase |
+| Subscription | StoreKit (Apple in-app purchase), one monthly auto-renewing product; tested locally with a StoreKit test configuration. Not built yet |
 | Identity | Bundle ID and team ID come from `app-identity.xcconfig` at the repository root, loaded by `ios/project.yml`. `api/wrangler.jsonc` repeats the bundle ID; a check in `npm test` fails if they differ |
 | Secrets on device | Keychain for the session token and the user's LLM API key |
 | Fonts | The app's design is v12 (`plans/2026-11-23-v12-in-the-app.md`): the system mono face for every screen's labels and buttons, and the system serif face for the read view's title and summary. Bundled from the v11 design and falling out of use as screens are restyled: Jost and PT Sans Narrow (not removed without the user's say). `fonts/` at the repository root is the user's own folder; never commit it |

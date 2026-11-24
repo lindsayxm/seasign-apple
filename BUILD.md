@@ -12,7 +12,7 @@ DEFAULT ZIP: a fresh install starts with zip code 60611 (Chicago), so Today show
 
 LIST STORAGE: tables in D1 synced through the API (works for a later Android client. STACK: SwiftData-then-sync model) 
 
-SIGN-IN: The app works without signing in. Until the user signs in with Apple, their data (lists, sites, calendar links, saved items, settings) lives on the device. Signing in uploads it to D1 and turns on sync.
+SIGN-IN AND SUBSCRIPTION (decided 2026-11-24, `plans/2026-11-24-account-and-subscription.md`; replaces the earlier free, optional sign-in): The app is free to download and works without an account, with three prepopulated sites and two starting list items. Settings needs a paid subscription (2.99 a month, Apple in-app purchase); only the zip code can be changed for free. Upgrading is the purchase first, then Sign in with Apple, which creates the account, uploads the device's data to D1 and turns on sync. There is never an account without a subscription. Hard rule: no AI features on a lapsed subscription, ever; on lapse the feed is list-only, and sync and the Google Calendar push pause.
 
 CALENDARS: Events come from calendar links the user pastes in Settings - Google's "Secret address in iCal format", an Apple published calendar link, or an Outlook published calendar link. The API fetches and reads the links. The app does not ask for permission to read the phone's calendars. Since 2026-11-19 the user can also connect Google Calendar by signing in (events appear without refreshing), and since 2026-11-22 new events can be added to Google calendars the user owns; pasted links are read-only.
 
