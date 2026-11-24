@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-2
 depends_on: []
 created: 2026-11-23T01:15:22Z
-updated: 2026-11-24T15:38:03Z
+updated: 2026-11-24T15:54:27Z
 ---
 
 ## Goal
@@ -31,3 +31,4 @@ From the #175 review (its review note has lines and scenarios). (1) A calendar l
 - 2026-11-23T01:15:22Z [li] created (backlog)
 - 2026-11-24T15:38:03Z [li] status: backlog → todo
 - 2026-11-24T15:38:03Z [implementer-2] status: todo → in-progress — claimed by implementer-2
+- 2026-11-24T15:54:27Z [implementer-2] Tests written first, run against the unfixed source (iPhone 16 / 18.3.1, -only-testing GoogleConnectAgainTests + GoogleWriteAccessModelTests, 34 tests): the 13 fix tests fail as intended (no-primary from connected: A revoked/choices reset; rename: A revoked; old sign-in 429: switched anyway; old sign-in ended: dead A token revoked; expired+offline and expired+429: stayed expired, new grant revoked, no hold; connected 429: no hold; stale 401 for events/create/watch: refresh_token grant sent and A's request resent with B's renewed token; hand-back after Disconnect and Disconnect's own revoke: revoked a grant once a newer Connect had begun; aDifferentAccount now expects the old-token list read). Gap/pin tests pass on old code as they should: Disconnect during the switch's stopAndRevoke, unwatch outlasting unwatchWait, no primary after expiry, same-account distinct tokens. Fixture: GoogleAPIStub.answer(_:token:) answers per Google token; FakeGoogleEndpoint.waitForSent(grant:count:).
