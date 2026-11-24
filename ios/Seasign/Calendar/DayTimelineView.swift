@@ -178,7 +178,7 @@ struct DayTimelineView: View {
             ForEach(layout.boxes, id: \.index) { box in
                 boxView(
                     rows[box.index], box: box, filled: focus.contains(box.index),
-                    nowY: focus.contains(box.index) ? layout.nowY(in: box) : nil
+                    nowY: focus.contains(box.index) ? layout.nowY(in: box, started: rows[box.index].event.start <= now) : nil
                 )
                     .offset(x: areaX + box.frame.minX, y: box.frame.minY)
                     .accessibilitySortPriority(Double(layout.boxes.count - (spokenOrder.firstIndex(of: box.index) ?? 0)))

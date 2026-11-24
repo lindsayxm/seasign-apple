@@ -185,13 +185,20 @@ import Testing
         let result = layout(events, now: at("2026-11-23T09:45:00-05:00"))
         let planning = try #require(result.boxes.first { $0.index == 0 })
         let later = try #require(result.boxes.first { $0.index == 1 })
-        #expect(result.nowY(in: planning).map { abs($0 - 15) < 0.001 } == true)
-        #expect(result.nowY(in: later) == nil)
+        #expect(result.nowY(in: planning, started: true).map { abs($0 - 15) < 0.001 } == true)
+        #expect(result.nowY(in: later, started: false) == nil)
         // Before any box, and with now outside the day.
         let early = layout(events, now: at("2026-11-23T08:00:00-05:00"))
-        #expect(early.boxes.allSatisfy { early.nowY(in: $0) == nil })
+        #expect(early.boxes.allSatisfy { early.nowY(in: $0, started: false) == nil })
+        // A box moved up from the day's end holds the line's y before its
+        // event starts: no line until it has started.
+        let late = layout([event("Late", "2026-11-23T23:50:00-05:00", "2026-11-23T23:59:00-05:00")], now: at("2026-11-23T23:30:00-05:00"))
+        let moved = try #require(late.boxes.first)
+        #expect(late.nowY.map { $0 >= moved.frame.minY && $0 <= moved.frame.maxY } == true)
+        #expect(late.nowY(in: moved, started: false) == nil)
+        #expect(late.nowY(in: moved, started: true) != nil)
         let other = layout(events, now: at("2026-11-24T09:45:00-05:00"))
-        #expect(other.boxes.allSatisfy { other.nowY(in: $0) == nil })
+        #expect(other.boxes.allSatisfy { other.nowY(in: $0, started: true) == nil })
     }
 
     @Test func hourLinesAreLabelledByTheClockExceptAtTheEdgesAndNearNow() {

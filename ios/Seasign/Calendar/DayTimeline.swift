@@ -99,9 +99,12 @@ enum DayTimeline {
 
         /// Where the now line crosses `box`, from the box's top; nil when it
         /// does not cross it (task 208: the view draws this piece of the
-        /// line over the filled box, which would otherwise hide it).
-        func nowY(in box: Box) -> CGFloat? {
-            guard let nowY, nowY >= box.frame.minY, nowY <= box.frame.maxY else { return nil }
+        /// line over the filled box, which would otherwise hide it). Nil
+        /// too when the event has not `started`: a box near midnight is
+        /// moved up to stay in the day, so its top can be earlier than its
+        /// start, and the line must not cross an event that is still to come.
+        func nowY(in box: Box, started: Bool) -> CGFloat? {
+            guard started, let nowY, nowY >= box.frame.minY, nowY <= box.frame.maxY else { return nil }
             return nowY - box.frame.minY
         }
     }
