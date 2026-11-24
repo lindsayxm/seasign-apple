@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#111926"/>
+      <stop offset="1" stop-color="#1D2A3B"/>
+    </linearGradient>
+    <clipPath id="above"><rect x="0" y="0" width="1024" height="600"/></clipPath>
+  </defs>
+  <!-- sky above the horizon (deeper blue-grey), water below (lighter blue-grey) -->
+  <rect width="1024" height="600" fill="url(#sky)"/>
+  <rect y="600" width="1024" height="424" fill="#43536A"/>
+  <!-- the sun, half risen -->
+  <circle cx="512" cy="600" r="290" fill="#EB4F28" clip-path="url(#above)"/>
+  <!-- the horizon, edge to edge -->
+  <rect x="0" y="594" width="1024" height="12" fill="#F4F2EE"/>
+  <!-- its light on the water: three shorter lines -->
+  <rect x="332" y="684" width="360" height="12" rx="6" fill="#EB4F28"/>
+  <rect x="402" y="762" width="220" height="12" rx="6" fill="#EB4F28" opacity="0.75"/>
+  <rect x="457" y="840" width="110" height="12" rx="6" fill="#EB4F28" opacity="0.5"/>
+</svg>
