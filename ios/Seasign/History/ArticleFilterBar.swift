@@ -112,6 +112,8 @@ struct SourceDateLine: View {
     var item: ReadingItem
     var timeZone: TimeZone
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             if item.isAI {
@@ -120,10 +122,16 @@ struct SourceDateLine: View {
             Text(verbatim: Self.text(item, timeZone: timeZone))
                 .hudText(.detail)
                 .foregroundStyle(Palette.dimText)
-                // As many lines as it takes: at the largest text sizes two
-                // lines cut the date off (task 198).
+                // Two lines (a source is up to 120 characters); more at the
+                // accessibility text sizes, where two cut the date off (task 198).
+                .lineLimit(Self.lineLimit(accessibilitySize: typeSize.isAccessibilitySize))
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// The most lines the line takes.
+    static func lineLimit(accessibilitySize: Bool) -> Int {
+        accessibilitySize ? 6 : 2
     }
 
     /// Joined by hand: the source came from a website.
