@@ -10,6 +10,21 @@ import Testing
 // Google's token endpoint and the API mocked as in `AddEventModelTests`.
 // Nothing here uses the microphone, recognises speech or speaks, and no
 // event is created anywhere. Every wait is bounded.
+//
+// Task 198: the voice's limits are measured in `VoiceTime`, which moves only
+// when a test moves it, so a stalled machine cannot run a window out before
+// the test has spoken into it (three of these tests used to fail under load).
+
+/// The voice's monotonic time in the tests: it moves only when the test
+/// moves it (a tick per look in `eventually` and `settle`, or `advance`).
+@MainActor
+final class VoiceTime {
+    private(set) var instant = ContinuousClock.now
+
+    func advance(_ duration: Duration) {
+        instant = instant.advanced(by: duration)
+    }
+}
 
 /// What the fakes did, in order, to check that listening for the answer
 /// opens only after the reading ended.
@@ -149,11 +164,12 @@ final class FakeSpeaker: SpeechSpeaking {
     private let clock = TestClock(instant("2026-11-19T18:00:00Z"))
     private let zone = TimeZone(identifier: "America/Chicago")!
     private let log = VoiceLog()
+    private let time = VoiceTime()
     /// The user's example, as speech gives it.
     private let said = "add a meeting to my calendar Sunday at 3 PM with Rahaf"
 
-    /// `firstWords` leaves a stalled run time to deliver the first words
-    /// after listening starts (at 400 ms a busy Mac could end it as silence).
+    /// In `VoiceTime`, which moves a tick (10 ms) per look while a test
+    /// waits: `firstWords` is 150 looks, the answer window 200.
     private static let timing = VoiceEntryModel.Timing(
         pause: .milliseconds(150), firstWords: .milliseconds(1500), phraseLimit: .seconds(2),
         finalWait: .milliseconds(200), answerWindow: .seconds(2), tick: .milliseconds(10)
@@ -217,10 +233,11 @@ final class FakeSpeaker: SpeechSpeaking {
         let listener = FakeListener(log: log)
         let speaker = FakeSpeaker(log: log)
         let clock = clock
+        let time = time
         let voice = VoiceEntryModel(
             adder: adder, listener: listener, speaker: speaker,
             voiceIdentifier: { voiceID }, names: { titles },
-            now: { clock.now }, clock: { .twelveHour }, timing: Self.timing
+            now: { clock.now }, clock: { .twelveHour }, timing: Self.timing, uptime: { time.instant }
         )
         return Rig(adder: adder, voice: voice, listener: listener, speaker: speaker)
     }
@@ -237,19 +254,29 @@ final class FakeSpeaker: SpeechSpeaking {
         stub.seen.filter { $0.operationID == GoogleAPIStub.postCreate }.count
     }
 
-    /// Waits up to five seconds for `condition`.
-    private func eventually(_ condition: () -> Bool) async -> Bool {
-        for _ in 0..<500 {
+    /// Waits for `condition`, at most `looks` looks 10 ms apart. Between
+    /// looks the voice's time moves one tick, unless `passing` is false
+    /// (then it stands still): however long the machine stalls, the voice
+    /// sees only as much time pass as the test has looked.
+    private func eventually(passing: Bool = true, looks: Int = 500, _ condition: () -> Bool) async -> Bool {
+        for _ in 0..<looks {
             if condition() { return true }
+            if passing { time.advance(Self.timing.tick) }
             try? await Task.sleep(for: .milliseconds(10))
         }
         return condition()
     }
 
-    /// Waits for the voice's run to end, at most five seconds.
+    /// Waits for the voice's run to end, the voice's time moving as in
+    /// `eventually`, at most ten seconds of it.
     private func settle(_ voice: VoiceEntryModel) async {
         guard let work = voice.work else { return }
-        _ = await PushDeadline.race(work, deadline: .seconds(5), fallback: ())
+        let ended = VoiceLog()
+        Task { @MainActor in
+            await work.value
+            ended.entries.append("ended")
+        }
+        _ = await eventually(looks: 1000) { !ended.entries.isEmpty }
     }
 
     /// Mic, the user's example heard, a pause: the popup shows the draft and
@@ -354,7 +381,7 @@ final class FakeSpeaker: SpeechSpeaking {
         let voice = VoiceEntryModel(
             adder: rig.adder, listener: rig.listener, speaker: rig.speaker,
             voiceIdentifier: { nil }, names: { ["Lunch with Rahaf", "Dentist", "Call Rahaf about the Okafor visit"] },
-            timing: timing
+            timing: timing, uptime: { time.instant }
         )
         voice.micTapped()
         #expect(await eventually { rig.listener.isListening })
@@ -381,7 +408,7 @@ final class FakeSpeaker: SpeechSpeaking {
         timing.pause = .seconds(30)
         let voice = VoiceEntryModel(
             adder: rig.adder, listener: rig.listener, speaker: rig.speaker,
-            voiceIdentifier: { nil }, timing: timing
+            voiceIdentifier: { nil }, timing: timing, uptime: { time.instant }
         )
         voice.micTapped()
         #expect(await eventually { rig.listener.isListening })
@@ -400,14 +427,22 @@ final class FakeSpeaker: SpeechSpeaking {
         timing.phraseLimit = .milliseconds(500)
         let voice = VoiceEntryModel(
             adder: rig.adder, listener: rig.listener, speaker: rig.speaker,
-            voiceIdentifier: { nil }, timing: timing
+            voiceIdentifier: { nil }, timing: timing, uptime: { time.instant }
         )
-        let started = ContinuousClock.now
         voice.micTapped()
+        // Listening starts at the voice's time now; nothing moves it below
+        // but `advance`.
         #expect(await eventually { rig.listener.isListening })
         rig.listener.hear("lunch with Ann tomorrow at noon and")
-        #expect(await eventually { rig.listener.finishes == 1 })
-        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(await eventually(passing: false) { voice.heard == "lunch with Ann tomorrow at noon and" })
+        // Still open just under the limit.
+        time.advance(.milliseconds(490))
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(rig.listener.finishes == 0)
+        #expect(voice.isListening)
+        // Ended at it.
+        time.advance(.milliseconds(10))
+        #expect(await eventually(passing: false) { rig.listener.finishes == 1 })
         voice.interrupt()
     }
 
@@ -420,7 +455,7 @@ final class FakeSpeaker: SpeechSpeaking {
         timing.firstWords = .seconds(30)
         let voice = VoiceEntryModel(
             adder: rig.adder, listener: rig.listener, speaker: rig.speaker,
-            voiceIdentifier: { nil }, timing: timing
+            voiceIdentifier: { nil }, timing: timing, uptime: { time.instant }
         )
         voice.micTapped()
         #expect(await eventually { rig.listener.isListening })
@@ -691,7 +726,7 @@ final class FakeSpeaker: SpeechSpeaking {
         let clock = clock
         let voice = VoiceEntryModel(
             adder: rig.adder, listener: rig.listener, speaker: rig.speaker,
-            voiceIdentifier: { nil }, now: { clock.now }, clock: { .twelveHour }, timing: timing
+            voiceIdentifier: { nil }, now: { clock.now }, clock: { .twelveHour }, timing: timing, uptime: { time.instant }
         )
         voice.micTapped()
         #expect(await eventually { rig.listener.isListening })
@@ -731,12 +766,23 @@ final class FakeSpeaker: SpeechSpeaking {
     }
 
     @Test func theAnswerWindowClosesAfterAFewSeconds() async throws {
+        #expect(VoiceEntryModel.Timing().answerWindow == .seconds(5))
         let rig = try await rig()
         await sayTheExample(rig)
+        // The window opens at the voice's time now; nothing moves it below
+        // but `advance` until `settle`.
         await readingEnds(rig)
-        let opened = ContinuousClock.now
+        // The event's listening was ended once already (by the pause).
+        let finishes = rig.listener.finishes
+        // Still open just under the window (2 s here).
+        time.advance(Self.timing.answerWindow - Self.timing.tick)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(rig.voice.phase == .awaitingAnswer)
+        #expect(rig.listener.isListening && rig.listener.finishes == finishes)
+        // Closed at it.
+        time.advance(Self.timing.tick)
+        #expect(await eventually(passing: false) { rig.listener.finishes == finishes + 1 })
         await settle(rig.voice)
-        #expect(ContinuousClock.now - opened < .seconds(4))
         #expect(rig.voice.phase == .idle)
         #expect(!rig.listener.isListening)
         #expect(rig.adder.stage == .reviewing(meeting))
@@ -882,7 +928,7 @@ final class FakeSpeaker: SpeechSpeaking {
         let clock = clock
         let voice = VoiceEntryModel(
             adder: rig.adder, listener: listener(), speaker: speaker(),
-            voiceIdentifier: { nil }, now: { clock.now }, clock: { .twelveHour }, timing: Self.timing
+            voiceIdentifier: { nil }, now: { clock.now }, clock: { .twelveHour }, timing: Self.timing, uptime: { time.instant }
         )
         // Building it, and everything that only stops the voice, makes nothing.
         voice.sceneChanged(active: false)

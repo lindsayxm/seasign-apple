@@ -41,7 +41,7 @@ final class VoiceEntryModel {
         case awaitingAnswer
     }
 
-    /// The limits, in real time.
+    /// The limits, in real time (as `uptime` reads it).
     struct Timing: Sendable {
         /// Listening for the event ends this long after the words last changed.
         var pause: Duration = .milliseconds(1500)
@@ -72,6 +72,10 @@ final class VoiceEntryModel {
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let clock: @MainActor () -> ClockStyle
     @ObservationIgnored private let timing: Timing
+    /// The time the limits are measured in: the system's monotonic clock.
+    /// Tests give one that moves only when they move it, so a busy machine
+    /// cannot end a window before the test has spoken into it.
+    @ObservationIgnored private let uptime: @MainActor () -> ContinuousClock.Instant
     /// Bumped by every start and every interruption; work from an older
     /// run checks it after each wait and stops.
     @ObservationIgnored private var generation = 0
@@ -86,7 +90,8 @@ final class VoiceEntryModel {
         names: @escaping @MainActor () -> [String] = { [] },
         now: @escaping @Sendable () -> Date = { Date() },
         clock: @escaping @MainActor () -> ClockStyle = { .system },
-        timing: Timing = Timing()
+        timing: Timing = Timing(),
+        uptime: @escaping @MainActor () -> ContinuousClock.Instant = { .now }
     ) {
         self.adder = adder
         // Made when first needed (`listener`, `speaker`): the day screen
@@ -98,6 +103,7 @@ final class VoiceEntryModel {
         self.now = now
         self.clock = clock
         self.timing = timing
+        self.uptime = uptime
     }
 
     /// The microphone is on (not while the permission prompts are up:
@@ -357,14 +363,15 @@ final class VoiceEntryModel {
         _ stream: AsyncStream<SpeechEvent>, run: Int, limit: Duration, firstWords: Duration, needsFinal: Bool,
         partial: @escaping (String) -> Void
     ) async -> ListenResult {
-        let box = HeardBox()
+        let uptime = uptime
+        let box = HeardBox(changedAt: uptime())
         let reader = Task { @MainActor in
             for await event in stream {
                 switch event {
                 case .partial(let words):
                     if words != box.latest {
                         box.latest = words
-                        box.changedAt = .now
+                        box.changedAt = uptime()
                         partial(words)
                     }
                 case .final(let words):
@@ -376,7 +383,7 @@ final class VoiceEntryModel {
             box.ended = true
         }
         defer { reader.cancel() }
-        let started = ContinuousClock.now
+        let started = uptime()
         var endedAudioAt: ContinuousClock.Instant?
         var endedBy: AudioEnd?
         while true {
@@ -398,7 +405,7 @@ final class VoiceEntryModel {
                 if !box.latest.isEmpty || failure == .noSpeech { return .final(box.latest) }
                 return .failed(failure)
             }
-            let now = ContinuousClock.now
+            let now = uptime()
             if let endedAudioAt {
                 if box.ended || now - endedAudioAt >= timing.finalWait {
                     // No final result: the event takes the last words; the
@@ -430,9 +437,13 @@ final class VoiceEntryModel {
     @MainActor
     private final class HeardBox {
         var latest = ""
-        var changedAt = ContinuousClock.now
+        var changedAt: ContinuousClock.Instant
         var final: String?
         var failure: SpeechFailure?
         var ended = false
+
+        init(changedAt: ContinuousClock.Instant) {
+            self.changedAt = changedAt
+        }
     }
 }
