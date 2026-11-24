@@ -1,11 +1,11 @@
 ---
 id: 213
 title: iOS: a due return to the foreground always sends its fresh calendar request
-status: review
+status: done
 owner: implementer-1
 depends_on: []
 created: 2026-11-24T16:43:31Z
-updated: 2026-11-24T17:45:53Z
+updated: 2026-11-24T18:18:50Z
 ---
 
 ## Goal
@@ -15,8 +15,8 @@ Measured in task 164 on the iPhone 17 simulator: on a return after 6 minutes the
 ## Acceptance criteria
 
 - [x] A test that fails on the old code shows a due return sends a fresh request even when the loop's answer landed first
-- [ ] Measured again on the iPhone 17 simulator against local wrangler dev with -debugSeedLink: a return after 6 minutes sends a fresh request in three runs out of three
-- [ ] Suite passes on both runtimes
+- [x] Measured again on the iPhone 17 simulator against local wrangler dev with -debugSeedLink: a return after 6 minutes sends a fresh request in three runs out of three
+- [x] Suite passes on both runtimes
 
 ## Relevant files
 
@@ -44,3 +44,7 @@ Measured in task 164 on the iPhone 17 simulator: on a return after 6 minutes the
 - 2026-11-24T17:45:23Z [implementer-1] criterion 1 met: A test that fails on the old code shows a due return sends a fresh request even when the loop's answer landed first
 - 2026-11-24T17:45:23Z [implementer-1] review (reviewer, read-only, no xcodebuild per lead): PASS, verified by reading f0c475e, not by running. C1 ticked: traced the three new tests against the old code: aDueReturnSends... gives [nil] not [true] without the gate (loop's scheduled answer at +6 min shown, isDue false); checksWithoutForceWait... sends the zone change's scheduled request while away (count before+2, not +1); anOlderFreshAnswer... shows F1's lunch with freshShown reset (HeldCalendarTransport records at send, so suffix(3) = F2, LA, NY as asserted). Gate (EventsModel.swift:209) sits after the zone clear and prune and before the hold, so a skipped check passed line 204 and isDue (:174-179, same conditions, no flag) is true on return; the return asks with force, which the gate ignores. TodayView is always mounted (MainTabsView.swift:36, opacity only; HUDAccentRoot always builds content; iPhone only, one scene). No other non-forced caller outside Today/Settings: DayModel only calls events.hold; the push path (RemotePush.swift, GoogleWatchKeeper) touches only Google. Wiring order in onChange is not load-bearing (isDue never reads the flag); no test needed for it. C2 left unticked: I could not measure; the log is sound to tick (same method as #164: simctl launch, same PID, wrangler count 5 matching traces #1-#5, skip-away seen at resume in all three runs); limits: 27.2 only, simctl not icon, the wrangler count does not show fresh (traces do). C3 left to the lead. Low findings, none blocking: (1) the onAppear seed (TodayView.swift:90) sets the flag false at launch (measured), so a missed later .active change would now stop every scheduled check until a pull or the next scene change, where before it cost one fresh request; resume order measured on 27.2 only: lead to confirm a cold launch and a due return on the 18.3 simulator, ideally once with a cover open (onChange under a fullScreenCover not verified). (2) Visible-but-inactive states (app switcher, Control Centre, system and speech prompts, ASWebAuthenticationSession) now pause scheduled checks; the return makes them up, as fresh when due (slightly more upstream reads). (3) freshShown kept across a clear: Today stays empty only if the request after the clear fails or is held while the older fresh answer lands; the next loop turn or the hold's end fills it. Acceptable; a pinning test optional. (4) Narrow, uncertain: a scheduled request in flight at suspension whose answer lands after resume but before active is stamped fetchedAt now (:234 via make), so that return reads not due; 'always' holds for requests sent at resume, not this one. (5) isDue doc (:170) 'whether a scheduled check would ask now' ignores the flag and the hold; nit. Optional holdAtLeast item not done, acceptable.
 - 2026-11-24T17:45:53Z [implementer-1] Lead: reviewer passed. Before closing, the reviewer's finding 1 gets a check on iOS 18.3.1 once task 214's implementer has released the simulators: launch on the iPhone 16 with -debugSeedLink and the day screen open over Today, stay active 7 minutes against local wrangler dev, and count POST /v1/calendar/events: a scheduled request after the 5-minute mark proves the flag is true on iOS 18 with a cover open; then a due return. Lows 2-5 accepted or noted (doc nit on isDue to fix with the next change to the file).
+- 2026-11-24T18:18:50Z [implementer-1] Lead: suite at the wording commit: 886 tests passed, TEST SUCCEEDED, on iPhone 17 / iOS 27.2 and iPhone 16 / iOS 18.3.1. iOS 18.3.1 check by the lead (iPhone 16 simulator, -debugSeedLink with Google's public US-holidays calendar, -debugOpenDay YES, local wrangler dev, POST /v1/calendar/events counted in the wrangler log): 3 at launch, 5 after 7.4 minutes active with the day screen open (the scheduled checks ran, so the flag is true on iOS 18 under a cover), still 5 after 6.7 minutes away, 7 thirty seconds after the return (same pid). The log cannot tell fresh from scheduled; both return requests took about 0.4 s, which suggests real reads.
+- 2026-11-24T18:18:50Z [implementer-1] criterion 2 met: Measured again on the iPhone 17 simulator against local wrangler dev with -debugSeedLink: a return after 6 minutes sends a fresh request in three runs out of three
+- 2026-11-24T18:18:50Z [implementer-1] criterion 3 met: Suite passes on both runtimes
+- 2026-11-24T18:18:50Z [implementer-1] status: review → done

@@ -1,11 +1,11 @@
 ---
 id: 198
 title: iOS v12 follow-ups: History chip touch area, AI key row case, sample flags, unseen states
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: []
 created: 2026-11-24T01:33:59Z
-updated: 2026-11-24T18:03:16Z
+updated: 2026-11-24T18:18:50Z
 ---
 
 ## Goal
@@ -34,3 +34,6 @@ Small items left from the v12 build reviews (tasks 193 to 197).
 - 2026-11-24T11:07:18Z [li] From the #207 review (2026-11-24), low and nits: remove the default pitch on TodayOverlayLayout.titleRows(fitting:pitch:); the min(tight, 54) that never takes effect; HeadlinesColumn.swift:6 still says rows 54 apart; the SE doc comment in TodayOverlayLayoutTests sits above the wrong test; add tests for pitch 53, the 91.5 seam, titleRows(fitting: 84, pitch: 46), capacity at 375x812, 390x844 and 320x568, and star-drop bands at the SE size.
 - 2026-11-24T14:43:34Z [li] From the #208 review (2026-11-24), low: check at native resolution that the now line's piece inside the filled box lines up with the white line outside it; the line is half clipped when now is exactly on the box's top; tests for now on a box's top and bottom edge.
 - 2026-11-24T18:03:16Z [li] From the #214 review (2026-11-24), low: (b) a hold that starts while the Google sheet is up, or the app's own 429 on the new-list read, still says 'couldn't reach Google'; show the busy note when the failure is rateLimited. (c) tests: a back-off or Google's hold still lets Connect again open the sheet; a sign-in that ends during the sheet and comes back as another account or with an unreadable list; Disconnect plus a newer Connect at the sheet guard. (d) an exchange failure as the sign-in ends shows no message. (e) Google's 60 s hold replacing the app's own resets holdIsServerLimit (also noted in tasks 164 and 213).
+- 2026-11-24T18:18:50Z [li] Also: the isDue doc comment (EventsModel.swift about line 170) says 'whether a scheduled check would ask now' but isDue ignores the app-active flag and the hold; correct it.
+- 2026-11-24T18:18:50Z [li] status: backlog → todo
+- 2026-11-24T18:18:50Z [implementer-1] status: todo → in-progress — claimed by implementer-1
