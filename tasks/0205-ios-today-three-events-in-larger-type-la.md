@@ -1,11 +1,11 @@
 ---
 id: 205
 title: iOS Today: three events in larger type, larger feed titles (tester feedback)
-status: review
+status: done
 owner: implementer-1
 depends_on: []
 created: 2026-11-24T03:55:57Z
-updated: 2026-11-24T04:14:02Z
+updated: 2026-11-24T04:23:27Z
 ---
 
 ## Goal
@@ -14,9 +14,9 @@ A tester found Today's text too small. The user asks: show only the next 3 calen
 
 ## Acceptance criteria
 
-- [ ] Today shows at most 3 events; event text and title text are larger as specified; nothing overlaps or clips on 393x852, iPhone 17, iPhone SE and Pro Max sizes (layout tests)
-- [ ] Pinned layout and formatter tests rewritten to the new numbers, none deleted; VoiceOver labels unchanged
-- [ ] Screenshots on the iPhone 17 (sample data) of mid-day and one night state, and the iPhone SE; xcodebuild test passes on both runtimes
+- [x] Today shows at most 3 events; event text and title text are larger as specified; nothing overlaps or clips on 393x852, iPhone 17, iPhone SE and Pro Max sizes (layout tests)
+- [x] Pinned layout and formatter tests rewritten to the new numbers, none deleted; VoiceOver labels unchanged
+- [x] Screenshots on the iPhone 17 (sample data) of mid-day and one night state, and the iPhone SE; xcodebuild test passes on both runtimes
 
 ## Relevant files
 
@@ -40,3 +40,8 @@ A tester found Today's text too small. The user asks: show only the next 3 calen
 - 2026-11-24T04:14:02Z [implementer-1] tried: Installing the app built for the iPhone 17 (iOS 27.2 destination) on the iPhone SE simulator (iOS 18.3) crashes at launch: libswiftCompatibilitySpan.dylib not loaded. Use the app from the iOS 18.3 build (the iPhone 16 test build's Debug-iphonesimulator/Seasign.app) for the SE.
 - 2026-11-24T04:14:02Z [implementer-1] Zip prompt on screen not seen: the iPhone 17 and SE stores both hold a zip (Chicago) and -debugPlace suppresses the prompt; the new drawn text is covered by TodayOverlayLayoutTests.theZipPromptIsNeverCutMidWord only. Left running on the iPhone 17 with its normal data (screenshot scratchpad/t205/iphone17-normal-data.png).
 - 2026-11-24T04:14:02Z [implementer-1] status: in-progress → review
+- 2026-11-24T04:23:27Z [implementer-1] Lead: read the type and titles diff and the before/after screenshot. Lead runs at eb5bb10: iPhone 17 / iOS 27.2 831 tests in 99 suites passed, TEST SUCCEEDED. iPhone 16 / iOS 18.3.1: first run failed one voice timing test this task did not touch (theAnswerWindowClosesAfterAFewSeconds, on a slow 226-second run); the rerun passed, 831 tests in 99 suites, TEST SUCCEEDED. No separate reviewer. Open for the user: the SE shows one title (a 50-point pitch would keep two). Two test names are out of date (theBoxNeverShowsMoreThanFourRows, thePromptAndThreeEventsAlwaysFit): added to #198's notes.
+- 2026-11-24T04:23:27Z [implementer-1] criterion 1 met: Today shows at most 3 events; event text and title text are larger as specified; nothing overlaps or clips on 393x852, iPhone 17, iPhone SE and Pro Max sizes (layout tests)
+- 2026-11-24T04:23:27Z [implementer-1] criterion 2 met: Pinned layout and formatter tests rewritten to the new numbers, none deleted; VoiceOver labels unchanged
+- 2026-11-24T04:23:27Z [implementer-1] criterion 3 met: Screenshots on the iPhone 17 (sample data) of mid-day and one night state, and the iPhone SE; xcodebuild test passes on both runtimes
+- 2026-11-24T04:23:27Z [implementer-1] status: review → done

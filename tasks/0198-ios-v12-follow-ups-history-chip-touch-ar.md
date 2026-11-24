@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: []
 created: 2026-11-24T01:33:59Z
-updated: 2026-11-24T01:37:30Z
+updated: 2026-11-24T04:23:27Z
 ---
 
 ## Goal
@@ -29,3 +29,4 @@ Small items left from the v12 build reviews (tasks 193 to 197).
 
 - 2026-11-24T01:33:59Z [li] created (backlog)
 - 2026-11-24T01:37:30Z [li] Also from the #195 review, not yet carried anywhere: StarFlight.land's guard depends on SwiftUI delivering the drag's end before the @GestureState reset (StarDrop.swift:79, HUDTileBar.swift:86), an order SwiftUI does not document; the iOS 18 proof shot was doubted. Needs a by-hand drag of the star on both runtimes (and on a phone), or a guard that does not depend on the order. Lead check 2026-11-23: accent over the sky looked at on the iPhone 17 with hue-matched cases (blue at mid-day, pink and orange at sunset, cyan with the moon up): every accent part stayed readable, because they all sit over the dark top of the sky.
+- 2026-11-24T04:23:27Z [li] From task 205: rename theBoxNeverShowsMoreThanFourRows and thePromptAndThreeEventsAlwaysFit (they now check three rows and two events); the short zip prompt has not been seen on screen; a second voice timing test (theAnswerWindowClosesAfterAFewSeconds) failed once under load on iPhone 16.
