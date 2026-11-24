@@ -38,6 +38,30 @@ final class ScriptedStorefront: SubscriptionStorefront {
     }
 }
 
+/// A store that answers its readings in order, then the last one again.
+final class SequenceSubscriptionStore: SubscriptionStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private let readings: [SubscriptionReading]
+    private var count = 0
+
+    init(_ readings: [SubscriptionReading]) {
+        self.readings = readings
+    }
+
+    var reads: Int { lock.withLock { count } }
+
+    func read() async -> SubscriptionReading {
+        lock.withLock {
+            count += 1
+            return readings[min(count, readings.count) - 1]
+        }
+    }
+
+    func changes() -> AsyncStream<Void> {
+        AsyncStream { $0.finish() }
+    }
+}
+
 /// The gate on Settings (task 217): the decision for each state, the
 /// locked default, the popup's content, purchase and restore through the
 /// storefront seam, the read-only rule, the free zip code and the DEBUG
@@ -196,18 +220,16 @@ final class ScriptedStorefront: SubscriptionStorefront {
     /// StoreKit may report the new subscription a moment late (iOS 18.3):
     /// the gate reads again until it does.
     @Test func aPurchaseReportedLateStillUnlocks() async {
-        let (gate, store, _) = await gate(.free)
+        // The launch read, then two reads after the purchase still say Free;
+        // the third says Subscribed.
+        let free = FixedSubscriptionStore.reading(for: .free)
+        let store = SequenceSubscriptionStore([free, free, free, FixedSubscriptionStore.reading(for: .subscribed)])
+        let model = SubscriptionModel(store: store)
+        await model.refresh()
+        let gate = UpgradeModel(subscription: model, storefront: ScriptedStorefront(), confirmReads: 3, confirmDelay: .milliseconds(1))
         await gate.loadOffer()
-        // The first two reads after the purchase still say Free.
-        let base = store.reads
-        let late = Task { @MainActor in
-            // Bounded: a gate that stops reading must fail, not hang.
-            let deadline = ContinuousClock.now + .seconds(2)
-            while store.reads < base + 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(1)) }
-            store.reading = FixedSubscriptionStore.reading(for: .subscribed)
-        }
         await gate.upgrade { _ in throw CancellationError() }
-        await late.value
+        #expect(store.reads == 4)
         #expect(gate.decision == .settings)
         #expect(gate.note == nil)
     }

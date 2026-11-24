@@ -61,6 +61,9 @@ struct ZipCodeSection: View {
 
     @Environment(TodayModel.self) private var model
     @State private var editor: ZipEditor?
+    /// What the field shows, kept equal to the editor's filtered text (a
+    /// binding that refused a keystroke would leave the field showing it).
+    @State private var zipText = ""
     @FocusState private var zipFocused: Bool
 
     var body: some View {
@@ -74,6 +77,7 @@ struct ZipCodeSection: View {
         }
         .onAppear {
             if editor == nil { editor = ZipEditor(model: model) }
+            zipText = editor?.text ?? ""
         }
         .settingsAction(.changeZip)
     }
@@ -81,13 +85,18 @@ struct ZipCodeSection: View {
     @ViewBuilder
     private func content(_ editor: ZipEditor) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            TextField("", text: Binding(get: { editor.text }, set: { editor.type($0) }), prompt: Text("00000").foregroundStyle(Palette.rule))
+            TextField("", text: $zipText, prompt: Text("00000").foregroundStyle(Palette.rule))
                 .hudField(.display)
                 .keyboardType(.numberPad)
                 .textContentType(.postalCode)
                 .focused($zipFocused)
                 .frame(maxWidth: 150)
                 .accessibilityLabel("Zip code")
+                .onChange(of: zipText) { _, typed in
+                    // Digits only, five at most: the field shows what the editor kept.
+                    editor.type(typed)
+                    if editor.text != typed { zipText = editor.text }
+                }
 
             Button {
                 Task {
@@ -116,6 +125,7 @@ struct ZipCodeSection: View {
         if model.zip != nil {
             Button {
                 editor.remove()
+                zipText = ""
             } label: {
                 Text(caps: "Remove zip code")
             }
