@@ -164,8 +164,10 @@ struct DayTimelineView: View {
         }
         return ZStack(alignment: .topLeading) {
             hourLines(layout, from: areaX, width: areaWidth)
-            // The line runs under the boxes so it never crosses a title; its
-            // dot and time stay on top, at the gutter's edge.
+            // The line runs under the outlined boxes so it never crosses
+            // their titles; the filled box draws its own piece of it under
+            // its text (task 208). The dot and time stay on top, at the
+            // gutter's edge.
             if let nowY = layout.nowY {
                 Rectangle()
                     .fill(Palette.white)
@@ -174,7 +176,10 @@ struct DayTimelineView: View {
                     .accessibilityHidden(true)
             }
             ForEach(layout.boxes, id: \.index) { box in
-                boxView(rows[box.index], box: box, filled: focus.contains(box.index))
+                boxView(
+                    rows[box.index], box: box, filled: focus.contains(box.index),
+                    nowY: focus.contains(box.index) ? layout.nowY(in: box) : nil
+                )
                     .offset(x: areaX + box.frame.minX, y: box.frame.minY)
                     .accessibilitySortPriority(Double(layout.boxes.count - (spokenOrder.firstIndex(of: box.index) ?? 0)))
             }
@@ -229,7 +234,7 @@ struct DayTimelineView: View {
         .accessibilityHidden(true)
     }
 
-    private func boxView(_ row: DayRow, box: DayTimeline.Box, filled: Bool) -> some View {
+    private func boxView(_ row: DayRow, box: DayTimeline.Box, filled: Bool, nowY: CGFloat?) -> some View {
         let title = Text(caps: row.label.title)
             .font(Font(Style.titleFont as CTFont))
             .tracking(Style.titleFont.pointSize * Style.titleTracking)
@@ -256,7 +261,7 @@ struct DayTimelineView: View {
         .padding(.horizontal, Style.boxInset)
         .padding(.vertical, Style.metrics.padding)
         .frame(width: box.frame.width, height: box.frame.height, alignment: .topLeading)
-        .background(BoxBackground(cutTop: box.startsBefore, cutBottom: box.endsAfter, dimmed: row.hasEnded, filled: filled))
+        .background(BoxBackground(cutTop: box.startsBefore, cutBottom: box.endsAfter, dimmed: row.hasEnded, filled: filled, nowY: nowY))
         .clipped()
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isStaticText)
@@ -278,12 +283,16 @@ struct DayTimelineView: View {
 /// show through, outlined in the accent, or filled with it for the event
 /// under way or next (`DayTimelineFocus`). The corners are square where the
 /// event is cut at midnight. An ended event's outline is dimmed but its
-/// ground stays opaque, so the hour lines stay hidden.
+/// ground stays opaque, so the hour lines stay hidden. A filled box the now
+/// line crosses draws that piece of the line on its fill, in the color of
+/// its text (white would be lost on a light accent), under the text.
 private struct BoxBackground: View {
     var cutTop: Bool
     var cutBottom: Bool
     var dimmed: Bool
     var filled: Bool
+    /// The now line's y from the box's top, when it crosses a filled box.
+    var nowY: CGFloat?
 
     @Environment(\.hudAccent) private var accent
 
@@ -303,6 +312,15 @@ private struct BoxBackground: View {
                 }
             }
             .opacity(dimmed ? DayTimelineFocus.endedOpacity : 1)
+            if filled, let nowY {
+                GeometryReader { geometry in
+                    Rectangle()
+                        .fill(Palette.onAccent)
+                        .frame(width: geometry.size.width, height: 1)
+                        .position(x: geometry.size.width / 2, y: nowY)
+                }
+                .clipShape(shape)
+            }
         }
     }
 }

@@ -175,6 +175,25 @@ import Testing
         #expect(DayTimeline.content(height: twoTier + 2 * metrics.titleLine, metrics: metrics) == .titleAndTime(titleLines: 3))
     }
 
+    /// Task 208: where the now line crosses a box, from the box's top.
+    @Test func theNowLineCrossesOnlyTheBoxItIsIn() throws {
+        let events = [
+            event("Planning", "2026-11-23T09:00:00-05:00", "2026-11-23T10:30:00-05:00"),
+            event("Later", "2026-11-23T15:00:00-05:00", "2026-11-23T16:00:00-05:00"),
+        ]
+        // 09:45 is 15 points into a box that starts at 09:00, at 20 points an hour.
+        let result = layout(events, now: at("2026-11-23T09:45:00-05:00"))
+        let planning = try #require(result.boxes.first { $0.index == 0 })
+        let later = try #require(result.boxes.first { $0.index == 1 })
+        #expect(result.nowY(in: planning).map { abs($0 - 15) < 0.001 } == true)
+        #expect(result.nowY(in: later) == nil)
+        // Before any box, and with now outside the day.
+        let early = layout(events, now: at("2026-11-23T08:00:00-05:00"))
+        #expect(early.boxes.allSatisfy { early.nowY(in: $0) == nil })
+        let other = layout(events, now: at("2026-11-24T09:45:00-05:00"))
+        #expect(other.boxes.allSatisfy { other.nowY(in: $0) == nil })
+    }
+
     @Test func hourLinesAreLabelledByTheClockExceptAtTheEdgesAndNearNow() {
         let now = at("2026-11-23T14:05:00-05:00")
         let result = layout([], now: now)

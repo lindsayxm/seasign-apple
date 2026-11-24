@@ -96,6 +96,14 @@ enum DayTimeline {
         var hourHeight: CGFloat
         /// The current time's line; nil when `now` is not in the day.
         var nowY: CGFloat?
+
+        /// Where the now line crosses `box`, from the box's top; nil when it
+        /// does not cross it (task 208: the view draws this piece of the
+        /// line over the filled box, which would otherwise hide it).
+        func nowY(in box: Box) -> CGFloat? {
+            guard let nowY, nowY >= box.frame.minY, nowY <= box.frame.maxY else { return nil }
+            return nowY - box.frame.minY
+        }
     }
 
     /// The day `date` falls on in `zone`, from its midnight to the next:
