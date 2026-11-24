@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: []
 created: 2026-11-24T16:43:31Z
-updated: 2026-11-24T16:43:31Z
+updated: 2026-11-24T16:49:52Z
 ---
 
 ## Goal
@@ -30,3 +30,4 @@ Measured in task 164 on the iPhone 17 simulator: on a return after 6 minutes the
 ## Log
 
 - 2026-11-24T16:43:31Z [li] created (backlog)
+- 2026-11-24T16:49:52Z [li] Also, from the #164 review (low): setSnapshot(nil) clears freshShown, so after two zone changes a hung older fresh answer can replace a newer scheduled one (EventsModel.swift:312-315 with :212). Keep freshShown across a clear if no test needs the reset, with a test for the sequence F1 hangs, F2 shown, zone A-B-A, S4 shown, F1 lands.
