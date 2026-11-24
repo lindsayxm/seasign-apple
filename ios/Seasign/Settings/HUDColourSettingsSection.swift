@@ -44,24 +44,41 @@ struct HUDColourPick: Equatable {
 }
 
 /// What the colour block does with a touch, kept apart from the view so it
-/// can be tested (task 196 for the hue track; task 206 for the block). The
-/// block sits in Settings' scroll view:
+/// can be tested (task 196 for the hue track; task 206 for the block; task
+/// 209 for the press). The block sits in Settings' scroll view, so a touch
+/// on it is either a scroll or a pick:
 ///
-/// - A drag that starts in the block is a UIKit pan (`HUDColourFieldPan`)
-///   that begins whichever way the finger moves, and the scroll view's pan
-///   waits for it to fail, so the page does not scroll under it. A drag
-///   that starts outside the block, even just outside, is never given to
-///   the pan (`takesPart`) and scrolls as usual.
-/// - A pan that began sets the colour as it moves (written, not saved),
-///   sets it where it lifts and saves when it ends, and, when it is
-///   cancelled (the system took the touch, Settings closed), saves what it
-///   wrote. UIKit ends a pan once, with either `.ended` or
-///   `.cancelled`/`.failed`. A finger that leaves the block keeps moving
-///   the marker along the nearest edge.
-/// - A tap is SwiftUI's `onTapGesture`, not the pan: it sets the colour
-///   where it lands and saves (`tap`).
+/// - A finger that goes down in the block and moves off at once is a
+///   scroll: the block's UIKit long press (`HUDColourFieldPress`) fails as
+///   soon as the finger moves more than `allowableMovement` before
+///   `pressDuration`, the scroll view's pan, which waits for it to fail,
+///   takes over, and nothing is written. A touch that goes down outside the
+///   block, even just outside, is never given to the press (`takesPart`)
+///   and scrolls as usual.
+/// - A finger held still for `pressDuration` is a pick: the press begins
+///   and writes the colour under the finger (not saved), writes it again
+///   (not saved) each time the finger moves, whichever way, and writes and
+///   saves it where the finger lifts. The page does not scroll under it. A
+///   press that is cancelled after it began (the system took the touch,
+///   Settings closed) saves what it wrote. UIKit ends a press once, with
+///   either `.ended` or `.cancelled`/`.failed`, and sends no action for a
+///   press that fails before it begins, so that writes nothing. A finger
+///   that leaves the block keeps moving the marker along the nearest edge.
+///   Held and lifted without moving, the press begins and ends at the same
+///   point: one write, saved once.
+/// - A tap, a finger lifted before `pressDuration`, is SwiftUI's
+///   `onTapGesture`: it sets the colour where it lands and saves (`tap`).
+///   The press has failed by then (the finger lifted before it began);
+///   once the press begins, the tap no longer fires. So a touch writes and
+///   saves through one of the two, never both.
 struct HUDColourTouch: Equatable {
-    /// A pan recognizer's state, as far as the block cares.
+    /// How long a finger must rest on the block before it picks a colour.
+    static let pressDuration: TimeInterval = 0.15
+    /// How far, in points, the finger may move during `pressDuration` and
+    /// still pick; any further and the touch is a scroll.
+    static let allowableMovement: CGFloat = 10
+
+    /// A press recognizer's state, as far as the block cares.
     enum Phase: Equatable {
         case began
         case changed
@@ -80,11 +97,12 @@ struct HUDColourTouch: Equatable {
         case saveWaiting
     }
 
-    /// A colour was written during this pan and not saved yet.
+    /// A colour was written during this press and not saved yet.
     private(set) var owesSave = false
 
-    /// The pan reached `phase` with the finger at `point` in a block of
-    /// `size`: what to write. The touch is reset when the pan ends either way.
+    /// The press reached `phase` with the finger at `point` in a block of
+    /// `size`: what to write. The touch is reset when the press ends either
+    /// way.
     mutating func handle(_ phase: Phase, at point: CGPoint, size: CGSize) -> Write {
         let pick = HUDColourField.pick(at: point, size: size)
         switch phase {
@@ -109,11 +127,11 @@ struct HUDColourTouch: Equatable {
         return .set(HUDColourField.pick(at: point, size: size), save: true)
     }
 
-    /// Whether the block's pan takes part in a touch that went down at
+    /// Whether the block's press takes part in a touch that went down at
     /// `point` (in the block's space): only inside the block of `size`.
-    /// The pan is offered touches outside the block too (just outside it,
+    /// The press is offered touches outside the block too (just outside it,
     /// and on iOS 18 anywhere on the screen); those are left to the scroll
-    /// view, which would otherwise wait for the pan.
+    /// view, which would otherwise wait for the press.
     static func takesPart(touchDownAt point: CGPoint, size: CGSize) -> Bool {
         HUDColourField.contains(point, size: size)
     }
@@ -373,10 +391,11 @@ struct HUDColourSettingsSection: View {
 /// The colour block itself (task 206): the picture of every colour the
 /// picker can give (`HUDColourField.fieldImage`, drawn from the colour
 /// function, not a stock gradient), and a ring at the stored choice (at
-/// the default's hue, bottom edge, when none is stored). A drag that starts
-/// in the block moves the ring both ways and does not scroll the page; a
-/// tap sets the colour where it lands (`HUDColourTouch`). VoiceOver finds
-/// two adjustable elements over it: the hue and the lightness.
+/// the default's hue, bottom edge, when none is stored). A swipe that starts
+/// on the block scrolls the page; a finger held still for a moment, then
+/// dragged or lifted, moves the ring both ways without scrolling; a tap sets
+/// the colour where it lands (`HUDColourTouch`). VoiceOver finds two
+/// adjustable elements over it: the hue and the lightness.
 private struct HUDColourBlock: View {
     var hue: Double?
     var lightness: Double?
@@ -431,7 +450,7 @@ private struct HUDColourBlock: View {
             .onTapGesture(coordinateSpace: .local) { location in
                 apply(HUDColourTouch.tap(at: location, size: size))
             }
-            .gesture(HUDColourFieldPan(size: size, apply: apply))
+            .gesture(HUDColourFieldPress(size: size, apply: apply))
             .accessibilityHidden(true)
             .overlay { voiceOverElements }
         }
@@ -472,13 +491,16 @@ private struct HUDColourBlock: View {
     }
 }
 
-/// The block's drag (task 196 for the hue track; task 206 for the block):
-/// a UIKit pan, so the scroll view can be told to wait for it. It begins
-/// whichever way the finger first moves, and the scroll view's pan waits
-/// for it to fail, so a drag that starts in the block moves the colour and
-/// never scrolls the page. Each state it reports goes through
-/// `HUDColourTouch.handle`, which says what to write.
-private struct HUDColourFieldPan: UIGestureRecognizerRepresentable {
+/// The block's press and drag (task 196 for the hue track; task 206 for the
+/// block; task 209 for the press): a UIKit long press, so the scroll view
+/// can be told to wait for it. It begins once the finger has rested
+/// `HUDColourTouch.pressDuration` within `allowableMovement`, then reports
+/// `.changed` each time the finger moves, however far, and `.ended` when it
+/// lifts. The scroll view's pan waits for it to fail: a finger that moves
+/// off before the press begins fails it at once and scrolls the page; one
+/// that held still drags the colour and never scrolls. Each state it
+/// reports goes through `HUDColourTouch.handle`, which says what to write.
+private struct HUDColourFieldPress: UIGestureRecognizerRepresentable {
     var size: CGSize
     var apply: (HUDColourTouch.Write) -> Void
 
@@ -515,18 +537,19 @@ private struct HUDColourFieldPan: UIGestureRecognizerRepresentable {
         Coordinator(size: size, converter: converter)
     }
 
-    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
         context.coordinator.size = size
     }
 
-    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
-        let pan = UIPanGestureRecognizer()
-        pan.delegate = context.coordinator
-        pan.maximumNumberOfTouches = 1
-        return pan
+    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
+        let press = UILongPressGestureRecognizer()
+        press.delegate = context.coordinator
+        press.minimumPressDuration = HUDColourTouch.pressDuration
+        press.allowableMovement = HUDColourTouch.allowableMovement
+        return press
     }
 
-    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
         let phase: HUDColourTouch.Phase
         switch recognizer.state {
         case .began: phase = .began

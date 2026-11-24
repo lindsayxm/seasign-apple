@@ -289,9 +289,11 @@ import Testing
 }
 
 /// A touch on the colour block (task 196 for the hue track; task 206 for
-/// the block): a drag that starts in the block moves both values as it
-/// goes, whichever way, and saves at the end; a tap sets and saves; a
-/// cancelled drag, or Settings closing during one, saves what it set.
+/// the block; task 209 for the press): a finger that rests on the block
+/// for a moment begins a press, which moves both values as the finger goes,
+/// whichever way, and saves once at the end; a finger that moves off before
+/// then is a scroll and writes nothing; a tap sets and saves; a cancelled
+/// press, or Settings closing during one, saves what it set.
 @Suite(.serialized) @MainActor struct HUDColourTouchTests {
     /// A block 360 by 100 points: one point across is one degree, one point
     /// up is one percent.
@@ -306,11 +308,59 @@ import Testing
         HUDColourPick(hue: hue, lightness: lightness)
     }
 
-    /// A pan that never began (UIKit reports it failed) writes nothing and
-    /// owes nothing.
-    @Test func aPanThatNeverBeganChangesNothing() {
+    /// How long a finger rests before it picks, and how far it may stray
+    /// meanwhile: a short press (the user's "about 0.15 s"), and the
+    /// stock long press's own 10 points, so a swipe fails it at once.
+    @Test func aPickNeedsAShortStillPress() {
+        #expect(HUDColourTouch.pressDuration == 0.15)
+        #expect(HUDColourTouch.allowableMovement == 10)
+    }
+
+    /// A press cancelled or failed before it began (a swipe that starts on
+    /// the block: the finger moved off before the press began, and the
+    /// scroll view took the touch) writes nothing and owes nothing. UIKit
+    /// sends no action at all for a press that fails before it begins; a
+    /// cancel that does arrive is handled the same.
+    @Test func aPressCancelledBeforeItBeginsWritesNothing() {
         var touch = HUDColourTouch()
         #expect(step(&touch) { $0.handle(.cancelled, at: CGPoint(x: 80, y: 40), size: size) } == .none)
+        #expect(touch == HUDColourTouch())
+        #expect(!touch.owesSave)
+    }
+
+    /// Held still and lifted without moving: the press begins and ends at
+    /// the same point. The colour there is written once as the press
+    /// begins and saved exactly once as it ends.
+    @Test func aPressHeldAndLiftedWithoutMovingSavesOnce() {
+        var touch = HUDColourTouch()
+        let point = CGPoint(x: 210, y: 60)
+        let writes = [
+            step(&touch) { $0.handle(.began, at: point, size: size) },
+            step(&touch) { $0.handle(.ended, at: point, size: size) },
+        ]
+        #expect(writes == [.set(pick(210, 0.4), save: false), .set(pick(210, 0.4), save: true)])
+        #expect(writes.filter { $0 == .set(pick(210, 0.4), save: true) }.count == 1)
+        #expect(touch == HUDColourTouch())
+    }
+
+    /// Press, then drag: the colour follows every move unsaved, and the
+    /// whole press saves once, where the finger lifts.
+    @Test func aPressThenDragFollowsTheFingerAndSavesOnceAtTheEnd() {
+        var touch = HUDColourTouch()
+        var writes: [HUDColourTouch.Write] = []
+        writes.append(step(&touch) { $0.handle(.began, at: CGPoint(x: 60, y: 80), size: size) })
+        for x in stride(from: 80, through: 300, by: 20) {
+            writes.append(step(&touch) { $0.handle(.changed, at: CGPoint(x: CGFloat(x), y: 30), size: size) })
+        }
+        writes.append(step(&touch) { $0.handle(.ended, at: CGPoint(x: 300, y: 30), size: size) })
+        #expect(writes.first == .set(pick(60, 0.2), save: false))
+        #expect(writes.dropFirst().dropLast().allSatisfy {
+            if case .set(let pick, let save) = $0 { return !save && pick.lightness == 0.7 }
+            return false
+        })
+        #expect(writes.last == .set(pick(300, 0.7), save: true))
+        let saves = writes.filter { if case .set(_, true) = $0 { true } else { false } }
+        #expect(saves.count == 1)
         #expect(touch == HUDColourTouch())
     }
 
@@ -326,7 +376,7 @@ import Testing
         #expect(touch == HUDColourTouch())
     }
 
-    /// The block's pan has no direction gate (the old hue track had one):
+    /// The block's press has no direction gate (the old hue track had one):
     /// a drag straight up or down moves only the lightness, sideways only
     /// the hue.
     @Test func aDragInAnyDirectionMovesTheMarker() {
@@ -337,8 +387,9 @@ import Testing
         #expect(step(&touch) { $0.handle(.ended, at: CGPoint(x: 120, y: 20), size: size) } == .set(pick(120, 0.8), save: true))
     }
 
-    /// A tap is SwiftUI's tap on the block, not the pan: the colour where
-    /// it lands, in whole degrees and percent, saved.
+    /// A tap (lifted before the press began) is SwiftUI's tap on the
+    /// block, not the press: the colour where it lands, in whole degrees
+    /// and percent, saved.
     @Test func aTapSetsTheColourWhereItLands() {
         #expect(HUDColourTouch.tap(at: CGPoint(x: 0, y: 100), size: size) == .set(pick(0, 0), save: true))
         #expect(HUDColourTouch.tap(at: CGPoint(x: 89.6, y: 74.6), size: size) == .set(pick(90, 0.25), save: true))
@@ -349,11 +400,11 @@ import Testing
         #expect(HUDColourTouch.tap(at: CGPoint(x: 360, y: 100), size: size) == .set(pick(360, 0), save: true))
     }
 
-    /// The block's pan takes part only in a touch that went down inside
+    /// The block's press takes part only in a touch that went down inside
     /// the block (edges included); one that went down outside, even just
     /// outside its top edge, is left to the scroll view. Where the finger
     /// goes afterwards does not matter (a drag out of the block clamps).
-    @Test func onlyATouchThatGoesDownInTheBlockReachesThePan() {
+    @Test func onlyATouchThatGoesDownInTheBlockReachesThePress() {
         #expect(!HUDColourTouch.takesPart(touchDownAt: CGPoint(x: 200, y: -14), size: size))
         #expect(!HUDColourTouch.takesPart(touchDownAt: CGPoint(x: -3, y: 50), size: size))
         #expect(!HUDColourTouch.takesPart(touchDownAt: CGPoint(x: 120, y: 101), size: size))
@@ -363,7 +414,7 @@ import Testing
         #expect(!HUDColourTouch.takesPart(touchDownAt: CGPoint(x: CGFloat.nan, y: 1), size: size))
     }
 
-    /// UIKit ends a pan once, with `.ended` or with `.cancelled`/`.failed`;
+    /// UIKit ends a press once, with `.ended` or with `.cancelled`/`.failed`;
     /// whichever comes, the colour is saved once and the next touch starts
     /// clean.
     @Test func theEndOrTheCancelSavesOnce() {
@@ -383,7 +434,7 @@ import Testing
         var touch = HUDColourTouch()
         _ = touch.handle(.began, at: CGPoint(x: 15, y: 50), size: size)
         #expect(step(&touch) { $0.handle(.cancelled, at: CGPoint(x: 15, y: 50), size: size) } == .saveWaiting)
-        // A pan that never began owes nothing.
+        // A press that never began owes nothing.
         var never = HUDColourTouch()
         #expect(step(&never) { $0.handle(.cancelled, at: CGPoint(x: 15, y: 50), size: size) } == .none)
         // What the view does with it: the colour written during the drag is
