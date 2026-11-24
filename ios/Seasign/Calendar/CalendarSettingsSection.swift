@@ -17,15 +17,13 @@ struct CalendarSettingsSection: View {
         case name, link
     }
 
-    /// Where each provider keeps the link. Checked against the providers' help
+    /// Where each provider keeps the link. A Google secret iCal address is
+    /// still accepted, but is no longer described here (the user, 2026-11-23:
+    /// Google goes through Connect). Checked against the providers' help
     /// pages on 2026-11-15: support.google.com/calendar/answer/37648, the
     /// iPhone User Guide's "Share iCloud calendars on iPhone" (iOS 18 and 27),
     /// and Microsoft's "Share your calendar in Outlook.com".
     private static let instructions: [(provider: String, steps: String)] = [
-        (
-            "Google Calendar",
-            "On a computer, open Settings, pick the calendar under Settings for my calendars, choose Integrate calendar and copy the Secret address in iCal format."
-        ),
         (
             "Apple Calendar",
             "On your iPhone, open Calendar, open the list of calendars, tap the info button next to an iCloud calendar, turn on Public Calendar and tap Share Link."
@@ -50,8 +48,6 @@ struct CalendarSettingsSection: View {
                 note(EventsModel.AddProblem.limitReached.message)
             }
 
-            note("Today shows your next three events. Seasign never asks for access to the calendars on your phone. Anyone who has a calendar's link can read that calendar, so links are kept on this phone and sent only to read your events.")
-
             ForEach(Self.instructions, id: \.provider) { item in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(caps: item.provider)
@@ -61,6 +57,8 @@ struct CalendarSettingsSection: View {
                 }
                 .padding(.top, 4)
             }
+
+            note("Apple and Outlook calendars cannot be written to and the links are required to read events.")
         }
         .confirmationDialog(
             "Remove this calendar?",

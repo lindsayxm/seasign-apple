@@ -163,7 +163,7 @@ struct HUDColourSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HUDSectionHeader(title: "HUD colour")
+            HUDSectionHeader(title: "HUD color")
 
             preview
 
@@ -186,11 +186,11 @@ struct HUDColourSettingsSection: View {
                 }
                 .buttonStyle(.hudLink(minWidth: 44, alignment: .trailing))
                 .disabled(stored == nil)
-                .accessibilityLabel("Default HUD colour")
+                .accessibilityLabel("Default HUD color")
                 .accessibilityHint("Goes back to the orange-red.")
             }
 
-            HUDNote(text: "Every screen uses this colour. Seasign sets its brightness so it stays easy to see on the dark ground.")
+            HUDNote(text: "Every screen uses this color.")
         }
         // Settings closed during a drag: keep the hue it showed.
         .onDisappear { SkyStore(context: context).saveHUDHue() }
@@ -283,7 +283,7 @@ private struct HueTrack: View {
         .frame(height: 44)
         .padding(.horizontal, Self.thumbWidth / 2)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("HUD colour")
+        .accessibilityLabel("HUD color")
         .accessibilityValue(HUDHueSlider.spokenValue(stored))
         .accessibilityAdjustableAction { direction in
             // VoiceOver steps; not a touch, so not through `HueTouch`.

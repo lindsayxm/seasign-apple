@@ -19,7 +19,7 @@ struct GoogleSettingsSection: View {
 
             switch model.connection {
             case .notConnected:
-                note("Connect your Google account to see events from the Google calendars you choose on Today. New events show within seconds while Today is open. Seasign reads the calendars you choose and adds only the events you confirm.")
+                note("Seasign reads the calendars you choose and adds only the events you confirm.")
                 connectButton("Connect Google Calendar")
             case .expired:
                 note("Your Google sign-in has ended, so Google events are off Today. Google ends sign-ins after 7 days while Seasign is in testing, or when access is removed in your Google account. Connect again to bring them back.", warning: true)

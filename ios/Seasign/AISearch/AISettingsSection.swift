@@ -40,7 +40,7 @@ struct AISettingsSection: View {
             if let reason = model.precondition.message {
                 note(reason, warning: model.mode == .myList)
             }
-            note("Let AI Search adds articles your own AI provider finds on your interests to Today and the last 7 days. Each one is marked AI. Use My List shows only the sites you follow, and no search is made.")
+            note("With Let AI Search enabled, articles are added to your feed based on your interests. This helps find information on new or emerging topics not yet on your radar. This feature requires an API key.")
 
             providerPicker
             keySection
@@ -224,7 +224,7 @@ struct AISettingsSection: View {
             TextField(
                 "",
                 text: $interestsDraft,
-                prompt: Text(verbatim: "tide pools, new telescopes").foregroundStyle(Palette.rule),
+                prompt: Text(verbatim: "New Tech, Scientific Breakthroughs").foregroundStyle(Palette.rule),
                 axis: .vertical
             )
             .hudField()

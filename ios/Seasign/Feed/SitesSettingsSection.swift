@@ -46,7 +46,7 @@ struct SitesSettingsSection: View {
                 note(FeedModel.AddProblem.limitReached.message)
             }
 
-            note("Today shows the newest headlines from these sites since yesterday. Follow a section page (such as a site's science page) or a feed, and give it a category of your own. Addresses are kept on this phone and sent to Seasign's server to read the sites.")
+            note("The main screen shows the newest headlines from these sites.")
         }
         .confirmationDialog(
             Text(verbatim: "Stop following this site?"),

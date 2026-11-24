@@ -69,7 +69,7 @@ struct SettingsView: View {
                     .foregroundStyle(Palette.white)
             }
 
-            HUDNote(text: "Today follows the sun, moon and weather over this zip code. Seasign never asks for your location.")
+            HUDNote(text: "Conditions follow zip code, Seasign never asks for your location.")
 
             if model.zip != nil {
                 Button {
