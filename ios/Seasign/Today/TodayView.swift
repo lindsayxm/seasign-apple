@@ -85,6 +85,9 @@ struct TodayView: View {
         .preferredColorScheme(.dark)
         // Behind another page no tap, pull or star drag reaches Today.
         .allowsHitTesting(activity.takesTouches)
+        // The scene's phase as Today appears, before the minute loop's
+        // first turn; later changes are passed on below.
+        .onAppear { events.setAppActive(scenePhase == .active) }
         #if DEBUG
         .onAppear {
             if debugOpenSettings { destination = .settings }
@@ -136,6 +139,9 @@ struct TodayView: View {
         .onChange(of: reading) { _, opened in if opened != nil { starFlight.cancel() } }
         .onChange(of: tabs.showing) { starFlight.cancel() }
         .onChange(of: scenePhase) { _, phase in
+            // First: while the scene is not active the minute loop's turn
+            // sends no events request (`EventsModel.isAppActive`).
+            events.setAppActive(phase == .active)
             if phase != .active { starFlight.cancel() }
             // Notes typed in Saved are written before the app leaves the
             // foreground (Saved does this too; this covers it from the root).
@@ -145,8 +151,11 @@ struct TodayView: View {
             if phase == .active {
                 // Pasted-link events 5 minutes old or more are asked for with
                 // `force` (read again by the API, not from its cache). Read
-                // now, before the sky's request, so an answer to the minute
-                // loop's own check landing meanwhile does not hide it.
+                // now, before the sky's request, so an answer to a minute
+                // loop turn that runs meanwhile does not hide it. A turn that
+                // ran before the scene went active (the process resumes
+                // first, and an expired sleep runs then; task 164) sent
+                // nothing, as the app was not active.
                 let eventsForce = EventsRefreshTrigger.returnToForeground(isDue: events.isDue).force
                 Task {
                     await model.refresh()

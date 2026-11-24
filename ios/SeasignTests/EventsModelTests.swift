@@ -425,12 +425,15 @@ private final class World {
     }
 
     /// How many calendar requests a launch and a return to the foreground
-    /// send with one pasted link, played the way Today makes its calls: the
-    /// minute loop's turn and the return's (`isDue` read first), both in
-    /// flight at once. Not due: none. Due: two, the loop's scheduled check
-    /// and the return's fresh one. Whether iOS also calls the scene-phase
-    /// change at launch is the view's business; if it does not, a due
-    /// launch sends one (the loop's).
+    /// send with one pasted link when the minute loop's turn and the
+    /// return's (`isDue` read first) are both in flight at once, the app
+    /// active. Not due: none. Due: two, the loop's scheduled check and the
+    /// return's fresh one. Measured (tasks 164 and 213, iPhone 17
+    /// simulator): at launch the scene does go active and the loop's first
+    /// turn reaches the events after the sky's request, so a launch sends
+    /// both. On a return the loop's turn can instead run before the scene
+    /// goes active; it then sends nothing and the return's fresh request is
+    /// the only one (the next test).
     @Test func requestsSentByALaunchAndAReturnWithOneLink() async throws {
         let context = try inMemoryContext()
         stub.set(TestLinks.google, .events([show]))
@@ -471,6 +474,67 @@ private final class World {
         sent = await launchOrReturn(relaunched)
         #expect(sent.count == 2)
         #expect(sent.filter { $0 == true }.count == 1)
+    }
+
+    /// Measured in task 164: on a return after 6 minutes the process resumes
+    /// before the scene goes active, and the minute loop's expired sleep
+    /// runs its turn then. Its scheduled answer landed before the return read
+    /// `isDue`, so the return read the events as fresh and sent nothing. The
+    /// turn now sends nothing while the app is not active (Today passes the
+    /// scene's phase on first), and the due return sends its fresh request.
+    @Test func aDueReturnSendsItsFreshRequestWhenTheLoopsTurnRunsBeforeTheSceneIsActive() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let model = model(try inMemoryContext())
+        try await model.add(name: "Family", link: TestLinks.google)
+        let before = stub.requests.count
+
+        model.setAppActive(false)
+        world.clock.now += 6 * 60
+        // The process resumes: the loop's turn runs to the end first.
+        await model.refresh(force: EventsRefreshTrigger.minuteLoop.force)
+        // Then the scene goes active, as Today plays it.
+        model.setAppActive(true)
+        let force = EventsRefreshTrigger.returnToForeground(isDue: model.isDue).force
+        await model.refresh(force: force)
+        #expect(stub.requests.dropFirst(before).map(\.fresh) == [true])
+    }
+
+    /// While the app is not active no check without `force` is sent (the
+    /// loop's turn, a zone change); the return makes them up, and once the
+    /// app is active again the loop's turns are sent as before.
+    @Test func checksWithoutForceWaitForTheReturnWhileTheAppIsNotActive() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let model = model(try inMemoryContext())
+        try await model.add(name: "Family", link: TestLinks.google)
+        let before = stub.requests.count
+        func comeBack() async {
+            model.setAppActive(true)
+            await model.refresh(force: EventsRefreshTrigger.returnToForeground(isDue: model.isDue).force)
+        }
+
+        // Away 30 seconds: nothing.
+        model.setAppActive(false)
+        world.clock.now += 30
+        await model.refresh(force: EventsRefreshTrigger.minuteLoop.force)
+        await comeBack()
+        #expect(stub.requests.count == before)
+
+        // Active, and the events go stale: the loop's turn is sent.
+        world.clock.now += EventsModel.refreshInterval
+        await model.refresh(force: EventsRefreshTrigger.minuteLoop.force)
+        #expect(stub.requests.dropFirst(before).map(\.fresh) == [nil])
+
+        // Away, and the zone changes: nothing until the return, which asks
+        // with `force` for the new zone.
+        model.setAppActive(false)
+        world.zone = TimeZone(identifier: "America/Los_Angeles")!
+        await model.refresh(force: EventsRefreshTrigger.zoneChange.force)
+        await model.refresh(force: EventsRefreshTrigger.minuteLoop.force)
+        #expect(stub.requests.count == before + 1)
+        await comeBack()
+        #expect(stub.requests.dropFirst(before).map(\.fresh) == [nil, true])
+        #expect(stub.requests.last?.timezone == "America/Los_Angeles")
+        #expect(model.snapshot?.timezone == "America/Los_Angeles")
     }
 
     /// On a return to the foreground the minute loop's own check and the
@@ -729,6 +793,39 @@ private final class World {
         await model.refresh()
         #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
         #expect(stub.requests.suffix(3).allSatisfy { $0.fresh == nil })
+
+        held.releaseAll()
+        await hung.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+    }
+
+    /// The same for a fresh request (from the #164 review): a return's fresh
+    /// request hangs, a pull's fresh answer is shown, the zone goes to Los
+    /// Angeles and back (each clears the events), and New York's scheduled
+    /// answer is shown, from the API's cache the pull's read filled or
+    /// newer. The hung fresh answer, older, does not replace it.
+    @Test func anOlderFreshAnswerDoesNotReplaceANewerOneAfterTheZoneComesBack() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+
+        held.setHolding(true)
+        stub.set(TestLinks.google, .events([show, lunch]))
+        let hung = Task { await model.refresh(force: true) }
+        await held.waitUntilHeld(1)
+        held.setHolding(false)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        await model.refresh(force: true)
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+
+        world.zone = TimeZone(identifier: "America/Los_Angeles")!
+        await model.refresh(force: EventsRefreshTrigger.zoneChange.force)
+        #expect(model.snapshot?.timezone == "America/Los_Angeles")
+        world.zone = TimeZone(identifier: "America/New_York")!
+        await model.refresh(force: EventsRefreshTrigger.zoneChange.force)
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+        #expect(stub.requests.suffix(3).map(\.fresh) == [true, nil, nil])
 
         held.releaseAll()
         await hung.value

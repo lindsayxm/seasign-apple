@@ -91,14 +91,27 @@ final class EventsModel {
     /// the return can both ask at once). A fresh answer is not dropped for a
     /// scheduled one: it was read again, the scheduled one maybe not.
     ///
-    /// Both marks clear with the snapshot. Only answers that were shown
-    /// count, so a request that fails (a 429, say) or whose answer was out
-    /// of date never hides another. No links or zone need comparing: an
-    /// answer for other links or another zone is dropped as out of date
-    /// anyway, and a newer answer for more links (one added, then removed)
-    /// still holds newer events for the older one's links, since a removed
-    /// link never comes back with the same id.
+    /// This mark clears with the snapshot, so a scheduled answer still out
+    /// can fill an empty Today; `freshShown` is kept, so a fresh answer
+    /// that hung across zone changes (A, B, A) never replaces a newer one
+    /// shown since. Only answers that were shown count, so a request that
+    /// fails (a 429, say) or whose answer was out of date never hides
+    /// another. No links or zone need comparing: an answer for other links
+    /// or another zone is dropped as out of date anyway, and a newer answer
+    /// for more links (one added, then removed) still holds newer events for
+    /// the older one's links, since a removed link never comes back with the
+    /// same id.
     @ObservationIgnored private var scheduledShownThrough: Int?
+    /// Whether the app is in the foreground (its scene active), as Today
+    /// last told it (`setAppActive`). While it is not, a check without
+    /// `force` (the minute loop's turn, a zone change) sends nothing: on a
+    /// return after a while in the background the loop's expired sleep can
+    /// run before the scene goes active (measured in task 164), and its
+    /// answer, maybe from the API's cache, landing first made the return
+    /// read the events as not due, so no fresh request went out. Skipped
+    /// checks are made up on the return, whose `isDue` covers every reason
+    /// such a check sends.
+    @ObservationIgnored private(set) var isAppActive = true
 
     /// `timeZone` is asked each time events are fetched or shown: the zip's
     /// zone when a zip is set, otherwise the phone's (see `EventZone`).
@@ -192,6 +205,8 @@ final class EventsModel {
                 return
             }
         }
+        // In the background, or not yet active again: the return asks.
+        if !force, !isAppActive { return }
         if let retryNotBefore, now() < retryNotBefore { return }
         let fresh = force
         requestsSent += 1
@@ -285,6 +300,12 @@ final class EventsModel {
         await refresh()
     }
 
+    /// Today's scene went active (`true`) or left it (`false`). Today calls
+    /// this before it reads `isDue` on a return, and as it appears.
+    func setAppActive(_ active: Bool) {
+        isAppActive = active
+    }
+
     /// Our API's 429 asked to wait `seconds`: no refresh is sent before then.
     /// The day screen (`DayModel`) records its own 429s here too, so the
     /// delay holds for Today and for the day screen opened again.
@@ -308,9 +329,9 @@ final class EventsModel {
     }
 
     private func setSnapshot(_ value: EventsSnapshot?) {
-        // Nothing is shown, so no answer is newer than one still out.
+        // Nothing is shown, so a scheduled answer still out may fill it. An
+        // older fresh answer still may not: `freshShown` is kept.
         if value == nil {
-            freshShown = nil
             scheduledShownThrough = nil
         }
         guard value != snapshot else { return }
