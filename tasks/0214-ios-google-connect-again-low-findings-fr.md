@@ -1,11 +1,11 @@
 ---
 id: 214
 title: iOS: Google Connect again, low findings from the second #178 review
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-2
 depends_on: []
 created: 2026-11-24T17:01:20Z
-updated: 2026-11-24T17:01:20Z
+updated: 2026-11-24T17:40:03Z
 ---
 
 ## Goal
@@ -29,3 +29,5 @@ From the re-review of task 178 (its note has lines). (1) Connect again from a wo
 ## Log
 
 - 2026-11-24T17:01:20Z [li] created (backlog)
+- 2026-11-24T17:40:03Z [li] status: backlog → todo
+- 2026-11-24T17:40:03Z [implementer-2] status: todo → in-progress — claimed by implementer-2
