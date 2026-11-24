@@ -21,6 +21,8 @@ struct TodayView: View {
     @Environment(FeedModel.self) private var feed
     @Environment(SavedModel.self) private var saved
     @Environment(AISearchModel.self) private var ai
+    /// The gate on Settings (task 217); read again on each return.
+    @Environment(UpgradeModel.self) private var gate
     @Environment(\.scenePhase) private var scenePhase
     /// The user's store, for the read-aloud voice (task 172).
     @Environment(\.modelContext) private var modelContext
@@ -64,6 +66,8 @@ struct TodayView: View {
     @AppStorage("debugPullSpinner") private var debugPullSpinner = 0.0
     /// `-debugOpenSettings YES`: Settings opens over Today at launch, for
     /// screenshots when UI automation cannot reach the always-moving scene.
+    /// It goes through the gate like a tap (task 217); without
+    /// `-debugSubscription` the gate is given Subscribed (`SeasignApp.start`).
     @AppStorage("debugOpenSettings") private var debugOpenSettings = false
     /// `-debugOpenDay YES`: the day screen opens over Today at launch.
     @AppStorage("debugOpenDay") private var debugOpenDay = false
@@ -168,6 +172,9 @@ struct TodayView: View {
                 Task { await ai.refreshIfDue() }
                 // Google push channels with under two days left are replaced.
                 google.appOpened()
+                // The subscription is read again (a renewal StoreKit had not
+                // reported yet, or a purchase made elsewhere).
+                Task { await gate.refreshSubscription() }
             }
         }
         // Events are asked for in the zip's time zone; when that changes (a
@@ -180,7 +187,9 @@ struct TodayView: View {
         .fullScreenCover(item: $destination) { destination in
             switch destination {
             case .settings:
-                SettingsView()
+                // Through the gate: Settings when Subscribed, the upgrade
+                // popup otherwise.
+                SettingsCover()
             case .day:
                 dayView
             }

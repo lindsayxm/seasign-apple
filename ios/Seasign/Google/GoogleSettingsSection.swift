@@ -145,6 +145,7 @@ struct GoogleSettingsSection: View {
             }
             .accessibilityLabel("New events go to")
             .accessibilityValue(current?.displayName ?? "None")
+            .settingsAction(.chooseNewEventsCalendar)
             HUDNote(text: "Only calendars you own are listed. Seasign adds only the events you confirm.")
             HUDRule()
         }
@@ -168,6 +169,7 @@ struct GoogleSettingsSection: View {
             .tint(accent)
             .frame(minHeight: 44)
             .accessibilityLabel(choice.displayName)
+            .settingsAction(.chooseGoogleCalendars)
             if let message {
                 HUDNote(text: message.text, warning: message.isProblem)
             }
@@ -193,6 +195,7 @@ struct GoogleSettingsSection: View {
         }
         .buttonStyle(.hudFilled)
         .disabled(!enabled)
+        .settingsAction(.connectGoogle)
     }
 
     private var disconnectButton: some View {
@@ -202,6 +205,7 @@ struct GoogleSettingsSection: View {
             Text(caps: "Disconnect Google")
         }
         .buttonStyle(.hudLink)
+        .settingsAction(.disconnectGoogle)
     }
 
     private func note(_ text: String, warning: Bool = false) -> some View {

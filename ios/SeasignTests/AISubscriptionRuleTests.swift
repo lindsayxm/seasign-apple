@@ -48,8 +48,11 @@ private final class RuleClock: @unchecked Sendable {
 /// THE HARD RULE (task 216): no AI unless Subscribed. No `POST /v1/discover`
 /// is sent for a free, lapsed or unknown subscription, by any path; the
 /// toggle cannot move to Let AI Search; AI-found items leave Today and
-/// History; a lapse puts the toggle on Use My List. `stub.count` is every
-/// discover request that reached the transport.
+/// History; while not Subscribed the toggle shows Use My List, and the
+/// stored choice is left as it was, so it applies again once a read says
+/// Subscribed. Since task 217 the app's own wiring is tested here too
+/// (`productionSubscription`). `stub.count` is every discover request that
+/// reached the transport.
 @Suite @MainActor struct AISubscriptionRuleTests {
     private let clock = RuleClock()
     private let stub = DiscoverStub()
@@ -500,29 +503,44 @@ private final class RuleClock: @unchecked Sendable {
         #expect(reopened.entries.contains { $0.item.link == found.link && $0.item.isAI })
     }
 
-    // MARK: The pre-gate default (task 217 removes it)
+    // MARK: The app's wiring (task 217)
 
-    /// Until task 217 builds the gate, AI search obeys a default that says
-    /// Subscribed, so nothing changes for anyone: StoreKit's real answer is
-    /// Unknown on every phone until the product exists. `SubscribedUntilTheGate`
-    /// is private to `SeasignApp.swift`, so `subscriptionForAI` is the only
-    /// way to it. When task 217 removes it, this test goes with it.
-    @Test func beforeTask217AISearchObeysADefaultThatSaysSubscribed() async throws {
-        let source = SeasignApp.subscriptionForAI(override: nil)
-        #expect(source.hasAnswered)
-        #expect(source.access == subscribedAccess)
-        #expect(await source.refresh() == subscribedAccess)
+    /// The production wiring: AI search obeys the real model over the
+    /// app's store, which starts Unknown with nothing answered. With the
+    /// store answering anything but Subscribed, no discover request is sent
+    /// by any path; the moment it answers Subscribed, one is.
+    @Test(arguments: notSubscribed)
+    func theProductionWiringSendsNothingUnlessSubscribed(_ state: SubscriptionState) async throws {
+        let store = ScriptedSubscriptionStore(FixedSubscriptionStore.reading(for: .subscribed))
+        let wiring = SeasignApp.productionSubscription(realStore: store, storefront: DebugStorefront())
+        #expect(wiring.ai === wiring.real)
+        #expect(wiring.gate.subscription === wiring.real)
+        #expect(!wiring.ai.hasAnswered)
+        #expect(wiring.real.state == .unknown)
 
-        let (feed, ai) = model(context: try inMemoryContext(), subscription: source)
+        let context = try inMemoryContext()
+        let (feed, ai) = model(context: context, subscription: wiring.ai)
         ai.setInterests("tide pools")
+        // Before any read has landed, the starting Unknown allows nothing.
+        #expect(!ai.setMode(.aiSearch))
+        await wiring.real.refresh()
         #expect(ai.setMode(.aiSearch))
-        #expect(feed.showsAI)
-        await ai.refreshIfDue()
-        #expect(stub.count == 1)
 
-        // A given source wins (DEBUG's `-debugSubscription` and `-debugAI`).
-        let lapsed = TestSubscription(.lapsed)
-        #expect(SeasignApp.subscriptionForAI(override: lapsed) === lapsed)
+        store.reading = FixedSubscriptionStore.reading(for: state)
+        await ai.refreshIfDue()
+        await ai.searchNow()
+        wiring.real.start()
+        store.poke()
+        await ai.refreshIfDue()
+        #expect(stub.count == 0)
+        #expect(!feed.showsAI)
+        #expect(ai.shownMode == .myList)
+        #expect(try storedMode(context) == AIMode.aiSearch.rawValue)
+
+        store.reading = FixedSubscriptionStore.reading(for: .subscribed)
+        await ai.searchNow()
+        #expect(stub.count == 1)
+        await wiring.real.stop()
     }
 
     /// `-debugSubscription lapsed -debugAI YES`: the AI sample follows the

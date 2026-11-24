@@ -272,7 +272,7 @@ struct AISettingsSection: View {
             commitInterests()
             Task { await model.searchNow() }
         } label: {
-            Text(caps: model.isSearching ? "Searching" : "Search now")
+            Text(caps: model.isSearching ? "Searching" : model.isCheckingSubscription ? "Checking" : "Search now")
         }
         .buttonStyle(.hudLink)
         .disabled(!model.canSearchNow)

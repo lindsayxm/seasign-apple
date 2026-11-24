@@ -1,108 +1,41 @@
 import SwiftUI
 
-/// Settings: the zip code the Today scene follows, the HUD colour
+/// Settings: the zip code the Today scene follows (`ZipCodeSection`), the HUD colour
 /// (`HUDColourSettingsSection`), Google Calendar (`GoogleSettingsSection`), the calendar links (`CalendarSettingsSection`), the followed sites (`SitesSettingsSection`)
-/// AI search (`AISettingsSection`) and the read-aloud voice (`VoiceSettingsSection`).
+/// AI search (`AISettingsSection`), the read-aloud voice (`VoiceSettingsSection`)
+/// and the subscription (`SubscriptionSettingsSection`).
 /// Drawn in the HUD's look (design v12): `SheetScaffold` and `HUDForm`.
+///
+/// Opened only through the gate (`SettingsCover`, task 217), which sets
+/// `\.settingsAccess`: read-only unless Subscribed. Each control that the
+/// read-only rule covers says which `SettingsAction` it is
+/// (`.settingsAction(_:)`); the note at the top says why.
 struct SettingsView: View {
-    @Environment(TodayModel.self) private var model
-
-    @State private var zipText = ""
-    @State private var isSaving = false
-    @State private var problem: TodayModel.ZipProblem?
-    @FocusState private var zipFocused: Bool
+    @Environment(UpgradeModel.self) private var gate
+    @Environment(\.settingsAccess) private var access
 
     var body: some View {
         SheetScaffold(title: "Settings") {
-            zipSection
+            if access.isReadOnly {
+                HUDNote(text: UpgradeWords.readOnlyNote(gate.state), warning: true)
+            }
+            ZipCodeSection()
             HUDColourSettingsSection()
+                .settingsAction(.changeHUDColour)
             GoogleSettingsSection()
             CalendarSettingsSection()
             SitesSettingsSection()
+            // Only disabled when read-only: further work on this section is
+            // on hold by the user's decision.
             AISettingsSection()
+                .settingsAction(.aiSearch)
             VoiceSettingsSection()
+                .settingsAction(.chooseVoice)
+            SubscriptionSettingsSection()
             #if DEBUG
             DebugSceneSection()
+            DebugSubscriptionSection()
             #endif
-        }
-        .onAppear {
-            zipText = model.zip ?? ""
-        }
-    }
-
-    private var zipSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HUDSectionHeader(title: "Zip code", topPadding: 0)
-
-            HStack(alignment: .center, spacing: 16) {
-                TextField("", text: $zipText, prompt: Text("00000").foregroundStyle(Palette.rule))
-                    .hudField(.display)
-                    .keyboardType(.numberPad)
-                    .textContentType(.postalCode)
-                    .focused($zipFocused)
-                    .frame(maxWidth: 150)
-                    .accessibilityLabel("Zip code")
-                    .onChange(of: zipText) { _, text in
-                        // Digits only, five at most.
-                        let digits = String(text.filter(\.isWholeNumber).prefix(5))
-                        if digits != text { zipText = digits }
-                        problem = nil
-                    }
-
-                Button {
-                    save()
-                } label: {
-                    Text(caps: isSaving ? "Checking" : "Save")
-                }
-                .buttonStyle(.hudFilled)
-                .disabled(!canSave)
-            }
-
-            HUDRule(accent: true)
-
-            if let problem {
-                HUDNote(text: problem.message, warning: true)
-                    .accessibilityLabel(problem.message)
-            } else if let place = model.placeDescription {
-                Text(caps: place)
-                    .hudText(.rowName)
-                    .foregroundStyle(Palette.white)
-            }
-
-            HUDNote(text: "Conditions follow zip code, Seasign never asks for your location.")
-
-            if model.zip != nil {
-                Button {
-                    model.clearZip()
-                    zipText = ""
-                    problem = nil
-                } label: {
-                    Text(caps: "Remove zip code")
-                }
-                .buttonStyle(.hudLink)
-            }
-        }
-    }
-
-    private var canSave: Bool {
-        !isSaving && zipText.count == 5 && zipText != model.zip
-    }
-
-    private func save() {
-        guard canSave else { return }
-        isSaving = true
-        problem = nil
-        let text = zipText
-        Task {
-            do {
-                try await model.saveZip(text)
-                zipFocused = false
-            } catch let zipProblem as TodayModel.ZipProblem {
-                problem = zipProblem
-            } catch {
-                problem = .unavailable
-            }
-            isSaving = false
         }
     }
 }

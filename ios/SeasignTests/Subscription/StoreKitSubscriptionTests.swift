@@ -15,7 +15,7 @@ private final class TestBundleMarker {}
 @Suite(.serialized) @MainActor struct StoreKitSubscriptionTests {
     static let productID = SubscriptionRules.productID
 
-    private func withSession(_ body: (SKTestSession, StoreKitSubscriptionStore) async throws -> Void) async throws {
+    func withSession(_ body: (SKTestSession, StoreKitSubscriptionStore) async throws -> Void) async throws {
         // `Bundle.main` is the host app; the file is in the test bundle.
         let url = try #require(Bundle(for: TestBundleMarker.self).url(forResource: "Seasign", withExtension: "storekit"))
         let session = try SKTestSession(contentsOf: url)
@@ -32,9 +32,14 @@ private final class TestBundleMarker {}
     }
 
     /// No simulated errors, no transactions, default settings.
-    private static func reset(_ session: SKTestSession) async {
+    static func reset(_ session: SKTestSession) async {
         try? await session.setSimulatedError(nil, forAPI: .loadProducts)
         try? await session.setSimulatedError(nil, forAPI: .subscriptionStatus)
+        // Task 217's purchase and restore tests.
+        try? await session.setSimulatedError(nil, forAPI: .purchase)
+        try? await session.setSimulatedError(nil, forAPI: .verification)
+        try? await session.setSimulatedError(nil, forAPI: .appStoreSync)
+        session.askToBuyEnabled = false
         session.clearTransactions()
         session.resetToDefaultState()
     }

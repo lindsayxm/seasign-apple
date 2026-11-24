@@ -44,6 +44,7 @@ struct CalendarSettingsSection: View {
 
             if model.canAddLink {
                 addForm
+                    .settingsAction(.addCalendarLink)
             } else {
                 note(EventsModel.AddProblem.limitReached.message)
             }
@@ -97,6 +98,7 @@ struct CalendarSettingsSection: View {
                 }
                 .buttonStyle(.hudLink(minWidth: 44, alignment: .trailing))
                 .accessibilityLabel("Remove \(link.name)")
+                .settingsAction(.removeCalendarLink)
             }
             if let message = status?.message {
                 // A calendar that could not be read stands out; a partly

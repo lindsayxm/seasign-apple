@@ -85,7 +85,8 @@ struct DayView: View {
             }
         }
         .fullScreenCover(isPresented: $showsSettings) {
-            SettingsView()
+            // Through the gate on Settings (task 217).
+            SettingsCover()
         }
         #if DEBUG
         .onAppear(perform: openDebugEntry)

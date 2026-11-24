@@ -42,6 +42,7 @@ struct SitesSettingsSection: View {
 
             if model.canAddSite {
                 addForm
+                    .settingsAction(.followSite)
             } else {
                 note(FeedModel.AddProblem.limitReached.message)
             }
@@ -94,6 +95,7 @@ struct SitesSettingsSection: View {
                 }
                 .buttonStyle(.hudLink(minWidth: 44, alignment: .trailing))
                 .accessibilityLabel("Remove " + site.title)
+                .settingsAction(.removeSite)
             }
             HUDNote(text: line.text, warning: line.isProblem)
             HUDRule()
@@ -108,6 +110,7 @@ struct SitesSettingsSection: View {
         }
         .buttonStyle(.hudLink)
         .disabled(model.isRefreshing)
+        .settingsAction(.refreshHeadlines)
     }
 
     // MARK: Adding
