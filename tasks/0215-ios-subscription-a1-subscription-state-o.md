@@ -1,11 +1,11 @@
 ---
 id: 215
 title: iOS subscription A1: subscription state on the phone (Free, Subscribed, Lapsed, Unknown) with StoreKit, tested locally
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: []
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T19:10:14Z
+updated: 2026-11-24T19:57:05Z
 ---
 
 ## Goal
@@ -32,3 +32,5 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 
 - 2026-11-24T19:09:50Z [li] created (backlog)
 - 2026-11-24T19:10:14Z [li] User, 2026-11-24: product ID technology.artisan.seasign.monthly; inGracePeriod and inBillingRetryPeriod both map to Lapsed (stop as soon as a renewal fails).
+- 2026-11-24T19:57:05Z [li] status: backlog → todo
+- 2026-11-24T19:57:05Z [implementer-1] status: todo → in-progress — claimed by implementer-1
