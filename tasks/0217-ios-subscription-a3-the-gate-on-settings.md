@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: [216]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T19:09:50Z
+updated: 2026-11-24T20:46:52Z
 ---
 
 ## Goal
@@ -32,3 +32,4 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 ## Log
 
 - 2026-11-24T19:09:50Z [li] created (backlog)
+- 2026-11-24T20:46:52Z [li] From task 215 (lead): until the product exists in App Store Connect every real read is Unknown, so the gate would lock the user out of Settings on their own Debug builds. Add a DEBUG-only way to set the subscription state that persists across launches (the existing Settings › Debug scene pattern, reachable from the popup too), besides the -debugSubscription launch argument; Release builds have neither. Unknown shows the popup like Free, with wording that does not claim the person has no subscription (for example a 'Couldn't check your subscription' line and a retry) — bring the exact wording to the lead for the user.
