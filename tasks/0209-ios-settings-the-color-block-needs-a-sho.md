@@ -1,11 +1,11 @@
 ---
 id: 209
 title: iOS Settings: the color block needs a short press before a drag picks a color; a swipe that starts on it scrolls
-status: todo
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: []
 created: 2026-11-24T10:45:05Z
-updated: 2026-11-24T10:45:05Z
+updated: 2026-11-24T11:03:46Z
 ---
 
 ## Goal
@@ -31,3 +31,4 @@ User's choice 2026-11-24: in Settings a scroll that starts with the finger on th
 ## Log
 
 - 2026-11-24T10:45:05Z [li] created (todo)
+- 2026-11-24T11:03:46Z [implementer-1] status: todo → in-progress — claimed by implementer-1
