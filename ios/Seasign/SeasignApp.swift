@@ -74,8 +74,15 @@ struct SeasignApp: App {
             // `-debugSaved YES` sample saved articles, likewise;
             // `-debugAI YES` AI search configured with a fake key and
             // AI-found items, likewise (it implies the feed sample).
+            // `-debugSeedLink <link>` one public calendar link in a store held
+            // in memory, asked for from the API as usual (`EventsModel.seeded`).
             let defaults = UserDefaults.standard
-            let events = defaults.bool(forKey: "debugEvents") ? (try? EventsModel.sample()) ?? live : live
+            let seeded = defaults.string(forKey: "debugSeedLink").flatMap { link in
+                try? EventsModel.seeded(link: link) {
+                    EventZone.resolve(zip: today.zip, snapshot: today.snapshot, device: .autoupdatingCurrent)
+                }
+            }
+            let events = defaults.bool(forKey: "debugEvents") ? (try? EventsModel.sample()) ?? live : seeded ?? live
             // `-debugGoogle YES`: a connected Google account with sample
             // calendars and events, in memory, with no token and no requests;
             // `-debugGoogleReadOnly YES` the same without write access.

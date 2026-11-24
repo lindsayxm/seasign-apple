@@ -881,6 +881,19 @@ private final class World {
         #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
     }
 
+    #if DEBUG
+    /// `-debugSeedLink`: one link, held in memory, live (not the frozen
+    /// sample), with nothing cached, so it is due at once.
+    @Test func theDebugSeedHoldsOneLiveLinkInMemory() throws {
+        let model = try EventsModel.seeded(link: TestLinks.google) { TimeZone(identifier: "America/New_York")! }
+        #expect(model.links.map(\.name) == ["Seeded"])
+        #expect(model.links.map(\.url) == [TestLinks.google])
+        #expect(!model.isSample)
+        #expect(model.snapshot == nil)
+        #expect(model.isDue)
+    }
+    #endif
+
     @Test func aLinkWithoutCachedEventsIsFetchedAtLaunch() async throws {
         let context = try inMemoryContext()
         context.insert(CalendarLink(name: "Family", url: TestLinks.google, createdAt: world.clock.now))

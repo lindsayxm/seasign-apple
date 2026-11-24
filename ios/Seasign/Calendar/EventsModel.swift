@@ -387,6 +387,19 @@ extension EventsModel {
         )
         return model
     }
+
+    /// Debug-only (`-debugSeedLink <link>`): one link named "Seeded", held in
+    /// a store that lives in memory and asked for from the API like any
+    /// other, so the requests a launch and a return send can be counted
+    /// without typing a link (task 164). For a public calendar only, never a
+    /// private link. The user's own store is not touched, so every launch
+    /// starts without cached events.
+    static func seeded(link: String, timeZone: @escaping @MainActor () -> TimeZone) throws -> EventsModel {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        context.insert(CalendarLink(name: "Seeded", url: link, createdAt: Date()))
+        try context.save()
+        return EventsModel(context: context, timeZone: timeZone)
+    }
 }
 extension EventLabel {
     /// The v12 mockup's four event titles (`design-ideas/v12-imago/`).
