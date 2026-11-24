@@ -117,7 +117,8 @@ import UIKit
             let wide = TodayType.width("W", font: font, tracking: 0)
             #expect(abs(narrow - wide) < 0.01)
         }
-        #expect(abs(HUDType.title.tracking - 0.5 / 10.5) < 1e-9)
+        // Task 205: titles at 12 points, still 0.5 points apart.
+        #expect(abs(HUDType.title.tracking - 0.5 / 12) < 1e-9)
     }
 }
 

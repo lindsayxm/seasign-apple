@@ -11,7 +11,9 @@ import UIKit
 /// view's furniture hung from the horizon, titles that give way first.
 ///
 /// Rewritten for v12 in task 193 from the v11 tests of the same names' places
-/// (the v11 left column, hairline and buttons are gone).
+/// (the v11 left column, hairline and buttons are gone). Task 205 changed the
+/// figures for larger type: three event rows at 13 on 22 (was four at 11.3 on
+/// 17), titles at 12 on two 19-point lines, 54 apart (was 10.5, 17, 51).
 @Suite struct TodayOverlayLayoutTests {
     private let zone = TimeZone(identifier: "America/New_York")!
     private let iPhone16 = CGSize(width: 393, height: 852)
@@ -65,18 +67,19 @@ import UIKit
                 #expect(layout.eventsBox == CGRect(x: 116.75, y: 105, width: 242.25, height: 78))
                 #expect(layout.dateTile == CGRect(x: 34, y: 105, width: 76.75, height: 78))
                 // What is in it changes, and every row stays inside the box.
-                let expected = min(labels.count, prompt ? 3 : 4) + (prompt ? 1 : 0)
+                let expected = min(labels.count, prompt ? 2 : 3) + (prompt ? 1 : 0)
                 #expect(layout.eventRows.count == expected, "\(labels.count) events, prompt \(prompt)")
                 #expect(layout.promptIndex == (prompt ? expected - 1 : nil))
                 for row in layout.eventRows {
-                    let rect = CGRect(x: row.origin.x, y: row.origin.y, width: row.width, height: 17)
+                    let rect = CGRect(x: row.origin.x, y: row.origin.y, width: row.width, height: style.lineHeight)
                     #expect(layout.eventsBox.insetBy(dx: 1.4, dy: 1.4).contains(rect), "\(row.text)")
                 }
             }
         }
     }
 
-    /// The README's positions at 393 x 852.
+    /// The README's positions at 393 x 852, with task 205's event rows and
+    /// title pitch.
     @Test func theMockupSampleMatchesItsFigures() {
         let layout = layout(sample)
         #expect(layout.horizonY == 386)
@@ -85,15 +88,16 @@ import UIKit
         #expect(layout.placeRight == 321)
         #expect(layout.dateTile == CGRect(x: 34, y: 105, width: 76.75, height: 78))
         #expect(layout.eventsBox == CGRect(x: 116.75, y: 105, width: 242.25, height: 78))
-        #expect(layout.eventColumns == 34)
+        #expect(layout.eventColumns == 29)
         #expect(layout.eventRows.map(\.text) == [
-            "11:00 A " + String(repeating: "-", count: 11) + " Hanna\u{2019}s Show /",
-            " 1:00 P - Wearables and sensing d/",
-            " 6:45 P - Submit hours for studio/",
-            " 8:15 P " + String(repeating: "-", count: 10) + " Night Workout /",
+            "11:00 A " + String(repeating: "-", count: 6) + " Hanna\u{2019}s Show /",
+            " 1:00 P - Wearables and sens/",
+            " 6:45 P - Submit hours for s/",
         ])
-        // Line boxes 17 tall from 3.6 under the 1.4 border.
-        #expect(layout.eventRows.map(\.origin.y) == [110, 127, 144, 161])
+        // Three line boxes 22 tall, centred: 4.6 under the 1.4 border and
+        // 4.6 above the bottom one.
+        #expect(layout.eventRows.map(\.origin.y) == [111, 133, 155])
+        #expect(abs(layout.eventsBox.maxY - 1.4 - (155 + 22) - 4.6) < 0.001)
         #expect(layout.frame == CGRect(x: 34, y: 194, width: 325, height: 232))
         #expect(layout.frameLabelTop == 201.5 && layout.frameLabelLeft == 42 && layout.frameLabelRight == 349)
         #expect(layout.plate == CGRect(x: 7, y: 428, width: 379, height: 417))
@@ -101,13 +105,18 @@ import UIKit
         #expect(layout.rimGap == 190...440)
         #expect(layout.titlesTop == 461 && layout.titleWidth == 290)
         #expect(layout.titleCapacity == 5)
-        #expect(layout.titleRowTop(4) == CGFloat(461 + 4 * 51))
+        #expect(layout.titleRowTop(4) == CGFloat(461 + 4 * 54))
+        // Five rows still fit: the fifth ends at 461 + 216 + 38 = 715, above
+        // the tiles' 17-point clearance at 734 - 17 = 717.
+        #expect(layout.titleRowTop(4) + 38 <= 734 - 17)
+        #expect(self.layout(size: iPhone17).titleCapacity == 5)
         #expect(layout.tiles.map(\.minX) == [34, 116.75, 199.5, 282.25])
         #expect(layout.tiles.allSatisfy { $0.minY == 734 && $0.height == 78 && $0.width == 76.75 })
     }
 
     /// The date tile and the events box share their top and bottom, and the
-    /// rows are centred in the box with about 4 points free at each side.
+    /// rows are centred in the box with between half a character and a
+    /// character free at each side.
     @Test func leftColumnLinesUpWithTheEvents() {
         let layout = layout(sample)
         #expect(layout.dateTile.minY == layout.eventsBox.minY)
@@ -117,15 +126,15 @@ import UIKit
             let left = row.origin.x - layout.eventsBox.minX
             let right = layout.eventsBox.maxX - (row.origin.x + row.width)
             #expect(abs(left - right) < 0.01)
-            #expect(left > 1.4 + 2 && left < 1.4 + 6, "\(left)")
+            #expect(left >= 1.4 + style.cell / 2 - 0.01 && left < 1.4 + style.cell + 0.5, "\(left)")
         }
         // Every row starts at the same x, also when one holds wide
         // characters that measure differently from the mono cells.
         let wide = self.layout(labels(["会議資料", "Night Workout", "🎉🎂"]))
         #expect(Set(wide.eventRows.map { $0.origin.x }).count == 1)
         #expect(wide.eventRows[0].origin.x == layout.eventRows[0].origin.x)
-        // Four rows fill the box: the last ends inside the border.
-        let last = layout.eventRows[3].origin.y + style.lineHeight
+        // Three rows fill the box: the last ends inside the border.
+        let last = layout.eventRows[2].origin.y + style.lineHeight
         #expect(last <= layout.eventsBox.maxY - 1.4)
     }
 
@@ -152,26 +161,46 @@ import UIKit
     @Test func oneEventTakesTheFirstRowAndTheBoxKeepsItsSize() {
         let one = layout(Array(sample.prefix(1)))
         #expect(one.eventRows.count == 1)
-        #expect(one.eventRows[0].origin.y == 110)
+        #expect(one.eventRows[0].origin.y == 111)
         #expect(one.eventsBox == layout(sample).eventsBox)
     }
 
-    /// Never more than four rows, however many events.
+    /// Never more than three rows, however many events (task 205; was four).
     @Test func theBoxNeverShowsMoreThanFourRows() {
         let many = labels(Array(repeating: "A very long event title that will be cut", count: 7))
         let layout = layout(many)
-        #expect(layout.eventRows.count == 4)
-        #expect(layout.eventRows.allSatisfy { $0.text.count == 34 && $0.text.hasSuffix("/") })
+        #expect(layout.eventRows.count == 3)
+        #expect(layout.eventRows.allSatisfy { $0.text.count == 29 && $0.text.hasSuffix("/") })
     }
 
-    /// With no zip, the prompt takes the last row and three events stay.
+    /// With no zip, the prompt takes the last row and two events stay
+    /// (task 205; was three). The full prompt is cut at 29 characters, so
+    /// the short one is drawn whole; VoiceOver still says the full one.
     @Test func thePromptAndThreeEventsAlwaysFit() {
         let layout = layout(sample, prompt: true)
-        #expect(layout.eventRows.count == 4)
-        #expect(layout.promptIndex == 3)
-        #expect(layout.eventRows[3].text == "-- Set your zip code in Settings /")
-        #expect(layout.eventRows[3].spoken == nil)
-        #expect(layout.eventRows.prefix(3).map(\.spoken) == sample.prefix(3).map(\.spoken))
+        #expect(layout.eventRows.count == 3)
+        #expect(layout.promptIndex == 2)
+        #expect(layout.eventRows[2].text == "-- Set zip code in Settings /")
+        #expect(layout.eventRows[2].spoken == nil)
+        #expect(layout.eventRows[2].origin.y == 155)
+        #expect(layout.eventRows.prefix(2).map(\.spoken) == sample.prefix(2).map(\.spoken))
+    }
+
+    /// The zip prompt is never cut mid-word: the full text where it fits
+    /// (Pro Max), the short one elsewhere, on every screen.
+    @Test func theZipPromptIsNeverCutMidWord() {
+        let expected: [(CGSize, String)] = [
+            (se, "- Set zip code in Settings/"),
+            (iPhone16, "-- Set zip code in Settings /"),
+            (iPhone17, "--- Set zip code in Settings /"),
+            (proMax, "-- Set your zip code in Settings /"),
+        ]
+        for (size, text) in expected {
+            let layout = layout([], prompt: true, size: size)
+            #expect(layout.eventRows.map(\.text) == [text], "\(size)")
+        }
+        #expect(TodayOverlayLayout.zipPrompt(columns: 32) == TodayOverlayLayout.zipPromptText)
+        #expect(TodayOverlayLayout.zipPrompt(columns: 31) == TodayOverlayLayout.shortZipPromptText)
     }
 
     /// A pasted link or a title written without spaces never runs past the
@@ -196,6 +225,8 @@ import UIKit
     }
 
     /// The same for article titles, measured as `HeadlinesColumn` measures them.
+    /// At 12 points a 290-point line holds 37 characters (task 205; 42 at
+    /// 10.5), so the mockup's first title breaks earlier than the still.
     @Test func anUnbreakableArticleTitleStaysInsideItsColumn() {
         let layout = layout([])
         let title = HUDType.title
@@ -205,17 +236,18 @@ import UIKit
             #expect(lines.count == 2)
             #expect(lines.allSatisfy { title.width($0) <= layout.titleWidth + 0.5 })
         }
-        // The mockup's first title breaks where the still breaks it.
         #expect(HeadlinesColumn.lines("A short explainer on quantum mechanics and its uses", width: layout.titleWidth)
-            == ["A short explainer on quantum mechanics and", "its uses"])
+            == ["A short explainer on quantum", "mechanics and its uses"])
+        #expect(title.width(String(repeating: "0", count: 37)) <= layout.titleWidth)
+        #expect(title.width(String(repeating: "0", count: 38)) > layout.titleWidth)
     }
 
     /// A 24-hour phone: the time in five, no letter, the dashes still line up.
     @Test func aTwentyFourHourPhoneShowsNoLetter() {
         let layout = layout(labels(["Hanna\u{2019}s Show", "Night Workout"], hours: [9, 20.25], clock: .twentyFourHour))
         #expect(layout.eventRows.map(\.text) == [
-            "09:00   " + String(repeating: "-", count: 11) + " Hanna\u{2019}s Show /",
-            "20:15   " + String(repeating: "-", count: 10) + " Night Workout /",
+            "09:00   " + String(repeating: "-", count: 6) + " Hanna\u{2019}s Show /",
+            "20:15   " + String(repeating: "-", count: 5) + " Night Workout /",
         ])
     }
 
@@ -228,21 +260,22 @@ import UIKit
         #expect(layout.tiles.last?.maxX == 406)
         #expect(layout.tiles.allSatisfy { abs($0.width - 88.5) < 0.001 && $0.minY == CGFloat(956 - 118) })
         #expect(layout.settingsRect.minX == CGFloat(440 - 58))
-        #expect(layout.eventColumns == 39)
-        #expect(layout.eventRows.allSatisfy { $0.text.count == 39 })
+        #expect(layout.eventColumns == 34)
+        #expect(layout.eventRows.allSatisfy { $0.text.count == 34 })
         #expect(layout.titleCapacity == 5)
         #expect(abs(layout.frame.maxY - (layout.horizonY + 40)) < 0.001)
         #expect(abs(layout.plate.minY - (layout.horizonY + 42)) < 0.001)
         #expect(layout.plate.maxY == CGFloat(956 - 7))
         #expect(layout.titleWidth == CGFloat(440 - 35 - 68))
         // The last title row ends above the tiles.
-        #expect(layout.titleRowTop(4) + 34 <= layout.tiles[0].minY - 17)
+        #expect(layout.titleRowTop(4) + 38 <= layout.tiles[0].minY - 17)
     }
 
     /// Type does not scale: every screen uses the mockup's sizes, and the
     /// date tile's text fits its tile on each.
     @Test func typeDoesNotScaleAndTheWeekdayFitsTheDateTile() {
-        #expect(HUDType.tileLabel.size == 12 && HUDType.tileFoot.size == 11 && HUDType.eventRow.size == 11.3)
+        #expect(HUDType.tileLabel.size == 12 && HUDType.tileFoot.size == 11 && HUDType.eventRow.size == 13)
+        #expect(HUDType.eventRow.lineHeight == 22 && HUDType.title.size == 12 && HUDType.title.lineHeight == 19)
         for size in [se, iPhone16, iPhone17, proMax] {
             let tile = layout(size: size).dateTile
             let inner = tile.width - 2 * (1.4 + 7)
@@ -255,7 +288,7 @@ import UIKit
     /// Every screen size: the rows' character count is the most that fits
     /// with half a character free each side, and the rows stay in the box.
     @Test func everyScreenGetsTheMostColumnsThatFit() {
-        let expected: [(CGSize, Int)] = [(se, 32), (iPhone16, 34), (iPhone17, 35), (proMax, 39)]
+        let expected: [(CGSize, Int)] = [(se, 27), (iPhone16, 29), (iPhone17, 30), (proMax, 34)]
         for (size, columns) in expected {
             let layout = layout(sample, size: size)
             #expect(layout.eventColumns == columns, "\(size)")
@@ -274,8 +307,8 @@ import UIKit
         let layout = layout([], prompt: true)
         #expect(layout.eventRows.count == 1)
         #expect(layout.promptIndex == 0)
-        #expect(layout.eventRows[0].origin.y == 110)
-        #expect(layout.eventRows[0].text == "-- Set your zip code in Settings /")
+        #expect(layout.eventRows[0].origin.y == 111)
+        #expect(layout.eventRows[0].text == "-- Set zip code in Settings /")
     }
 
     /// An event on a later day shows its weekday in the time column and no
@@ -287,19 +320,20 @@ import UIKit
         )
         let label = EventLabel(event: later, now: now, timeZone: zone, clock: .twelveHour)
         let layout = layout(Array(sample.prefix(1)) + [label])
-        #expect(layout.eventRows[1].text == "  WED   " + String(repeating: "-", count: 16) + " Dentist /")
+        #expect(layout.eventRows[1].text == "  WED   " + String(repeating: "-", count: 11) + " Dentist /")
         #expect(layout.eventRows.map { $0.text.firstIndex(of: "-") } == layout.eventRows.map { _ in layout.eventRows[0].text.firstIndex(of: "-") })
     }
 
     /// iPhone SE size: the titles give way first, whole rows at a time; the
-    /// top and the tiles keep their places.
+    /// top and the tiles keep their places. Task 205: at 12 points on a 54
+    /// pitch one title fits (two did at 10.5 on 51).
     @Test func aSmallScreenScalesEverything() {
         let layout = layout(sample, size: se)
         #expect(abs(layout.horizonY - 386 * 375 / 393) < 0.001)
         #expect(layout.tiles[0].minY == CGFloat(667 - 118))
-        #expect(layout.titleCapacity == 2)
-        #expect(layout.titleRowTop(1) + 34 <= layout.tiles[0].minY - 17)
-        #expect(layout.titleRowTop(2) + 34 > layout.tiles[0].minY - 17)
+        #expect(layout.titleCapacity == 1)
+        #expect(layout.titleRowTop(0) + 38 <= layout.tiles[0].minY - 17)
+        #expect(layout.titleRowTop(1) + 38 > layout.tiles[0].minY - 17)
         #expect(layout.eventsBox.minY == 105 && layout.markRect.minY == 66)
         // The frame still clears the date tile.
         #expect(layout.frame.minY > layout.dateTile.maxY)

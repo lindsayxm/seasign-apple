@@ -130,10 +130,12 @@ enum HUDType {
     static let tabFoot = MonoStyle(size: 11, kern: 0.39, lineHeight: 14)
     /// The labels inside the frame's top corners (`55°F`, `Daylight`): 12.
     static let frameLabel = MonoStyle(size: 12, kern: 0, lineHeight: 15)
-    /// The event rows in the events box: 11.3.
-    static let eventRow = MonoStyle(size: 11.3, kern: 0, lineHeight: 17)
-    /// The article titles and their numbers: 10.5, 0.5 points apart.
-    static let title = MonoStyle(size: 10.5, kern: 0.5, lineHeight: 17)
+    /// The event rows in the events box: 13 on a 22-point line (task 205,
+    /// a tester found the mockup's 11.3 on 17 too small).
+    static let eventRow = MonoStyle(size: 13, kern: 0, lineHeight: 22)
+    /// The article titles and their numbers: 12, 0.5 points apart, on a
+    /// 19-point line (task 205; the mockup's 10.5 on 17).
+    static let title = MonoStyle(size: 12, kern: 0.5, lineHeight: 19)
 
     static let all = [place, tileLabel, tileFoot, tabLabel, tabFoot, frameLabel, eventRow, title]
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The events box on Today (design v12): an outline in the accent on a
-/// dark panel beside the date tile, with the next four events as rows of
+/// dark panel beside the date tile, with the next three events as rows of
 /// mono text (`EventRowText`, laid out by `TodayOverlayLayout`). With no
 /// zip saved, the last row is the zip prompt, which opens Settings. With no
 /// events the box stays, empty, so the grid under the top row keeps its
@@ -86,7 +86,7 @@ struct EventsColumn: View {
         .placed(x: target.minX, y: target.minY)
     }
 
-    /// The zip prompt row, its target 44 points tall round the 17-point row
+    /// The zip prompt row, its target 44 points tall round the 22-point row
     /// and as wide as the box.
     private func promptRow(_ row: TodayOverlayLayout.EventRow, action: @escaping () -> Void) -> some View {
         let box = layout.eventsBox

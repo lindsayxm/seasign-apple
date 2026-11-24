@@ -48,9 +48,15 @@ struct TodayOverlayLayout {
         static let tilesTop: CGFloat = 91 + topPadding
         /// The bottom tiles' top, from the bottom of the screen (734 on 852).
         static let bottomTilesFromBottom: CGFloat = 118
-        /// The events box's first line box starts 3.6 points under its border.
-        static let eventsPaddingTop: CGFloat = 3.6
-        static let eventRows = 4
+        /// How many rows the events box holds (task 205: three in larger
+        /// type; the mockup has four).
+        static let eventRows = 3
+        /// The rows are centred in the box: the first line box starts this
+        /// far under the border (4.6 for three 22-point rows in 78; the
+        /// mockup's four 17-point rows started 3.6 under it).
+        static var eventsPaddingTop: CGFloat {
+            (tileHeight - 2 * tileBorder - CGFloat(eventRows) * HUDType.eventRow.lineHeight) / 2
+        }
         /// The frame round the view: from 180 down to 40 under the horizon.
         static let frameTop: CGFloat = 180 + topPadding
         static let frameBelowHorizon: CGFloat = 40
@@ -71,15 +77,17 @@ struct TodayOverlayLayout {
         /// Its top fades in over this many points (the CSS gradient's stops).
         static let plateFade: CGFloat = 36
         /// The titles: first row 75 under the horizon, numbers at x 32,
-        /// titles at x 68 and 290 wide, two 17-point lines on a 51 pitch.
+        /// titles at x 68 and 290 wide, two 19-point lines on a 54 pitch
+        /// (task 205, for 12-point type; the mockup's 17-point lines sat on a
+        /// 51 pitch). Five rows still fit above the tiles at 393 x 852.
         static let titlesBelowHorizon: CGFloat = 75
         static let numberX: CGFloat = 32
         static let titleX: CGFloat = 68
         /// The title column ends 35 in from the right edge (358 on 393).
         static let titleFromRight: CGFloat = 35
-        static let titleLine: CGFloat = 17
-        static let titleRowHeight: CGFloat = 34
-        static let titlePitch: CGFloat = 51
+        static let titleLine: CGFloat = 19
+        static let titleRowHeight: CGFloat = 38
+        static let titlePitch: CGFloat = 54
         /// A row is shown only when it ends at least this far above the tiles.
         static let titlesAboveTiles: CGFloat = 17
     }
@@ -92,6 +100,17 @@ struct TodayOverlayLayout {
     }
 
     static let zipPromptText = "Set your zip code in Settings"
+    /// The prompt drawn when the full one would be cut (task 205: at 13
+    /// points a row holds 27 to 30 characters on most phones). VoiceOver
+    /// still says `zipPromptText`.
+    static let shortZipPromptText = "Set zip code in Settings"
+
+    /// The prompt to draw in a row of `columns` characters: the full text
+    /// when it fits whole (in the cut form's room, a dash and the slash),
+    /// otherwise the short one.
+    static func zipPrompt(columns: Int) -> String {
+        zipPromptText.count + 3 <= columns ? zipPromptText : shortZipPromptText
+    }
 
     let size: CGSize
     /// The scene's horizon.
@@ -108,9 +127,10 @@ struct TodayOverlayLayout {
     // Date tile and events box.
     let dateTile: CGRect
     let eventsBox: CGRect
-    /// How many characters a row of the box holds (34 on the mockup).
+    /// How many characters a row of the box holds (29 at 393 points; the
+    /// mockup's smaller type held 34).
     let eventColumns: Int
-    /// The rows as drawn, at most four: events, then the zip prompt.
+    /// The rows as drawn, at most three: events, then the zip prompt.
     let eventRows: [EventRow]
     /// The zip prompt's row index in `eventRows`, if shown.
     let promptIndex: Int?
@@ -141,14 +161,15 @@ struct TodayOverlayLayout {
         /// What VoiceOver says; nil for the zip prompt (its button speaks).
         var spoken: String?
         /// The left of the text (the same for every row: a full row centred
-        /// in the box, as CSS centres it) and the top of its 17-point line box.
+        /// in the box, as CSS centres it) and the top of its line box
+        /// (`HUDType.eventRow.lineHeight`).
         var origin: CGPoint
         var width: CGFloat
     }
 
     /// - Parameters:
-    ///   - labels: the next events, soonest first; at most four are shown,
-    ///     three when the zip prompt takes the last row.
+    ///   - labels: the next events, soonest first; at most three are shown,
+    ///     two when the zip prompt takes the last row.
     ///   - showsZipPrompt: no zip is set yet.
     ///   - cornerRadius: the rim's corner radius, when the system reports
     ///     the screen's own (`concentricCornerRadii`); the mockup's 39
@@ -182,7 +203,7 @@ struct TodayOverlayLayout {
 
         // The rows: as many characters as fit inside the border with at
         // least half a character free at each side (34 on the mockup, whose
-        // rows stand about 4 points in from the border).
+        // rows stand about 4 points in from the border; 29 at 13 points).
         let style = HUDType.eventRow
         let inner = eventsBox.width - 2 * M.tileBorder
         let columns = EventRowText.columns(width: inner - style.cell, cell: style.cell)
@@ -199,7 +220,7 @@ struct TodayOverlayLayout {
         }
         if showsZipPrompt {
             promptIndex = texts.count
-            texts.append((EventRowText.message(Self.zipPromptText, columns: columns, maxWidth: maxWidth, measure: measure), nil))
+            texts.append((EventRowText.message(Self.zipPrompt(columns: columns), columns: columns, maxWidth: maxWidth, measure: measure), nil))
         } else {
             promptIndex = nil
         }

@@ -3,7 +3,7 @@ import SwiftUI
 /// The article titles on Today's dark plate (design v12): the items since
 /// yesterday, the followed sites' and the AI-found every other
 /// (`HeadlinePicker.everyOther`), numbered 01, 02, … at x 32 with the title
-/// at x 68 on up to two lines of mono type, on rows 51 points apart. As many
+/// at x 68 on up to two lines of mono type, on rows 54 points apart. As many
 /// whole rows as fit above the tiles (`TodayOverlayLayout.titleCapacity`),
 /// never more than five. It never scrolls.
 ///
@@ -54,7 +54,10 @@ struct HeadlinesColumn: View {
                         .foregroundStyle(accent)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .frame(height: 44, alignment: .leading)
+                        // Held to the titles' band, so the line shrinks
+                        // rather than running off the screen (task 205: at 12
+                        // points it is wider than the band).
+                        .frame(width: layout.titleBand(0).width, height: 44, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
