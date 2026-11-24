@@ -50,8 +50,8 @@ struct HUDColourPick: Equatable {
 /// - A drag that starts in the block is a UIKit pan (`HUDColourFieldPan`)
 ///   that begins whichever way the finger moves, and the scroll view's pan
 ///   waits for it to fail, so the page does not scroll under it. A drag
-///   that starts outside the block, even just outside, fails the pan
-///   (`mayBegin`) and scrolls as usual.
+///   that starts outside the block, even just outside, is never given to
+///   the pan (`takesPart`) and scrolls as usual.
 /// - A pan that began sets the colour as it moves (written, not saved),
 ///   sets it where it lifts and saves when it ends, and, when it is
 ///   cancelled (the system took the touch, Settings closed), saves what it
@@ -109,12 +109,13 @@ struct HUDColourTouch: Equatable {
         return .set(HUDColourField.pick(at: point, size: size), save: true)
     }
 
-    /// Whether a pan whose finger is now at `location`, having moved
-    /// `translation`, may begin: only when it went down inside the block
-    /// of `size`. SwiftUI offers the pan touches that land just outside the
-    /// block too; those are left to the scroll view.
-    static func mayBegin(at location: CGPoint, translation: CGPoint, size: CGSize) -> Bool {
-        HUDColourField.contains(CGPoint(x: location.x - translation.x, y: location.y - translation.y), size: size)
+    /// Whether the block's pan takes part in a touch that went down at
+    /// `point` (in the block's space): only inside the block of `size`.
+    /// The pan is offered touches outside the block too (just outside it,
+    /// and on iOS 18 anywhere on the screen); those are left to the scroll
+    /// view, which would otherwise wait for the pan.
+    static func takesPart(touchDownAt point: CGPoint, size: CGSize) -> Bool {
+        HUDColourField.contains(point, size: size)
     }
 }
 
@@ -491,13 +492,14 @@ private struct HUDColourFieldPan: UIGestureRecognizerRepresentable {
             self.converter = converter
         }
 
-        /// Begins only for a touch that went down inside the block.
-        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-            HUDColourTouch.mayBegin(
-                at: converter.localLocation,
-                translation: converter.localTranslation ?? .zero,
-                size: size
-            )
+        /// Takes part only in touches that go down inside the block. The
+        /// recognizer may sit on a view larger than the block (on iOS 18 it
+        /// is the whole hosting view), so a touch elsewhere is turned away
+        /// here, before the scroll view's pan starts waiting for this one.
+        /// The touch-down point is read from the touch itself: on iOS 18
+        /// the converter's `localTranslation` is not a usable vector.
+        func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            HUDColourTouch.takesPart(touchDownAt: converter.convert(globalPoint: touch.location(in: nil)), size: size)
         }
 
         /// The scroll view's pan waits for this one to fail.

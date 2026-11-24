@@ -349,20 +349,18 @@ import Testing
         #expect(HUDColourTouch.tap(at: CGPoint(x: 360, y: 100), size: size) == .set(pick(360, 0), save: true))
     }
 
-    /// A drag that went down outside the block, even just outside its top
-    /// edge, never begins: the scroll view takes it. One that went down
-    /// inside begins whichever way it then moves, even out of the block.
-    @Test func onlyADragThatStartsInTheBlockBegins() {
-        // Down at (200, -14), moved 10 up: outside.
-        #expect(!HUDColourTouch.mayBegin(at: CGPoint(x: 200, y: -24), translation: CGPoint(x: 0, y: -10), size: size))
-        // Down at (-3, 50): outside to the left.
-        #expect(!HUDColourTouch.mayBegin(at: CGPoint(x: 9, y: 50), translation: CGPoint(x: 12, y: 0), size: size))
-        // Down inside at (120, 70), moved up and out of the block: begins.
-        #expect(HUDColourTouch.mayBegin(at: CGPoint(x: 120, y: -40), translation: CGPoint(x: 0, y: -110), size: size))
-        // Down on an edge: inside.
-        #expect(HUDColourTouch.mayBegin(at: CGPoint(x: 10, y: 0), translation: CGPoint(x: 10, y: 0), size: size))
-        #expect(HUDColourField.contains(CGPoint(x: 360, y: 100), size: size))
-        #expect(!HUDColourField.contains(CGPoint(x: CGFloat.nan, y: 1), size: size))
+    /// The block's pan takes part only in a touch that went down inside
+    /// the block (edges included); one that went down outside, even just
+    /// outside its top edge, is left to the scroll view. Where the finger
+    /// goes afterwards does not matter (a drag out of the block clamps).
+    @Test func onlyATouchThatGoesDownInTheBlockReachesThePan() {
+        #expect(!HUDColourTouch.takesPart(touchDownAt: CGPoint(x: 200, y: -14), size: size))
+        #expect(!HUDColourTouch.takesPart(touchDownAt: CGPoint(x: -3, y: 50), size: size))
+        #expect(!HUDColourTouch.takesPart(touchDownAt: CGPoint(x: 120, y: 101), size: size))
+        #expect(HUDColourTouch.takesPart(touchDownAt: CGPoint(x: 120, y: 70), size: size))
+        #expect(HUDColourTouch.takesPart(touchDownAt: CGPoint(x: 10, y: 0), size: size))
+        #expect(HUDColourTouch.takesPart(touchDownAt: CGPoint(x: 360, y: 100), size: size))
+        #expect(!HUDColourTouch.takesPart(touchDownAt: CGPoint(x: CGFloat.nan, y: 1), size: size))
     }
 
     /// UIKit ends a pan once, with `.ended` or with `.cancelled`/`.failed`;

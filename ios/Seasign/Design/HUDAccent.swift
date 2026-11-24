@@ -103,7 +103,8 @@ struct SRGB: Equatable, Sendable {
 enum HUDAccent {
     /// The orange-red sampled from the v12 reference, `rgb(235, 78, 39)`.
     static let defaultRGB = SRGB(235, 78, 39)
-    /// The default's hue in degrees (about 11.94), where a hue slider starts.
+    /// The default's hue in degrees (about 11.94), where the Settings colour
+    /// block's marker sits when nothing is stored.
     static let defaultHue: Double = 60 * (78.0 - 39.0) / (235.0 - 39.0)
 
     /// The smallest contrast allowed on the plate and for text on a filled tile.
@@ -228,8 +229,9 @@ enum HUDAccent {
 
 extension EnvironmentValues {
     /// The HUD accent every view draws its accent parts in. The app root
-    /// sets it from `Settings.hudHue` (`HUDAccentRoot`); anywhere it is not
-    /// set, it is the default orange-red.
+    /// sets it from `Settings.hudHue` and `Settings.hudLightness`
+    /// (`HUDAccentRoot`); anywhere it is not set, it is the default
+    /// orange-red.
     @Entry var hudAccent: Color = Palette.hudAccent
 }
 
@@ -255,7 +257,7 @@ struct HUDAccentRoot<Content: View>: View {
 
     /// The hue every screen draws with: the stored one. In DEBUG builds
     /// `-debugHue <degrees>` stands in for it without writing the store
-    /// (screenshots); the Settings slider still shows the stored hue.
+    /// (screenshots); the Settings colour block still shows the stored hue.
     static func hue(stored: Double?) -> Double? {
         #if DEBUG
         if let text = UserDefaults.standard.string(forKey: "debugHue"), let debug = Double(text) {
