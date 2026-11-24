@@ -441,26 +441,32 @@ describe("days whose clocks jump at midnight", () => {
     // jumping over midnight), and on the first of each month. Every day of
     // every zone took 5 to 18 s under load (task 174).
     const failures: string[] = [];
-    let checked = 0;
+    const checked = new Set<string>();
+    let changeDays = 0;
     for (const zone of Intl.supportedValuesOf("timeZone")) {
       const days = new Set<number>();
-      for (let month = 1; month <= 12; month++) days.add(dayWall(`2026-${String(month).padStart(2, "0")}-01`)!);
       for (const change of offsetChanges(zone, 2026)) {
         for (const at of [change.at - 1, change.at]) {
           const wall = dayWall(dateIn(at, zone))!;
           for (const day of [wall - 86400, wall, wall + 86400]) days.add(day);
         }
       }
+      changeDays += days.size;
+      for (let month = 1; month <= 12; month++) days.add(dayWall(`2026-${String(month).padStart(2, "0")}-01`)!);
       for (const wall of days) {
-        checked++;
         const bounds = dayBounds(wall, zone);
         const day = dayText(wall);
+        checked.add(`${zone} ${day}`);
         if (dateIn(bounds.from, zone) !== day || dateIn(bounds.from - 1, zone) !== dayText(wall - 86400) || dayBounds(wall - 86400, zone).to !== bounds.from) {
           failures.push(`${zone} ${day}`);
         }
       }
     }
-    expect(checked).toBeGreaterThan(5000);
+    // The days around the changes were found and checked: some hundred zones change twice.
+    expect(changeDays).toBeGreaterThan(500);
+    for (const day of ["America/Santiago 2026-09-06", "America/Havana 2026-03-08", "America/New_York 2026-03-08", "Asia/Beirut 2026-03-29"]) {
+      expect(checked.has(day), day).toBe(true);
+    }
     expect(failures).toEqual([]);
   }, 30_000);
 
