@@ -69,7 +69,8 @@ struct DoGetView: View {
             .id(Self.addRowID(kind))
     }
 
-    /// The section's heading, in the accent.
+    /// The section's heading, in the accent, with CLEAR CHECKED at the right
+    /// while the list has a checked item.
     private func header(_ kind: ListKind) -> some View {
         HStack(alignment: .center) {
             Text(caps: kind.label)
@@ -77,6 +78,16 @@ struct DoGetView: View {
                 .foregroundStyle(accent)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
+            // Only while this list has a checked item: removes those items.
+            if model.hasChecked(kind) {
+                Button {
+                    withAnimation { model.clearChecked(kind) }
+                } label: {
+                    Text("CLEAR CHECKED")
+                }
+                .buttonStyle(.hudLink)
+                .accessibilityLabel("Clear checked \(kind.label) items")
+            }
         }
         .frame(minHeight: 44)
         .padding(.horizontal, margin)

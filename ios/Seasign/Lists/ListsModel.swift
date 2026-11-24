@@ -56,6 +56,21 @@ final class ListsModel {
         save()
     }
 
+    /// Whether a list has at least one checked item (the CLEAR CHECKED
+    /// button shows only then).
+    func hasChecked(_ kind: ListKind) -> Bool {
+        items.contains { $0.kind == kind && $0.isDone }
+    }
+
+    /// Deletes every checked item of one list. The other list and the
+    /// unchecked items are left alone. One save, so it is all or nothing.
+    func clearChecked(_ kind: ListKind) {
+        let checked = items.filter { $0.kind == kind && $0.isDone }
+        guard !checked.isEmpty else { return }
+        for item in checked { context.delete(item) }
+        save()
+    }
+
     private func save() {
         do {
             try context.save()

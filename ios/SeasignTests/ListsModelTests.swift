@@ -85,6 +85,39 @@ import Testing
         #expect(model.items(.todo).map(\.title) == ["Wash car"])
     }
 
+    @Test func clearCheckedRemovesOnlyThatListsCheckedItems() throws {
+        let context = try inMemoryContext()
+        let model = model(context: context)
+        let coffee = try #require(model.add("Coffee", to: .get))
+        model.add("Almond milk", to: .get)
+        let car = try #require(model.add("Wash car", to: .todo))
+        let call = try #require(model.add("Call Sam", to: .todo))
+        model.add("Water plants", to: .todo)
+        #expect(!model.hasChecked(.get) && !model.hasChecked(.todo))
+
+        model.toggle(coffee)
+        model.toggle(car)
+        model.toggle(call)
+        #expect(model.hasChecked(.get) && model.hasChecked(.todo))
+
+        model.clearChecked(.todo)
+        #expect(model.items(.todo).map(\.title) == ["Water plants"])
+        // The other list keeps its checked item.
+        #expect(model.items(.get).map(\.title) == ["Coffee", "Almond milk"])
+        #expect(!model.hasChecked(.todo) && model.hasChecked(.get))
+
+        model.clearChecked(.get)
+        #expect(model.items(.get).map(\.title) == ["Almond milk"])
+        #expect(!model.hasChecked(.get))
+
+        // Nothing checked: nothing changes.
+        model.clearChecked(.get)
+        model.clearChecked(.todo)
+        #expect(model.items.map(\.title) == ["Almond milk", "Water plants"])
+        // And it is gone from the store, not only from memory.
+        #expect(try context.fetch(FetchDescriptor<ListItem>()).count == 2)
+    }
+
     @Test func itemsHaveDistinctSyncIDs() throws {
         let model = model(context: try inMemoryContext())
         let first = try #require(model.add("Coffee", to: .get))
