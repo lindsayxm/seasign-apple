@@ -913,6 +913,11 @@ private final class AIClock: @unchecked Sendable {
         #expect(ai.keyStatus == .unknown)
     }
 
+    @Test func theFullNotesSampleIsAtTheLimit() throws {
+        let saved = try SavedModel.sample(context: try inMemoryContext(), notesFull: true)
+        #expect(saved.entries.contains { saved.notes(for: $0.id).count == SavedModel.notesLimit })
+    }
+
     @Test func theListSampleHoldsBothListsInMemory() throws {
         let lists = try ListsModel.sample(context: try inMemoryContext())
         #expect(lists.items(.todo).count == 3 && lists.items(.get).count == 3)

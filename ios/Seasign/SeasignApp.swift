@@ -114,7 +114,8 @@ struct SeasignApp: App {
                 : liveGoogle
             // `-debugSavedProblem <case>` shows that problem's line on Saved
             // (`notSaved`, `notRemoved`, `notesNotSaved`), on the in-memory
-            // Saved store; `-debugAIKeyUnreadable YES` (with `-debugAI`) a
+            // Saved store; `-debugSavedNotesFull YES` (with `-debugSaved`)
+            // the first sample's notes at the limit; `-debugAIKeyUnreadable YES` (with `-debugAI`) a
             // key store that will not answer, as a locked Keychain.
             let showAI = defaults.bool(forKey: "debugAI")
             let savedProblem = SavedModel.Problem.debugNamed(defaults.string(forKey: "debugSavedProblem"))
@@ -125,6 +126,7 @@ struct SeasignApp: App {
                 showSaved: defaults.bool(forKey: "debugSaved"),
                 showAI: showAI,
                 savedProblem: savedProblem,
+                savedNotesFull: defaults.bool(forKey: "debugSavedNotesFull"),
                 aiKeyUnreadable: defaults.bool(forKey: "debugAIKeyUnreadable")
             )
             // With `-debugAI` the real Keychain is never used, even when the
@@ -163,6 +165,7 @@ struct SeasignApp: App {
         showSaved: Bool,
         showAI: Bool,
         savedProblem: SavedModel.Problem? = nil,
+        savedNotesFull: Bool = false,
         aiKeyUnreadable: Bool = false,
         feedSample: (ModelContext) throws -> FeedModel = { try FeedModel.sample(context: $0) }
     ) -> (feed: FeedModel, saved: SavedModel, ai: AISearchModel?) {
@@ -172,7 +175,7 @@ struct SeasignApp: App {
         let context = ModelContext(container)
         let sampleFeed = showFeed ? (try? feedSample(context)) ?? feed : feed
         let sampleSaved = showSaved
-            ? (try? SavedModel.sample(context: context, includingAI: showAI)) ?? SavedModel(context: context)
+            ? (try? SavedModel.sample(context: context, includingAI: showAI, notesFull: savedNotesFull)) ?? SavedModel(context: context)
             : SavedModel(context: context)
         sampleSaved.problem = savedProblem
         var ai: AISearchModel?

@@ -288,7 +288,9 @@ extension SavedModel {
     /// which is an in-memory store (see `SeasignApp`). Nothing reaches the
     /// user's own store.
     /// With `includingAI` (`-debugAI YES`), a fourth, AI-found article.
-    static func sample(context: ModelContext, now: Date = Date(), includingAI: Bool = false) throws -> SavedModel {
+    /// With `notesFull` (`-debugSavedNotesFull YES`), the first article's
+    /// notes are at the limit, so "Notes are full" shows.
+    static func sample(context: ModelContext, now: Date = Date(), includingAI: Bool = false, notesFull: Bool = false) throws -> SavedModel {
         var items: [(ReadingItem, String)] = [
             (
                 ReadingItem(
@@ -343,6 +345,10 @@ extension SavedModel {
                 ),
                 ""
             ), at: 0)
+        }
+        if notesFull {
+            let line = "Sample notes, written out to the limit. "
+            items[0].1 = String(String(repeating: line, count: notesLimit / line.count + 1).prefix(notesLimit))
         }
         for (index, (item, notes)) in items.enumerated() {
             context.insert(SavedItem(item, notes: notes, savedAt: now.addingTimeInterval(-Double(index) * 3600)))
