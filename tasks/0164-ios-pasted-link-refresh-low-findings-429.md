@@ -1,11 +1,11 @@
 ---
 id: 164
 title: iOS: pasted-link refresh, low findings: 429 hold lost to a scheduled answer; answers not ordered; measure requests in the running app
-status: review
+status: done
 owner: implementer-2
 depends_on: []
 created: 2026-11-22T04:35:41Z
-updated: 2026-11-24T16:49:52Z
+updated: 2026-11-24T17:03:01Z
 ---
 
 ## Goal
@@ -15,7 +15,7 @@ Low findings from the #162 review, none urgent. (1) EventsModel clears retryNotB
 ## Acceptance criteria
 
 - [x] Items 1-3 fixed with tests that fail on the old code
-- [ ] Item 4 measured on the iPhone 17 simulator against local wrangler dev and recorded in the log; iOS suite passes on both runtimes
+- [x] Item 4 measured on the iPhone 17 simulator against local wrangler dev and recorded in the log; iOS suite passes on both runtimes
 
 ## Relevant files
 
@@ -44,3 +44,6 @@ Low findings from the #162 review, none urgent. (1) EventsModel clears retryNotB
 - 2026-11-24T16:49:21Z [implementer-2] criterion 1 met: Items 1-3 fixed with tests that fail on the old code
 - 2026-11-24T16:49:21Z [implementer-2] review (reviewer, read-only, no xcodebuild per lead): PASS on criterion 1, verified by tracing the code at 9a3079b, not by running tests. Item 1: answered(holdAtStart:) in refresh (EventsModel.swift:199,209) and add (:239,250) keeps a hold set while the request was out and not yet passed, clears one that was on at send (refresh only sends past a hold; add's answer clears an active one, as before); matches GoogleCalendarModel.answered; day screen's events.hold (DayModel.swift:510) is covered by anAnswerKeepsAHoldTheDayScreenSetWhileItWasOut. Item 2: the two-mark argument is right (aScheduledAnswerThatLandsWhileAFreshOneIsInFlight... needs fresh #1 shown after scheduled #2 was shown, which any single last-shown number drops). Enumerated all 120 in-zone orders of three S/F requests: the rule drops exactly scheduled answers sent before a shown scheduled one or before a shown fresh one landed, and fresh answers older than a shown fresh one; the 19 cases where an earlier-sent answer replaces a later-sent one are all a fresh answer replacing a scheduled one sent while it was out (by design, that existing test). Both marks reset in setSnapshot(nil) (:312-315). Low finding: the freshShown reset loses order across a clear: F1 (zone A) hangs, F2 (A) shown, zone B then A (two clears), S4 (A) shown, F1 lands and replaces S4 (:212 passes with freshShown nil). The API's fresh read writes the KV cache under a zone-independent key (api/src/routes/calendar.ts:252-261), so S4 carries F2's read or newer; F1 is staler and its fetchedAt restarts the 5 minutes. Needs a fresh request hung across two zone changes; keeping freshShown across a clear would fix it and no existing test I found needs that reset (aScheduledAnswerFillsAnEmptyToday... needs only the scheduledShownThrough reset). Lead's call. Tests: the 5 new EventsModel tests fail on the old code by trace (HeldCalendarTransport makes answers at send time, so stale payloads differ); aScheduledRequestSentWhileAFreshOneWasOutIsDroppedIfItLandsAfterIt is a non-vacuous pin (late answer carries [show], sent kinds asserted [true,nil]); googlesHoldLengthensAShorterKeptHold pins only lengthening, not keeping (answered clearing the 30 s hold would also end at 60; keeping is pinned by googlesShortHoldDoesNotShortenALongerKeptHold). Item 3 comment fixed. -debugSeedLink: inside #if DEBUG in SeasignApp.start and EventsModel (seeded), in-memory container, link never logged; no trace lines left. Criterion 2 left unticked: measurement method and counts (launch 2, 30 s return 0, 6 min return 1 then 2, wrangler count 5 matching traces) are adequate for item 4's question, relaunch-with-cache unmeasured and noted; suite not rerun by me, for the lead.
 - 2026-11-24T16:49:52Z [implementer-2] Lead: reviewer passed criterion 1 and the measurement half of criterion 2. The suite half waits for the next full run on both runtimes at a HEAD that includes 9a3079b (the #178 rework's run); then close.
+- 2026-11-24T17:03:00Z [implementer-2] Lead: suite rerun at c618c72: 877 tests passed, TEST SUCCEEDED, on iPhone 17 / iOS 27.2 and iPhone 16 / iOS 18.3.1.
+- 2026-11-24T17:03:00Z [implementer-2] criterion 2 met: Item 4 measured on the iPhone 17 simulator against local wrangler dev and recorded in the log; iOS suite passes on both runtimes
+- 2026-11-24T17:03:01Z [implementer-2] status: review → done
