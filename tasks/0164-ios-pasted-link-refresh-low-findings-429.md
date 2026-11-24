@@ -1,11 +1,11 @@
 ---
 id: 164
 title: iOS: pasted-link refresh, low findings: 429 hold lost to a scheduled answer; answers not ordered; measure requests in the running app
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-2
 depends_on: []
 created: 2026-11-22T04:35:41Z
-updated: 2026-11-22T19:57:32Z
+updated: 2026-11-24T16:09:32Z
 ---
 
 ## Goal
@@ -30,3 +30,5 @@ Low findings from the #162 review, none urgent. (1) EventsModel clears retryNotB
 - 2026-11-22T04:35:41Z [li] created (backlog)
 - 2026-11-22T19:49:26Z [li] Lead: add from #170: EventsModel.refresh and add clear retryNotBefore on every success, so a links request already out when a 429 hold is set (by the day screen or another request) wipes that hold when it succeeds; the same rule as GoogleCalendarModel.answered(holdAtStart:) should apply to links.
 - 2026-11-22T19:57:32Z [li] Lead: from the second #170 review: tests that pin holdAtLeast (a per-calendar 60 s hold must not shorten a longer kept hold) and the kept failure count in GoogleCalendarModel.answered; holdAtLeast resets holdIsServerLimit when it replaces a shorter 429 hold (check that is intended).
+- 2026-11-24T16:09:32Z [li] status: backlog → todo
+- 2026-11-24T16:09:32Z [implementer-2] status: todo → in-progress — claimed by implementer-2
