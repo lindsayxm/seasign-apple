@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: [215]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T19:10:14Z
+updated: 2026-11-24T19:12:45Z
 ---
 
 ## Goal
@@ -31,3 +31,4 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 
 - 2026-11-24T19:09:50Z [li] created (backlog)
 - 2026-11-24T19:10:14Z [li] User, 2026-11-24: AI-found articles the person saved stay visible in Saved on a lapsed subscription (already fetched, no cost). AI-found items in the feed (Today, History) are hidden when not Subscribed.
+- 2026-11-24T19:12:45Z [li] User, 2026-11-24: the point of the rule is that no additional charges are incurred after a lapse; whether already-fetched AI headlines stay visible does not matter, do what is easier. Lead: keep the existing behaviour (FeedModel.showsAI follows AISearchModel.isActive, so they are hidden when AI search is not active); no extra hiding code. The essential tests are that no POST /v1/discover is sent unless Subscribed.
