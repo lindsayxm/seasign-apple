@@ -225,4 +225,32 @@ import UIKit
         }
         #expect(SRGB.contrast(SRGB(252, 104, 96), HUDAccent.defaultRGB) < 1.5)
     }
+
+    /// Task 198: one case rule for a row's name. A warning in that place
+    /// ("Key can't be read now" in Settings' AI key row) is in capitals,
+    /// like its sibling "Key saved" (`Text(caps:)`); notes stay as written.
+    @Test func aWarningInARowNameIsInCapitalsLikeTheRowNames() {
+        #expect(HUDWarning.shown("Key can't be read now", role: .rowName) == "KEY CAN'T BE READ NOW")
+        #expect(HUDWarning.shown("Key can't be read now", role: .rowName) == "Key can't be read now".uppercased())
+        #expect(HUDWarning.shown("That article couldn't be saved on this phone. Try again.", role: .note)
+            == "That article couldn't be saved on this phone. Try again.")
+        #expect(HUDWarning(text: "Note").role == .note)
+    }
+}
+
+/// Task 198: History's save chip carries its 44-point touch area inside the
+/// button style, so the area is the button's own and not a frame round it.
+@Suite @MainActor struct HUDChipTouchTests {
+    @Test func aChipWithATouchAlignmentHasA44PointArea() {
+        #expect(HUDChipButtonStyle.minimumTouch == 44)
+        let history = ButtonStyleProbe.chip(.hudChip(selected: true, touchAlignment: .trailing))
+        #expect(history.touchAlignment == .trailing && history.selected)
+        // The other chips (Settings' choices) keep their 36-point face as
+        // their area.
+        #expect(ButtonStyleProbe.chip(.hudChip(selected: false)).touchAlignment == nil)
+    }
+}
+
+private enum ButtonStyleProbe {
+    static func chip(_ style: HUDChipButtonStyle) -> HUDChipButtonStyle { style }
 }

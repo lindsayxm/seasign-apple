@@ -125,10 +125,8 @@ struct HistoryView: View {
             }
         }
         // Filled with the accent when saved, outlined in it when not; the
-        // touch area stays 44 points tall.
-        .buttonStyle(.hudChip(selected: isSaved))
-        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-        .contentShape(Rectangle())
+        // touch area is 44 points tall, inside the style (task 198).
+        .buttonStyle(.hudChip(selected: isSaved, touchAlignment: .trailing))
         .accessibilityLabel(SaveMark.label(isSaved: isSaved, title: item.title))
         .accessibilityValue(isSaved ? "Saved" : "Not saved")
     }

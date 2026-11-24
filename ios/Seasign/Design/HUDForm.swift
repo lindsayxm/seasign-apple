@@ -146,7 +146,9 @@ struct HUDNote: View {
 /// The one look of a problem or warning on every HUD screen (task 197):
 /// white words after a white "!", so it never reads as the accent at any
 /// hue (white is the HUD's second colour). The "!" is hidden from
-/// VoiceOver, which reads the words as before.
+/// VoiceOver, which reads the words as before. In a row's name
+/// (`.rowName`) the words are in capitals like every other row name
+/// ("KEY SAVED", task 198); notes stay as written.
 struct HUDWarning: View {
     var text: String
     var role: HUDTextRole = .note
@@ -156,15 +158,21 @@ struct HUDWarning: View {
     /// The colour of the mark and the words.
     static let colour = SRGB(255, 255, 255)
 
+    /// The words as drawn: capitals in a row's name, as written otherwise.
+    static func shown(_ text: String, role: HUDTextRole) -> String {
+        role == .rowName ? text.uppercased() : text
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(verbatim: Self.mark)
                 .font(.system(role.textStyle, design: .monospaced, weight: .bold))
                 .accessibilityHidden(true)
-            Text(verbatim: text)
+            Text(verbatim: Self.shown(text, role: role))
                 .hudText(role)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(Text(verbatim: text))
         }
         .foregroundStyle(Self.colour.color)
         .accessibilityElement(children: .combine)
@@ -249,21 +257,29 @@ struct HUDLinkButtonStyle: ButtonStyle {
 }
 
 /// One choice among several (a provider, a category): filled with the
-/// accent when chosen, outlined in it otherwise.
+/// accent when chosen, outlined in it otherwise. The face is 36 points
+/// tall; with `touchAlignment` the button's touch area is at least 44 by 44
+/// round it, the face placed in it by that alignment (History's save chip,
+/// task 198).
 struct HUDChipButtonStyle: ButtonStyle {
     var selected: Bool
+    var touchAlignment: Alignment?
+
+    /// The smallest touch area, with `touchAlignment`.
+    static let minimumTouch: CGFloat = 44
 
     func makeBody(configuration: Configuration) -> some View {
-        Face(configuration: configuration, selected: selected)
+        Face(configuration: configuration, selected: selected, touchAlignment: touchAlignment)
     }
 
     private struct Face: View {
         let configuration: Configuration
         let selected: Bool
+        let touchAlignment: Alignment?
         @Environment(\.hudAccent) private var accent
 
         var body: some View {
-            configuration.label
+            let face = configuration.label
                 .hudText(.chip)
                 .fontWeight(selected ? .semibold : .regular)
                 .foregroundStyle(selected ? Palette.onAccent : Palette.white)
@@ -272,7 +288,14 @@ struct HUDChipButtonStyle: ButtonStyle {
                 .background(HUDShape.rect.fill(selected ? accent : Color.clear))
                 .overlay(HUDShape.rect.strokeBorder(accent, lineWidth: HUDShape.line))
                 .opacity(configuration.isPressed ? 0.7 : 1)
-                .contentShape(HUDShape.rect)
+            if let touchAlignment {
+                face
+                    .frame(minWidth: HUDChipButtonStyle.minimumTouch, minHeight: HUDChipButtonStyle.minimumTouch, alignment: touchAlignment)
+                    .contentShape(Rectangle())
+            } else {
+                face
+                    .contentShape(HUDShape.rect)
+            }
         }
     }
 }
@@ -292,5 +315,11 @@ extension ButtonStyle where Self == HUDLinkButtonStyle {
 extension ButtonStyle where Self == HUDChipButtonStyle {
     static func hudChip(selected: Bool) -> HUDChipButtonStyle {
         HUDChipButtonStyle(selected: selected)
+    }
+
+    /// A chip whose touch area is at least 44 by 44, the face placed in it
+    /// by `touchAlignment`.
+    static func hudChip(selected: Bool, touchAlignment: Alignment) -> HUDChipButtonStyle {
+        HUDChipButtonStyle(selected: selected, touchAlignment: touchAlignment)
     }
 }
