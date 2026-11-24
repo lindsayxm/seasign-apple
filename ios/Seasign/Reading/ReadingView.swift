@@ -12,6 +12,10 @@ import SwiftUI
 /// opened with the system's `openURL`, in the user's default browser, and
 /// only when `ArticleLink.url` accepts the link (https with a host). It is
 /// never loaded in a web view inside the app.
+///
+/// HUD look (task 197): the dark plate, the close mark, grey capital labels
+/// with white mono values, an accent save mark and link; the title and the
+/// excerpt keep their reading face, light on the plate.
 struct ReadingView: View {
     var item: ReadingItem
     /// The zone the date is shown in (the zip's when known, else the phone's).
@@ -32,24 +36,14 @@ struct ReadingView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Text(caps: "Close")
-                            .capsRelative(11)
-                            .foregroundStyle(Palette.dimText)
-                            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+                    CloseMark { dismiss() }
+                        .padding(.trailing, -12)
                 }
 
                 details
                     .padding(.top, 12)
 
-                Rectangle()
-                    .fill(Palette.rule)
-                    .frame(height: 1)
+                HUDRule(accent: true)
                     .padding(.top, 28)
 
                 HStack {
@@ -85,8 +79,8 @@ struct ReadingView: View {
             .padding(.bottom, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Palette.charcoal.ignoresSafeArea())
-        .statusBarCover()
+        .background(Palette.hudPlate.ignoresSafeArea())
+        .statusBarCover(Palette.hudPlate)
         .preferredColorScheme(.dark)
         .removalConfirmation($confirming, model: saved)
     }
@@ -118,8 +112,8 @@ struct ReadingView: View {
     private var aiBanner: some View {
         HStack(alignment: .center, spacing: 10) {
             AIMark(size: 10, color: Palette.white)
-            Text(caps: "Found by AI search on your interests")
-                .capsRelative(9.5, tracking: 0.12)
+            Text(verbatim: "Found by AI search on your interests")
+                .hudText(.detail)
                 .foregroundStyle(Palette.dimText)
         }
         .padding(.bottom, 4)
@@ -130,11 +124,12 @@ struct ReadingView: View {
     private func detailRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             Text(caps: label)
-                .capsRelative(10, tracking: 0.12)
+                .hudText(.label)
                 .foregroundStyle(Palette.dimText)
             Spacer(minLength: 8)
-            Text(caps: value)
-                .capsRelative(10.5, tracking: 0.1)
+            // As the site or the app wrote it: data, not a heading.
+            Text(verbatim: value)
+                .hudText(.rowName)
                 .foregroundStyle(Palette.white)
                 .multilineTextAlignment(.trailing)
                 .lineLimit(3)
@@ -151,10 +146,7 @@ struct ReadingView: View {
                 .foregroundStyle(Palette.white.opacity(0.88))
                 .fixedSize(horizontal: false, vertical: true)
         } else {
-            Text(caps: Self.noExcerptNote)
-                .capsRelative(10, tracking: 0.12)
-                .lineSpacing(4)
-                .foregroundStyle(Palette.dimText)
+            HUDNote(text: Self.noExcerptNote)
         }
     }
 
@@ -165,17 +157,15 @@ struct ReadingView: View {
                 Button {
                     openURL(url)
                 } label: {
+                    // The page's main action: the button's size, a link's look.
                     Text(caps: "Read on original site")
-                        .capsRelative(11, medium: true, tracking: 0.15)
-                        .foregroundStyle(Palette.white)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
+                        .hudText(.button)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hudLink)
                 .accessibilityHint("Opens the article in your browser")
                 if let host = url.host() {
                     Text(verbatim: host)
-                        .font(.capsRelative(9.5))
+                        .hudText(.detail)
                         .foregroundStyle(Palette.dimText)
                         .lineLimit(1)
                         .truncationMode(.middle)

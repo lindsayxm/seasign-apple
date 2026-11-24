@@ -17,6 +17,7 @@ struct SavedView: View {
 
     @Environment(SavedModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.hudAccent) private var accent
 
     @State private var query = ArticleQuery()
     @State private var reading: ReadingItem?
@@ -33,11 +34,12 @@ struct SavedView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text(caps: "Saved")
-                        .capsRelative(11, medium: true, tracking: 0.15)
-                        .foregroundStyle(Palette.white)
+                        .hudText(.title)
+                        .foregroundStyle(accent)
                         .accessibilityAddTraits(.isHeader)
                     Spacer()
                     HistoryMark { showsHistory = true }
+                        .padding(.trailing, -12)
                 }
 
                 ArticleFilterBar(searchLabel: "Search saved", query: $query, categories: categories)
@@ -68,8 +70,8 @@ struct SavedView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDismissesKeyboard(.interactively)
-        .background(Palette.charcoal.ignoresSafeArea())
-        .statusBarCover()
+        .background(Palette.hudPlate.ignoresSafeArea())
+        .statusBarCover(Palette.hudPlate)
         .preferredColorScheme(.dark)
         .onAppear {
             // Anything left unwritten from before is tried again.
@@ -111,9 +113,9 @@ struct SavedView: View {
             Button {
                 reading = item
             } label: {
-                Text(caps: item.title)
-                    .capsRelative(12.5, tracking: 0.15)
-                    .lineSpacing(5)
+                Text(verbatim: item.title)
+                    .hudText(.itemTitle)
+                    .lineSpacing(4)
                     .foregroundStyle(Palette.white)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -136,12 +138,8 @@ struct SavedView: View {
                     }
                 } label: {
                     Text(caps: "Remove")
-                        .capsRelative(10, tracking: 0.15)
-                        .foregroundStyle(Palette.rule)
-                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hudLink(minWidth: 44, alignment: .trailing))
                 .accessibilityLabel("Remove " + item.title + " from Saved")
             }
             .padding(.top, 4)
@@ -150,12 +148,9 @@ struct SavedView: View {
                 .padding(.top, 14)
 
             if !isLast {
-                Rectangle()
-                    .fill(Palette.rule)
-                    .frame(height: 1)
+                HUDRule()
                     .padding(.top, 14)
                     .padding(.bottom, 22)
-                    .accessibilityHidden(true)
             }
         }
     }
@@ -166,7 +161,7 @@ struct SavedView: View {
         let left = SavedModel.notesLimit - text.count
         return VStack(alignment: .leading, spacing: 6) {
             Text(caps: "Notes")
-                .capsRelative(10, tracking: 0.15)
+                .hudText(.label)
                 .foregroundStyle(Palette.dimText)
                 .accessibilityHidden(true)
             TextField(
@@ -174,41 +169,38 @@ struct SavedView: View {
                 text: Binding(get: { model.notes(for: id) }, set: { model.editNotes($0, for: id) }),
                 axis: .vertical
             )
-            .font(.capsRelative(14))
-            .foregroundStyle(Palette.white)
-            .tint(Palette.dayWater)
+            .hudField()
             .lineLimit(1...12)
             .focused($editing, equals: id)
             .frame(minHeight: 44, alignment: .topLeading)
             .accessibilityLabel("Notes for " + entry.item.title)
             if left <= 200 {
-                Text(verbatim: left == 0 ? "Notes are full (\(SavedModel.notesLimit) characters)" : "\(left) characters left")
-                    .font(.capsRelative(11))
-                    .foregroundStyle(left == 0 ? Palette.sun : Palette.dimText)
+                HUDNote(
+                    text: left == 0 ? "Notes are full (\(SavedModel.notesLimit) characters)" : "\(left) characters left",
+                    warning: left == 0
+                )
             }
         }
     }
 
     private func emptyNote(isFiltered: Bool) -> some View {
-        Text(caps: isFiltered
+        HUDNote(text: isFiltered
             ? "No saved article matches."
             : "Nothing saved yet. Save an article from its summary or from the last 7 days.")
-            .capsRelative(10, tracking: 0.15)
-            .lineSpacing(4)
-            .foregroundStyle(Palette.dimText)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-/// `∀`, for all publications, at the top right of Saved: opens History,
-/// every article from the last 7 days.
+/// `∀`, for all publications, at the top right of Saved, in the accent:
+/// opens History, every article from the last 7 days.
 struct HistoryMark: View {
     var action: () -> Void
+
+    @Environment(\.hudAccent) private var accent
 
     var body: some View {
         Button(action: action) {
             LineIconView(icon: .allPublications, size: 17, lineWidth: 1.4)
-                .foregroundStyle(Palette.dimText)
+                .foregroundStyle(accent)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
         }

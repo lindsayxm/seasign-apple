@@ -150,7 +150,7 @@ struct DayView: View {
                         addedNote(added)
                     }
                     if let problem {
-                        note(problem.message)
+                        HUDNote(text: problem.message, warning: true)
                     }
                     if let empty {
                         note(empty)
@@ -197,21 +197,21 @@ struct DayView: View {
                 .hudText(.section)
                 .foregroundStyle(accent)
             if heard.isEmpty {
-                Text(caps: "Say the event and when, like “Lunch with Ann tomorrow at noon”.")
+                Text(verbatim: "Say the event and when, like “Lunch with Ann tomorrow at noon”.")
                     .hudText(.note)
                     .lineSpacing(3)
                     .foregroundStyle(Palette.dimText)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 // Verbatim: the user's own words.
-                Text(caps: heard)
+                Text(verbatim: heard)
                     .hudText(.field)
                     .fontWeight(.medium)
                     .lineSpacing(3)
                     .foregroundStyle(Palette.white)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text(caps: "Tap the mic again when you're done.")
+            Text(verbatim: "Tap the mic again when you're done.")
                 .hudText(.detail)
                 .foregroundStyle(Palette.dimText)
         }
@@ -237,7 +237,7 @@ struct DayView: View {
 
     /// "Added · Sun 3:00 PM · Meeting with Rahaf", gone after a few seconds.
     private func addedNote(_ added: AddEventModel.AddedNote) -> some View {
-        Text(caps: added.text)
+        Text(verbatim: added.text)
             .hudText(.note)
             .fontWeight(.semibold)
             .lineSpacing(3)

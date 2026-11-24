@@ -15,6 +15,7 @@ struct HistoryView: View {
     @Environment(FeedModel.self) private var feed
     @Environment(SavedModel.self) private var saved
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.hudAccent) private var accent
 
     @State private var query = ArticleQuery()
     @State private var reading: ReadingItem?
@@ -57,8 +58,8 @@ struct HistoryView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDismissesKeyboard(.interactively)
-        .background(Palette.charcoal.ignoresSafeArea())
-        .statusBarCover()
+        .background(Palette.hudPlate.ignoresSafeArea())
+        .statusBarCover(Palette.hudPlate)
         .preferredColorScheme(.dark)
         .onChange(of: categories) { _, available in
             query.category = ArticleQuery.choice(query.category, among: available)
@@ -72,11 +73,12 @@ struct HistoryView: View {
     private var header: some View {
         HStack(alignment: .center) {
             Text(caps: "Last 7 days")
-                .capsRelative(11, medium: true, tracking: 0.15)
-                .foregroundStyle(Palette.white)
+                .hudText(.title)
+                .foregroundStyle(accent)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
             CloseMark { dismiss() }
+                .padding(.trailing, -12)
         }
     }
 
@@ -86,9 +88,9 @@ struct HistoryView: View {
             Button {
                 reading = item
             } label: {
-                Text(caps: item.title)
-                    .capsRelative(12, tracking: 0.15)
-                    .lineSpacing(5)
+                Text(verbatim: item.title)
+                    .hudText(.itemTitle)
+                    .lineSpacing(4)
                     .foregroundStyle(Palette.white)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -106,11 +108,8 @@ struct HistoryView: View {
                 saveButton(item, isSaved: isSaved)
             }
 
-            Rectangle()
-                .fill(Palette.rule)
-                .frame(height: 1)
+            HUDRule()
                 .padding(.top, 10)
-                .accessibilityHidden(true)
         }
     }
 
@@ -122,26 +121,22 @@ struct HistoryView: View {
         } label: {
             HStack(spacing: 8) {
                 Text(caps: isSaved ? "Saved" : "Save")
-                    .capsRelative(10, medium: isSaved, tracking: 0.15)
                 LineIconView(icon: .saved, size: 12, lineWidth: 1.3)
             }
-            .foregroundStyle(isSaved ? Palette.white : Palette.dimText)
-            .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // Filled with the accent when saved, outlined in it when not; the
+        // touch area stays 44 points tall.
+        .buttonStyle(.hudChip(selected: isSaved))
+        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+        .contentShape(Rectangle())
         .accessibilityLabel(SaveMark.label(isSaved: isSaved, title: item.title))
         .accessibilityValue(isSaved ? "Saved" : "Not saved")
     }
 
     private func emptyNote(isFiltered: Bool) -> some View {
-        Text(caps: isFiltered
+        HUDNote(text: isFiltered
             ? "Nothing from the last 7 days matches."
             : "Nothing has been in your feed in the last 7 days. Follow sites in Settings.")
-            .capsRelative(10, tracking: 0.15)
-            .lineSpacing(4)
-            .foregroundStyle(Palette.dimText)
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

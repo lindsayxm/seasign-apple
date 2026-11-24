@@ -131,9 +131,7 @@ struct AISettingsSection: View {
                 // The Keychain cannot be read right now: the key is probably
                 // there, so this does not ask for it. Replace stays possible.
                 HStack(alignment: .center, spacing: 16) {
-                    Text(caps: "Key can't be read now")
-                        .hudText(.rowName)
-                        .foregroundStyle(Palette.sun)
+                    HUDWarning(text: "Key can't be read now", role: .rowName)
                     Spacer(minLength: 8)
                     textButton("Try again") {
                         model.refreshKeyStatus()

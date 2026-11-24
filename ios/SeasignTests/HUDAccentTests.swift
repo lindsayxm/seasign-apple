@@ -120,3 +120,24 @@ import UIKit
         #expect(abs(HUDType.title.tracking - 0.5 / 10.5) < 1e-9)
     }
 }
+
+/// Warnings and problems (task 197): one look on every HUD screen that can
+/// never be taken for the accent, whatever hue the user picks.
+@Suite @MainActor struct HUDWarningTests {
+    @Test func aWarningIsWhiteWithAMark() {
+        #expect(HUDWarning.colour == SRGB(255, 255, 255))
+        #expect(HUDWarning.mark == "!")
+        // As readable on the plate as body text.
+        #expect(SRGB.contrast(HUDWarning.colour, Palette.hudPlateRGB) >= 7)
+    }
+
+    /// The old warning colour (`Palette.sun`, rgb(252, 104, 96)) was about
+    /// 1.3:1 from the default accent; white is at least 3:1 from every hue.
+    @Test func noHueMakesAWarningLookLikeTheAccent() {
+        for degree in 0...360 {
+            let accent = HUDAccent.rgb(hue: Double(degree))
+            #expect(SRGB.contrast(HUDWarning.colour, accent) >= 3, "hue \(degree)")
+        }
+        #expect(SRGB.contrast(SRGB(252, 104, 96), HUDAccent.defaultRGB) < 1.5)
+    }
+}

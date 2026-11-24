@@ -74,8 +74,9 @@ extension View {
     }
 }
 
-/// The asterisk save control: bright and filled when the article is saved,
-/// dim when it is not. At least 44 pt square.
+/// The asterisk save control in the HUD's look (task 197): a square filled
+/// with the accent and a dark star when the article is saved, outlined in
+/// the accent with an accent star when it is not. At least 44 pt square.
 struct SaveMark: View {
     var isSaved: Bool
     /// The article's title, for the spoken label.
@@ -84,12 +85,15 @@ struct SaveMark: View {
     var side: CGFloat = 44
     var action: () -> Void
 
+    @Environment(\.hudAccent) private var accent
+
     var body: some View {
         Button(action: action) {
             LineIconView(icon: .saved, size: side * 0.5, lineWidth: 1.5)
-                .foregroundStyle(isSaved ? Palette.white : Palette.dimText)
+                .foregroundStyle(isSaved ? Palette.onAccent : accent)
                 .frame(width: side, height: side)
-                .background(isSaved ? Palette.rule.opacity(0.75) : Palette.rule.opacity(0.22))
+                .background(HUDShape.rect.fill(isSaved ? accent : Color.clear))
+                .overlay(HUDShape.rect.strokeBorder(accent, lineWidth: HUDShape.line))
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
@@ -104,7 +108,8 @@ struct SaveMark: View {
     }
 }
 
-/// The problem line under a screen's controls, in the warning colour.
+/// The problem line under a screen's controls, in the HUD's warning look
+/// (`HUDWarning`), with its button as an accent link.
 struct SavedProblemLine: View {
     var problem: SavedModel.Problem
     var retry: () -> Void
@@ -112,10 +117,7 @@ struct SavedProblemLine: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: problem.message)
-                .font(.capsRelative(12))
-                .foregroundStyle(Palette.sun)
-                .fixedSize(horizontal: false, vertical: true)
+            HUDWarning(text: problem.message)
             HStack(spacing: 20) {
                 if problem == .notesNotSaved {
                     textButton("Try again", action: retry)
@@ -130,12 +132,7 @@ struct SavedProblemLine: View {
     private func textButton(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(caps: label)
-                .capsRelative(10, medium: true)
-                .foregroundStyle(Palette.white)
-                .underline()
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hudLink)
     }
 }

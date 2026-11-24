@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-1
 depends_on: [196]
 created: 2026-11-23T20:25:09Z
-updated: 2026-11-24T00:44:25Z
+updated: 2026-11-24T00:57:18Z
 ---
 
 ## Goal
@@ -32,3 +32,4 @@ Read plans/2026-11-23-v12-in-the-app.md and memory/decisions/2026-11-23-v12-repl
 
 - 2026-11-23T20:25:09Z [li] created (todo)
 - 2026-11-24T00:44:25Z [implementer-1] status: todo → in-progress — claimed by implementer-1
+- 2026-11-24T00:57:18Z [implementer-1] HueTouch carry-over (HUDColourSettingsSection.swift): removed the states the screen never reached (Kind undecided/tracking/ignored, slop, beganSideways, moved/ended deciding by translation). HueTouch now is: isSideways (the pan's gate, unchanged), handle(_ phase: began|changed|ended|cancelled, atX:width:) -> Write (.set(hue, save: false) while moving and owesSave; .set(hue, save: true) at the end and reset; .saveWaiting on cancel if owed, else .none) and tap(atX:width:) -> .set(hue, save: true). HueTrackPan maps the recognizer state to a Phase and applies the Write; the SwiftUI tap goes through HueTouch.tap. Same writes as before on screen. Doc comments of HueTouch, HueTrack and HueTrackPan rewritten. Tests (HueTouchTests, 7 before and after): aScrollThatStartsOnTheTrackChangesNothing -> isSideways refuses up/down first moves and a pan that never began owes nothing; aSidewaysDragSetsTheHueAsItMovesAndSavesAtTheEnd -> began/changed give unsaved sets at the finger (clamped), ended gives a saved set and resets; onlyASidewaysFirstMoveStartsTheDrag -> same gate checks + a small began/ended; aTapSetsTheHueWhereItLands -> HueTouch.tap whole degrees, saved; theOrderOfEndAndResetDoesNotMatter (SwiftUI end/reset order, gone with the UIKit pan) -> theEndOrTheCancelSavesOnce (UIKit ends once; a late cancel after the end owes nothing; a cancel after moves saves once); aCancelledDragSavesWhatItSet -> through handle(.cancelled); closingSettingsMidDragKeepsTheHue unchanged.

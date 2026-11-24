@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The search field and CATEGORY menu at the top of History and Saved
 /// (`ref-img/00-save-list.png`): two underlined fields side by side, stacked
-/// at accessibility text sizes.
+/// at accessibility text sizes. HUD look (task 197): grey capital labels,
+/// white mono entries, accent underlines, cursor and chevron.
 struct ArticleFilterBar: View {
     /// "Search saved", "Search the last 7 days"; shown in caps and spoken as the field's label.
     var searchLabel: String
@@ -11,6 +12,7 @@ struct ArticleFilterBar: View {
     var categories: [CategoryChoice]
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.hudAccent) private var accent
 
     var body: some View {
         let layout = typeSize.isAccessibilitySize
@@ -28,9 +30,7 @@ struct ArticleFilterBar: View {
             label(searchLabel)
             HStack(spacing: 4) {
                 TextField("", text: $query.text)
-                    .font(.capsRelative(16))
-                    .foregroundStyle(Palette.white)
-                    .tint(Palette.dayWater)
+                    .hudField()
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.search)
@@ -41,7 +41,7 @@ struct ArticleFilterBar: View {
                         query.text = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(Palette.rule)
+                            .foregroundStyle(Palette.dimText)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
@@ -70,13 +70,13 @@ struct ArticleFilterBar: View {
             } label: {
                 HStack(spacing: 8) {
                     Text(verbatim: query.category?.label ?? "All")
-                        .font(.capsRelative(16))
+                        .hudText(.field)
                         .foregroundStyle(Palette.white)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .light))
-                        .foregroundStyle(Palette.dimText)
+                        .foregroundStyle(accent)
                         .accessibilityHidden(true)
                 }
                 .frame(minHeight: 44)
@@ -96,20 +96,18 @@ struct ArticleFilterBar: View {
 
     private func label(_ text: String) -> some View {
         Text(caps: text)
-            .capsRelative(10, tracking: 0.15)
+            .hudText(.label)
             .foregroundStyle(Palette.dimText)
             .accessibilityHidden(true)
     }
 
     private var rule: some View {
-        Rectangle()
-            .fill(Palette.rule)
-            .frame(height: 1)
-            .accessibilityHidden(true)
+        HUDRule(accent: true)
     }
 }
 
-/// The `SOURCE · DATE` line of a History or Saved row.
+/// The `Source · Date` line of a History or Saved row, in grey mono, mixed
+/// case as the site wrote it (task 197).
 struct SourceDateLine: View {
     var item: ReadingItem
     var timeZone: TimeZone
@@ -119,8 +117,8 @@ struct SourceDateLine: View {
             if item.isAI {
                 AIMark(size: 9, color: Palette.white)
             }
-            Text(caps: Self.text(item, timeZone: timeZone))
-                .capsRelative(10, tracking: 0.15)
+            Text(verbatim: Self.text(item, timeZone: timeZone))
+                .hudText(.detail)
                 .foregroundStyle(Palette.dimText)
                 .lineLimit(2)
         }

@@ -10,6 +10,7 @@ import SwiftUI
 /// keyboard however long the lists are (see `reveal`).
 struct DoGetView: View {
     @Environment(ListsModel.self) private var model
+    @Environment(\.hudAccent) private var accent
 
     @State private var drafts: [ListKind: String] = [:]
     @FocusState private var focus: ListKind?
@@ -35,9 +36,9 @@ struct DoGetView: View {
             .onChange(of: model.items.count) { reveal(focus, with: proxy) }
             .onChange(of: focus) { reveal(focus, with: proxy) }
         }
-        .background(Palette.charcoal.ignoresSafeArea())
+        .background(Palette.hudPlate.ignoresSafeArea())
         // Rows scroll out under the status bar, not through it.
-        .statusBarCover()
+        .statusBarCover(Palette.hudPlate)
         .preferredColorScheme(.dark)
     }
 
@@ -68,12 +69,12 @@ struct DoGetView: View {
             .id(Self.addRowID(kind))
     }
 
-    /// The small section label.
+    /// The section's heading, in the accent.
     private func header(_ kind: ListKind) -> some View {
         HStack(alignment: .center) {
             Text(caps: kind.label)
-                .capsRelative(9.5, tracking: 0.15)
-                .foregroundStyle(Palette.dimText)
+                .hudText(.section)
+                .foregroundStyle(accent)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
         }
@@ -82,43 +83,28 @@ struct DoGetView: View {
         .padding(.top, 6)
     }
 
-    /// The underlined field with the ADD pill to its right.
+    /// The underlined field with the ADD button to its right: filled with the
+    /// accent when there is something to add, outlined in grey when not.
     private func addRow(_ kind: ListKind) -> some View {
         let canAdd = ListsModel.validTitle(drafts[kind] ?? "") != nil
         return HStack(alignment: .bottom, spacing: 14) {
             VStack(spacing: 0) {
                 TextField("", text: draft(kind))
-                    .font(.capsRelative(DoGetType.itemSize))
-                    .tracking(DoGetType.itemSize * DoGetType.itemTracking)
-                    .foregroundStyle(Palette.white)
-                    .tint(Palette.dayWater)
+                    .hudField(.itemTitle)
                     .submitLabel(.done)
                     .focused($focus, equals: kind)
                     .onSubmit { add(kind) }
                     .frame(minHeight: 44)
                     .accessibilityLabel("New \(kind.label) item")
-                Rectangle()
-                    .fill(Palette.rule)
-                    .frame(height: 1)
+                HUDRule(accent: true)
             }
 
             Button {
                 add(kind)
             } label: {
                 Text("ADD")
-                    .font(.capsRelative(9.5))
-                    .tracking(9.5 * 0.15)
-                    .foregroundStyle(canAdd ? Palette.white : Palette.rule)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 36)
-                    .overlay {
-                        Capsule().strokeBorder(canAdd ? Palette.dimText : Palette.rule, lineWidth: 1)
-                    }
-                    // The pill is 36 pt tall as drawn; the touch area is 44.
-                    .padding(.top, 8)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hudFilled)
             .disabled(!canAdd)
             .accessibilityLabel("Add to \(kind.label)")
         }
@@ -127,13 +113,10 @@ struct DoGetView: View {
         .padding(.bottom, 48)
     }
 
-    /// The light full-width rule between the two sections.
+    /// The accent's full-width rule between the two sections.
     private var divider: some View {
-        Rectangle()
-            .fill(Palette.dayWater)
-            .frame(height: 1)
+        HUDRule(accent: true)
             .bare()
-            .accessibilityHidden(true)
     }
 
     // MARK: Actions
@@ -180,8 +163,10 @@ struct DoGetView: View {
     }
 }
 
-/// One item: the circle checkbox and the title in caps. The whole row is the
-/// checkbox's touch area, so it is at least 44 pt tall and as wide as the list.
+/// One item: the circle checkbox (outlined in the accent; filled with it and
+/// a dark tick when done) and the title in mono as typed. The whole row is
+/// the checkbox's touch area, so it is at least 44 pt tall and as wide as
+/// the list.
 private struct ListItemRow: View {
     var item: ListItem
     var minHeight: CGFloat
@@ -190,29 +175,29 @@ private struct ListItemRow: View {
 
     @ScaledMetric(relativeTo: .body) private var circle: CGFloat = 22.5
     @ScaledMetric(relativeTo: .body) private var gap: CGFloat = 15.5
+    @Environment(\.hudAccent) private var accent
 
     var body: some View {
         Button(action: toggle) {
             HStack(alignment: .center, spacing: gap) {
                 ZStack {
                     Circle()
-                        .strokeBorder(item.isDone ? Palette.dimText : Palette.rule, lineWidth: 1)
+                        .strokeBorder(accent, lineWidth: HUDShape.line)
                     if item.isDone {
                         Circle()
-                            .fill(Palette.dimText)
+                            .fill(accent)
                         Image(systemName: "checkmark")
                             .font(.system(size: circle * 0.48, weight: .bold))
-                            .foregroundStyle(Palette.charcoal)
+                            .foregroundStyle(Palette.onAccent)
                             .accessibilityHidden(true)
                     }
                 }
                 .frame(width: circle, height: circle)
 
-                // Capitals in the string; the button's label below is what is spoken.
-                Text(item.title.uppercased())
-                    .font(.capsRelative(DoGetType.itemSize))
-                    .tracking(DoGetType.itemSize * DoGetType.itemTracking)
-                    .foregroundStyle(item.isDone ? Palette.dimText.opacity(0.7) : Palette.white)
+                // As typed; the button's label below is what is spoken.
+                Text(verbatim: item.title)
+                    .hudText(.itemTitle)
+                    .foregroundStyle(item.isDone ? Palette.dimText : Palette.white)
                     .strikethrough(item.isDone, color: Palette.rule)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -229,7 +214,8 @@ private struct ListItemRow: View {
     }
 }
 
-/// The item type of this screen, shared by the rows and the fields.
+/// The item type of this screen before task 197 (Jost caps); kept, unused,
+/// as the other old tokens are.
 private enum DoGetType {
     static let itemSize: CGFloat = 12
     static let itemTracking: CGFloat = 0.13

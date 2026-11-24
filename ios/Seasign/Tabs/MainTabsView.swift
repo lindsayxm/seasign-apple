@@ -132,8 +132,8 @@ struct MainTabsView: View {
     /// The colour each page is drawn on.
     static func ground(_ tile: HUDTileBar.Tile) -> Color {
         switch tile {
-        case .day, .listen: Palette.hudPlate
-        case .list, .save: Palette.charcoal
+        // Every page is on the plate since task 197.
+        case .day, .listen, .list, .save: Palette.hudPlate
         }
     }
 

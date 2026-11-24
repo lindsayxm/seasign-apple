@@ -8,7 +8,12 @@ import SwiftUI
 /// composition. The ground is `Palette.hudPlate`; headers, outlines, filled
 /// buttons, chips, switches and the text cursor take the user's accent from
 /// the environment (`\.hudAccent`); body text is white, secondary text and
-/// hairlines are the grey of before, and warnings keep `Palette.sun`.
+/// hairlines are the grey of before. A problem is white with a leading "!"
+/// (`HUDWarning`), never a colour near the accent (task 197).
+///
+/// Case (task 197): headings, labels and buttons are capitals
+/// (`Text(caps:)`); titles, data and sentences people read are mixed case
+/// as written (`Text(verbatim:)`).
 enum HUDTextRole: CaseIterable {
     /// A full-screen page's title in its header row.
     case title
@@ -32,6 +37,9 @@ enum HUDTextRole: CaseIterable {
     case field
     /// The large zip code field.
     case display
+    /// An article's or list item's title in a list (Saved, History, Do / Get),
+    /// and what is typed for a list item.
+    case itemTitle
 
     var textStyle: Font.TextStyle {
         switch self {
@@ -46,13 +54,14 @@ enum HUDTextRole: CaseIterable {
         case .chip: .caption
         case .field: .subheadline
         case .display: .largeTitle
+        case .itemTitle: .subheadline
         }
     }
 
     var weight: Font.Weight {
         switch self {
         case .title, .button: .semibold
-        case .section, .rowName: .medium
+        case .section, .rowName, .itemTitle: .medium
         default: .regular
         }
     }
@@ -115,17 +124,50 @@ struct HUDSectionHeader: View {
     }
 }
 
-/// An explanation or status in grey, or a problem in `Palette.sun`.
+/// An explanation or status in grey, or a problem (`HUDWarning`). Mixed
+/// case as written: notes are sentences, not headings (task 197).
 struct HUDNote: View {
     var text: String
     var warning = false
 
     var body: some View {
-        Text(caps: text)
-            .hudText(.note)
-            .lineSpacing(3)
-            .foregroundStyle(warning ? Palette.sun : Palette.dimText)
-            .fixedSize(horizontal: false, vertical: true)
+        if warning {
+            HUDWarning(text: text)
+        } else {
+            Text(verbatim: text)
+                .hudText(.note)
+                .lineSpacing(3)
+                .foregroundStyle(Palette.dimText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// The one look of a problem or warning on every HUD screen (task 197):
+/// white words after a white "!", so it never reads as the accent at any
+/// hue (white is the HUD's second colour). The "!" is hidden from
+/// VoiceOver, which reads the words as before.
+struct HUDWarning: View {
+    var text: String
+    var role: HUDTextRole = .note
+
+    /// The mark before the words.
+    static let mark = "!"
+    /// The colour of the mark and the words.
+    static let colour = SRGB(255, 255, 255)
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(verbatim: Self.mark)
+                .font(.system(role.textStyle, design: .monospaced, weight: .bold))
+                .accessibilityHidden(true)
+            Text(verbatim: text)
+                .hudText(role)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(Self.colour.color)
+        .accessibilityElement(children: .combine)
     }
 }
 

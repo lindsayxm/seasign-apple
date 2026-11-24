@@ -164,43 +164,41 @@ import Testing
     }
 }
 
-/// A touch on the hue track (task 196): a scroll that starts on the track
-/// changes nothing; a sideways drag or a tap sets the hue; a touch that is
-/// cancelled, or Settings closing during one, saves what it set.
+/// A touch on the hue track (task 196), as the screen runs it (rewritten in
+/// task 197): a drag that starts up or down never begins, so it changes
+/// nothing; a drag that began sets the hue as it moves and saves at the
+/// end; a tap sets and saves; a cancelled drag, or Settings closing during
+/// one, saves what it set.
 @Suite(.serialized) @MainActor struct HueTouchTests {
+    /// A track 360 points wide: one point is one degree.
+    private let width: CGFloat = 360
+
     /// One call on a touch (`#expect` cannot hold a mutating call).
-    private func step(_ touch: inout HueTouch, _ call: (inout HueTouch) -> Bool) -> Bool {
+    private func step(_ touch: inout HueTouch, _ call: (inout HueTouch) -> HueTouch.Write) -> HueTouch.Write {
         call(&touch)
     }
+
+    /// A drag that starts up or down is refused by the pan's gate, so the
+    /// scroll view takes it and the track writes nothing; a pan that never
+    /// began owes nothing if UIKit reports it failed.
     @Test func aScrollThatStartsOnTheTrackChangesNothing() {
+        #expect(!HueTouch.isSideways(CGSize(width: 3, height: 12)))
+        #expect(!HueTouch.isSideways(CGSize(width: -4, height: -30)))
+        #expect(!HueTouch.isSideways(CGSize(width: 0, height: 1)))
         var touch = HueTouch()
-        // Within the slop nothing is decided and nothing is set.
-        #expect(!step(&touch) { $0.moved(CGSize(width: 2, height: 5)) })
-        #expect(touch.kind == .undecided)
-        // Mostly down: a scroll, for the rest of the touch.
-        #expect(!step(&touch) { $0.moved(CGSize(width: 3, height: 12)) })
-        #expect(touch.kind == .ignored)
-        // Even if it then wanders sideways.
-        #expect(!step(&touch) { $0.moved(CGSize(width: 80, height: 20)) })
-        #expect(!step(&touch) { $0.ended(CGSize(width: 80, height: 20)) })
-        #expect(!step(&touch) { $0.cancelled() })
-        // Upwards too.
-        var up = HueTouch()
-        #expect(!step(&up) { $0.moved(CGSize(width: -4, height: -30)) })
-        #expect(!step(&up) { $0.ended(CGSize(width: -4, height: -30)) })
+        #expect(step(&touch) { $0.handle(.cancelled, atX: 80, width: width) } == .none)
+        #expect(touch == HueTouch())
     }
 
     @Test func aSidewaysDragSetsTheHueAsItMovesAndSavesAtTheEnd() {
         var touch = HueTouch()
-        #expect(!step(&touch) { $0.moved(CGSize(width: 5, height: 1)) })
-        #expect(step(&touch) { $0.moved(CGSize(width: 9, height: 3)) })
-        #expect(touch.kind == .tracking)
+        #expect(step(&touch) { $0.handle(.began, atX: 100, width: width) } == .set(hue: 100, save: false))
         #expect(touch.owesSave)
-        // Once sideways, the hue keeps following, even with some drift.
-        #expect(step(&touch) { $0.moved(CGSize(width: 20, height: 40)) })
-        #expect(step(&touch) { $0.ended(CGSize(width: 20, height: 40)) })
-        // The end saved: the reset that follows owes nothing.
-        #expect(!step(&touch) { $0.cancelled() })
+        #expect(step(&touch) { $0.handle(.changed, atX: 140.4, width: width) } == .set(hue: 140, save: false))
+        // Past the end of the track it holds at the end.
+        #expect(step(&touch) { $0.handle(.changed, atX: 500, width: width) } == .set(hue: 360, save: false))
+        #expect(step(&touch) { $0.handle(.ended, atX: 210, width: width) } == .set(hue: 210, save: true))
+        // The end saved: the touch is reset and owes nothing.
         #expect(touch == HueTouch())
     }
 
@@ -214,44 +212,42 @@ import Testing
         #expect(!HueTouch.isSideways(CGSize(width: 5, height: 5)))
         #expect(!HueTouch.isSideways(.zero))
         var touch = HueTouch()
-        touch.beganSideways()
-        #expect(step(&touch) { $0.moved(CGSize(width: 3, height: 1)) })
-        #expect(touch.owesSave)
-        #expect(step(&touch) { $0.ended(CGSize(width: 3, height: 1)) })
+        #expect(step(&touch) { $0.handle(.began, atX: 3, width: width) } == .set(hue: 3, save: false))
+        #expect(step(&touch) { $0.handle(.ended, atX: 4, width: width) } == .set(hue: 4, save: true))
     }
 
+    /// A tap is SwiftUI's tap on the track, not the pan: the hue where it
+    /// lands, in whole degrees, saved.
     @Test func aTapSetsTheHueWhereItLands() {
-        var touch = HueTouch()
-        #expect(step(&touch) { $0.ended(.zero) })
-        var jitter = HueTouch()
-        #expect(!step(&jitter) { $0.moved(CGSize(width: 1, height: 3)) })
-        #expect(step(&jitter) { $0.ended(CGSize(width: 1, height: 3)) })
+        #expect(HueTouch.tap(atX: 0, width: width) == .set(hue: 0, save: true))
+        #expect(HueTouch.tap(atX: 89.6, width: width) == .set(hue: 90, save: true))
+        #expect(HueTouch.tap(atX: 150, width: 300) == .set(hue: 180, save: true))
+        #expect(HueTouch.tap(atX: -5, width: width) == .set(hue: 0, save: true))
     }
 
-    /// SwiftUI does not promise whether a drag's end or its state's reset
-    /// comes first; either order gives the same result.
-    @Test func theOrderOfEndAndResetDoesNotMatter() {
-        // A scroll whose end comes after the reset still sets nothing.
-        var scroll = HueTouch()
-        _ = scroll.moved(CGSize(width: 2, height: 40))
-        #expect(!step(&scroll) { $0.cancelled() })
-        #expect(!step(&scroll) { $0.ended(CGSize(width: 2, height: 40)) })
-        // A sideways drag whose reset comes first: the reset saves what was
-        // set, and the end sets the hue where it lifted and saves again.
-        var drag = HueTouch()
-        _ = drag.moved(CGSize(width: 30, height: 0))
-        #expect(step(&drag) { $0.cancelled() })
-        #expect(step(&drag) { $0.ended(CGSize(width: 30, height: 0)) })
+    /// UIKit ends a pan once, with `.ended` or with `.cancelled`/`.failed`;
+    /// whichever comes, the hue is saved once and the next touch starts
+    /// clean.
+    @Test func theEndOrTheCancelSavesOnce() {
+        var ended = HueTouch()
+        _ = ended.handle(.began, atX: 30, width: width)
+        #expect(step(&ended) { $0.handle(.ended, atX: 30, width: width) } == .set(hue: 30, save: true))
+        #expect(step(&ended) { $0.handle(.cancelled, atX: 30, width: width) } == .none)
+        var cancelled = HueTouch()
+        _ = cancelled.handle(.began, atX: 30, width: width)
+        _ = cancelled.handle(.changed, atX: 60, width: width)
+        #expect(step(&cancelled) { $0.handle(.cancelled, atX: 60, width: width) } == .saveWaiting)
+        #expect(step(&cancelled) { $0.handle(.cancelled, atX: 60, width: width) } == .none)
+        #expect(cancelled == HueTouch())
     }
 
     @Test func aCancelledDragSavesWhatItSet() throws {
         var touch = HueTouch()
-        #expect(step(&touch) { $0.moved(CGSize(width: 15, height: 0)) })
-        #expect(step(&touch) { $0.cancelled() })
-        // A cancelled scroll owes nothing.
-        var scroll = HueTouch()
-        _ = scroll.moved(CGSize(width: 0, height: 15))
-        #expect(!step(&scroll) { $0.cancelled() })
+        _ = touch.handle(.began, atX: 15, width: width)
+        #expect(step(&touch) { $0.handle(.cancelled, atX: 15, width: width) } == .saveWaiting)
+        // A pan that never began owes nothing.
+        var never = HueTouch()
+        #expect(step(&never) { $0.handle(.cancelled, atX: 15, width: width) } == .none)
         // What the view does with it: the hue written during the drag is
         // saved and kept, not undone.
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
