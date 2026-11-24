@@ -1,11 +1,11 @@
 ---
 id: 217
 title: iOS subscription A3: the gate on Settings: popup, UPGRADE NOW, Restore, free zip code; read-only when Lapsed
-status: in-progress
+status: review
 owner: implementer-1
 depends_on: [216]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T22:21:17Z
+updated: 2026-11-24T23:47:47Z
 ---
 
 ## Goal
@@ -28,6 +28,7 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 
 ## What's been tried
 
+- xcrun simctl spawn <udid> defaults write technology.artisan.seasign debugSubscription subscribed: writes data/Library/Preferences (the simulator's global domain), which the sandboxed app does not read; the app's own Debug chip is the way to persist it.
 
 ## Log
 
@@ -39,3 +40,10 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 - 2026-11-24T22:21:17Z [li] From the second #216 review: the DEBUG note narrows to -debugSubscription subscribed (or any debug state) without the sample stores acting on the user's real store and Keychain. Also: Search now is disabled while the subscription is checked but its label does not change (say 'Checking…' or reuse 'Searching…'); fix the suite doc comment at AISubscriptionRuleTests.swift:51 (the choice is kept; the toggle shows Use My List).
 - 2026-11-24T22:21:17Z [li] status: backlog → todo
 - 2026-11-24T22:21:17Z [implementer-1] status: todo → in-progress — claimed by implementer-1
+- 2026-11-24T22:28:08Z [implementer-1] implementer-1 started: design = gate model (UpgradeModel) over the real StoreKit SubscriptionModel; AI search always on the real model unless -debugAI sample; DEBUG gate state persisted in the debugSubscription default, applied to the gate only.
+- 2026-11-24T22:29:50Z [implementer-1] Fail-first (iPhone 17, before the fix, wiring extracted unchanged into SeasignApp.subscriptionWiring): SubscriptionWiringTests 3 tests failed with 15 issues: production AI source was not the real model (SubscribedUntilTheGate answered Subscribed with no read), and -debugSubscription subscribed without -debugAI sent a discover request on an unreadable real store (stub.count 1, expected 0).
+- 2026-11-24T22:50:21Z [implementer-1] Seen to fail (iPhone 17, mutations put in and taken out again): purchase code not finishing -> storeKitPurchaseUnlocksSettingsAndFinishesTheTransaction failed; unverified mapped to purchased -> storeKitPurchaseUnverifiedUnlocksNothing failed; one read after a purchase -> aPurchaseReportedLateStillUnlocks and aPurchaseTheStoreNeverConfirmsSaysSo failed; restore saying 'none found' on Unknown -> aRestoreThatCouldNotCheckSaysSo failed; UPGRADE NOW on the Unknown popup -> theUnknownPopup failed; followSite usable when read-only -> theReadOnlyRule, settingsAccessFollowsTheState failed; debug state using the real storefront -> aDebugPurchaseSucceedsWithoutTheStore, aDebugStateWithNoProductShowsTheUnreachableLine failed. 50 tests, 23 issues, TEST FAILED; all pass with the code restored.
+- 2026-11-24T23:33:24Z [implementer-1] Built in 028c5aa. Suites: iPhone 17 iOS 27.2 'Test run with 999 tests in 107 suites passed after 89.787 seconds' + '** TEST SUCCEEDED **'; iPhone 16 iOS 18.3.1 'Test run with 999 tests in 107 suites passed after 569.843 seconds' + '** TEST SUCCEEDED **' (no ✘ lines, unanchored grep). Release build (generic iOS Simulator, unsigned) succeeds; grep -a of the Release binary finds none of debugSubscription, DebugStorefront, 'Debug subscription', debugProductUnavailable, SubscribedUntilTheGate (positive control: the Free headline is there). Screenshots with sample flags only in the session scratchpad shots217/. Simulators: the persistent Debug subscription state was set to subscribed on iPhone 17 and iPhone 16 by tapping the app's own Debug chip (container plist shows debugSubscription = subscribed), and a plain launch then opens editable Settings on both. Note: 'simctl spawn defaults write' lands in the simulator's global domain, not the app's container, so it does not work for this; tried and undone.
+- 2026-11-24T23:33:24Z [implementer-1] tried: xcrun simctl spawn <udid> defaults write technology.artisan.seasign debugSubscription subscribed: writes data/Library/Preferences (the simulator's global domain), which the sandboxed app does not read; the app's own Debug chip is the way to persist it.
+- 2026-11-24T23:47:47Z [implementer-1] Second commit: ZipCodeSection field holds a @State string fed to ZipEditor.type through onChange and put back to the filtered text (a refusing binding setter could leave a sixth digit or a letter on screen); aPurchaseReportedLateStillUnlocks now uses SequenceSubscriptionStore (Free, Free, Free, then Subscribed) instead of a timed poller. Rerun: iPhone 17 iOS 27.2 'Test run with 999 tests in 107 suites passed after 182.063 seconds' + '** TEST SUCCEEDED **'; iPhone 16 iOS 18.3.1 'Test run with 999 tests in 107 suites passed after 89.523 seconds' + '** TEST SUCCEEDED **'. Both simulators: container plist debugSubscription = subscribed; plain launch on iPhone 17 rechecked after the rerun: Settings opens editable. Typing into the zip field through XcodeBuildMCP type_text did not reach the field (number pad), so the zip filter was not checked by hand.
+- 2026-11-24T23:47:47Z [implementer-1] status: in-progress → review
