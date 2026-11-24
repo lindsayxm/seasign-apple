@@ -11,9 +11,12 @@ The user's decisions of 2026-11-24. The plan is `plans/2026-11-24-account-and-su
 Added later on 2026-11-24, the user's answers to the plan's first draft:
 
 - **Prepopulated sites:** Hacker News `https://news.ycombinator.com/`, Wired Science `https://www.wired.com/category/science/`, Ars Technica Space `https://arstechnica.com/space/`.
-- **Order of the upgrade:** whatever App Store reviewers like most. The plan uses purchase first, then Sign in with Apple. Still to confirm with the user: a person who pays and closes the sign-in keeps Settings on that phone.
+- **Order of the upgrade:** whatever App Store reviewers like most. The plan uses purchase first, then Sign in with Apple. Confirmed by the user the same day: a person who pays and closes the sign-in keeps Settings on that phone.
 - **Free zip code change:** a "Change zip code" row on the upgrade popup.
 - **Price:** 2.99 a month, no free trial for now.
 - **On lapse:** sync and the Google Calendar push pause, as well as AI being off.
 - **The AI key in Settings:** further work on hold until the user decides how AI keys will be handled.
 - **Real email collection:** skipped for now.
+- **A new subscriber** starts with the same three sites and can remove them.
+- **Starting list items:** "Go outside" on the Do list, "Concert tickets" on the Get list.
+- **Terms and privacy policy:** one page at `https://artisan.technology/seasign-terms`.

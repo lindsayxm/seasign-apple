@@ -1,6 +1,6 @@
 # Account and subscription: the gate on Settings
 
-Date: 2026-11-24. Owner: lead session. Status: second draft for the user's review, with the user's answers of 2026-11-24 worked in. No implementation until the user approves it. Replaces the design of tasks 13 and 14 (optional free sign-in and sync) in `plans/2026-11-15-v1-build.md`; nothing is built yet.
+Date: 2026-11-24. Owner: lead session. Status: third draft, with all of the user's answers of 2026-11-24 worked in. No implementation until the user says to start. Replaces the design of tasks 13 and 14 (optional free sign-in and sync) in `plans/2026-11-15-v1-build.md`; nothing is built yet.
 
 ## What the user asked for (2026-11-24)
 
@@ -24,6 +24,10 @@ Date: 2026-11-24. Owner: lead session. Status: second draft for the user's revie
 | On lapse | Sync and the Google Calendar push pause (AI off was already the hard rule) |
 | The AI key in Settings | Hold further work on it until the user decides how AI keys will be handled |
 | Collecting real emails | Skipped for now |
+| Paid but not signed in | Confirmed: the purchase-first flow as written, Settings stays open on that phone |
+| A new subscriber's sites | The same three, removable |
+| Starting list items | "Go outside" on the Do list and "Concert tickets" on the Get list |
+| Terms and privacy policy | One page: `https://artisan.technology/seasign-terms` |
 
 ## What the research found
 
@@ -75,7 +79,9 @@ On lapse the Google events still show: the app goes on checking Google itself wh
 4. Signing in creates the account on the server, ties the purchase to it, uploads the phone's data and starts sync.
 5. Closing the sign-in sheet leaves the "account not finished" state above.
 
-The user's first wording was that account and subscription cannot be had one without the other. This flow keeps half of that strictly: there is never an account without a subscription. The other half is softened for review's sake: a person who pays and refuses to sign in keeps what they paid for on that phone. For the user to confirm.
+The user's first wording was that account and subscription cannot be had one without the other. This flow keeps half of that strictly: there is never an account without a subscription. The other half is softened for review's sake: a person who pays and refuses to sign in keeps what they paid for on that phone. Confirmed by the user on 2026-11-24.
+
+The popup's terms and privacy links both go to `https://artisan.technology/seasign-terms`. The page must exist and cover both before submission; App Store Connect also asks for a privacy policy address.
 
 ### The hard rule in code
 
@@ -92,9 +98,10 @@ The user's first wording was that account and subscription cannot be had one wit
 1. Subscription state on the phone with StoreKit, tested with Xcode's local StoreKit test file: Free, Subscribed, Lapsed; purchase, restore, expiry, refund.
 2. The AI rule above, with its tests.
 3. The settings popup as in "The upgrade flow": UPGRADE NOW, 2.99 a month and what is included, Restore Purchases, and the "Change zip code" row.
-4. The three prepopulated sites on a fresh install, each first checked through the API's site resolver (feed found, headlines come back); a Free user's feed refreshes from them like anyone's, and the API already caches each site for everyone. "Add your calendar... ↑" in the events box.
-5. Settings read-only when Lapsed.
-6. The AI rule's gate is built. Nothing else about the AI key or its Settings section changes: that work is on hold by the user's decision.
+4. The three prepopulated sites on a fresh install, each first checked through the API's site resolver (feed found, headlines come back); a Free user's feed refreshes from them like anyone's, and the API already caches each site for everyone. "Add your calendar... ↑" in the events box. A new subscriber keeps the same three and can remove them.
+5. Starting list items on a fresh install: "Go outside" on the Do list and "Concert tickets" on the Get list. The lists are not behind the gate, so the lead reads this as every fresh install, Free included, and the items can be ticked and cleared like any other (to confirm). Seeded once, when the store is first created, like the default zip; never put back after the user removes them.
+6. Settings read-only when Lapsed.
+7. The AI rule's gate is built. Nothing else about the AI key or its Settings section changes: that work is on hold by the user's decision.
 
 In this phase UPGRADE NOW runs the purchase only; the Apple sign-in joins it in phase C. Nothing ships between the phases.
 
@@ -119,7 +126,7 @@ In this phase UPGRADE NOW runs the purchase only; the Apple sign-in joins it in 
 - App Store Connect: the Paid Apps agreement, banking and tax, the subscription group and a monthly product at 2.99 with no introductory offer.
 - Approve adding the Sign in with Apple and In-App Purchase capabilities to the app (a signing change, asked for when phase C starts).
 - Register the sending domain with Apple if mail to relay addresses is wanted.
-- Privacy policy and terms pages the popup can link to.
+- Publish the terms and privacy policy at `https://artisan.technology/seasign-terms`.
 
 ### Phase E: needs the deploy
 
@@ -127,11 +134,9 @@ Real purchases in the sandbox, Apple's notifications reaching the API, sign-in a
 
 ## Still open for the user
 
-1. **Paid but not signed in.** Confirm that a person who pays and closes the sign-in sheet keeps Settings on that phone (the review-friendly choice), without sync, push or AI until they sign in.
-2. **Prepopulated sites for a subscriber.** Recommended: a new subscriber starts with the same three and can remove them.
-3. **The terms and privacy policy pages** the popup must link to: where they will live.
-4. **The AI key** (on hold): how AI keys will be handled. Until then the plan only adds the gate.
-5. **A free trial** later: adding one is an App Store Connect change plus one line on the popup.
+1. **Starting list items for Free users.** The plan seeds "Go outside" and "Concert tickets" on every fresh install, since the lists are free to use. Say if they should appear only after subscribing.
+2. **The AI key** (on hold): how AI keys will be handled. Until then the plan only adds the gate.
+3. **A free trial** later: adding one is an App Store Connect change plus one line on the popup.
 
 ## Not in this plan
 
