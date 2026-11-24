@@ -120,7 +120,9 @@ struct SourceDateLine: View {
             Text(verbatim: Self.text(item, timeZone: timeZone))
                 .hudText(.detail)
                 .foregroundStyle(Palette.dimText)
-                .lineLimit(2)
+                // As many lines as it takes: at the largest text sizes two
+                // lines cut the date off (task 198).
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

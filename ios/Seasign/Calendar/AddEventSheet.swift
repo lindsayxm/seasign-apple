@@ -201,7 +201,10 @@ struct AddEventSheet: View {
             Text(caps: label)
                 .hudText(.label)
                 .foregroundStyle(Palette.dimText)
-                .frame(width: 78, alignment: .leading)
+                // 78 points, or the label's own width at the largest text
+                // sizes, so "LENGTH" or "CALENDAR" is never broken (task 198).
+                .fixedSize()
+                .frame(minWidth: 78, alignment: .leading)
             Text(caps: value)
                 .hudText(.rowName)
                 .foregroundStyle(Palette.white)

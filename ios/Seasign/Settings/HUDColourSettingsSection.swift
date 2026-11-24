@@ -342,8 +342,9 @@ struct HUDColourSettingsSection: View {
                 Text(caps: HUDColourField.choiceLabel(hue: storedHue, lightness: storedLightness))
                     .hudText(.detail)
                     .foregroundStyle(Palette.dimText)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
+                    // As many lines as it takes: at the largest text sizes
+                    // two lines cut it short (task 198).
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityHidden(true)
                 Spacer(minLength: 8)
                 Button {
