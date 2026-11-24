@@ -20,3 +20,9 @@ Added later on 2026-11-24, the user's answers to the plan's first draft:
 - **A new subscriber** starts with the same three sites and can remove them.
 - **Starting list items:** "Go outside" on the Do list, "Concert tickets" on the Get list. On every fresh install, no subscription needed: they show what the lists are for.
 - **Terms and privacy policy:** one page at `https://artisan.technology/seasign-terms`.
+
+The user's answers of 2026-11-24 (evening), before phase A starts:
+
+- **Saved articles that AI found stay visible on a lapsed subscription.** The user's reason: they have already been fetched, so keeping them visible costs nothing. Only Saved was asked about: AI-found items in the feed (Today, History) stop showing on lapse, as the plan says (the lead's reading; the user was told).
+- **AI stops as soon as a renewal fails.** No grace period for AI: Apple's `inGracePeriod` and `inBillingRetryPeriod` both count as Lapsed. The user's reason: the subscription's price is there to cover API fees. Billing Grace Period stays off in App Store Connect.
+- **Product ID:** `technology.artisan.seasign.monthly`.

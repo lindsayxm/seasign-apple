@@ -86,7 +86,9 @@ The popup's terms and privacy links both go to `https://artisan.technology/seasi
 ### The hard rule in code
 
 - One pure function decides whether AI may run. It takes the subscription state and answers no for anything but Subscribed. Every AI path goes through it: the automatic search, the manual search, the toggle in Settings, and the display of AI-found items already cached.
-- On lapse the mode is set to Use My List and the toggle cannot move. Cached AI-found items stop showing.
+- On lapse the mode is set to Use My List and the toggle cannot move. Cached AI-found items stop showing in the feed (Today, History). Articles the person saved stay in Saved, AI-found ones included: they are already fetched and cost nothing to show (the user, 2026-11-24).
+- A failed renewal is a lapse at once: Apple's grace period and billing retry states both count as Lapsed, and Billing Grace Period stays off in App Store Connect (the user, 2026-11-24: the price covers API fees).
+- The product is `technology.artisan.seasign.monthly`.
 - A state the app cannot determine (no network, StoreKit not answering) counts as not subscribed for AI. AI comes back when the state is known to be Subscribed.
 - The API enforces it too once accounts exist: `POST /v1/discover` refuses a request without an active entitlement. This becomes essential the day AI runs on Seasign's own keys.
 - Tests pin each of these, and a reviewer checks the rule on every later task that touches AI or the subscription state.

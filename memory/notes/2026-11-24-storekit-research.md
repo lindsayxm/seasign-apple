@@ -19,7 +19,7 @@ Research for `plans/2026-11-24-account-and-subscription.md`, read through sosumi
 | case | Apple's meaning | Seasign state |
 |---|---|---|
 | `subscribed` | the customer is currently subscribed | Subscribed |
-| `inGracePeriod` | billing grace period | to be decided by the user; grace period is opt-in in App Store Connect (3, 16 or 28 days for a monthly product) and off unless switched on |
+| `inGracePeriod` | billing grace period | Lapsed (the user, 2026-11-24: stop as soon as a renewal fails). Grace period is opt-in in App Store Connect and stays off |
 | `inBillingRetryPeriod` | Apple is retrying a failed payment | Lapsed |
 | `expired` | the subscription expired | Lapsed |
 | `revoked` | the App Store revoked access (refund and the like) | Lapsed |

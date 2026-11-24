@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: [215]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T19:09:50Z
+updated: 2026-11-24T19:10:14Z
 ---
 
 ## Goal
@@ -30,3 +30,4 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 ## Log
 
 - 2026-11-24T19:09:50Z [li] created (backlog)
+- 2026-11-24T19:10:14Z [li] User, 2026-11-24: AI-found articles the person saved stay visible in Saved on a lapsed subscription (already fetched, no cost). AI-found items in the feed (Today, History) are hidden when not Subscribed.

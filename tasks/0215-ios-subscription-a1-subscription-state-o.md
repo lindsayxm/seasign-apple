@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: []
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T19:09:50Z
+updated: 2026-11-24T19:10:14Z
 ---
 
 ## Goal
@@ -31,3 +31,4 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 ## Log
 
 - 2026-11-24T19:09:50Z [li] created (backlog)
+- 2026-11-24T19:10:14Z [li] User, 2026-11-24: product ID technology.artisan.seasign.monthly; inGracePeriod and inBillingRetryPeriod both map to Lapsed (stop as soon as a renewal fails).
