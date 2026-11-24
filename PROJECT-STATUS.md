@@ -191,3 +191,25 @@ Entry format:
 - In flight: nothing. No task is claimed and the working tree is clean.
 - Next: the user's further reactions to v12 (only the List label has been asked for so far); then the items under "Next" in the two entries above.
 - Notes: the v0 landing page thumbnails for v12 still show the first round. The user said "good" about v12 without choosing it for the app; nothing from v12 is built in `ios/`.
+
+## 2026-11-23 — v12-imago finished as a mockup and built in the app: Today, four tabs, HUD color, restyled pages
+
+- Done, design (`design-ideas/v12-imago/`): #184–#188 the top-left mark redrawn after the user's `logo-upper-left.png` (thin lines, two rounded corners, same height and line as settings); #189 the whole layout rebuilt after the user's own `mockup-1.png`; #190 the titles' plate runs rim to rim with a fading top.
+- Done, app (plan `plans/2026-11-23-v12-in-the-app.md`, decisions `memory/decisions/2026-11-23-v12-replaces-v11.md`, wiring in `memory/architecture.md` under "v12 design in the app"):
+  - #192 accent as one environment value, hue-to-color rule, `Settings.hudHue`, mono type tokens.
+  - #193 Today as the mockup (events row formatter, star drag, tile bar).
+  - #194 four tabs (Today, List, Saved, Listen placeholder); History opens from Saved.
+  - #195 hue slider in Settings; Settings restyled. #196 day calendar and add-event sheet restyled. #197 read view, Do / Get, Saved, History restyled; notes in mixed case; warnings white with "!".
+  - #199 14 points more room under the status bar on Today. #200 CLEAR CHECKED on each Do / Get list. #201, #202 Settings wording as the user wrote it ("Color", SEA SIGNS, OTHER CALENDARS, WEB PAGE ADDRESS).
+- In flight: nothing claimed by the lead. #203 (adding the x-api MCP server to `.mcp.json`) is the user's own task, in `review` under owner `li`; the lead did not touch it.
+- Next:
+  1. The user's two open choices: dark yellows and greens on the hue slider; the now line behind a filled event on the day screen.
+  2. #198: the v12 follow-ups (star drag by hand on both runtimes, History chip touch area, states nobody has seen on screen, large text sizes, iOS 18 look).
+  3. #204 only if the user decides to build X handles (the X API is paid; findings and open questions are on the task).
+  4. Older items still stand: #157 deploy on hold, #180 voice checks on the user's iPhone, #178, #164, #174, #173, #20.
+- Notes:
+  - Last verified by the lead at `3d71071`: iOS suite 830 tests passed on iPhone 16 / iOS 18.3.1 and iPhone 17 / iOS 27.2. No API change this session (API last verified at `d31f8dc`, 1,978 tests).
+  - Not verified by anyone: the star drag by hand; VoiceOver by ear; large Dynamic Type; most restyled screens on iOS 18 (tests only); several rare states in the new style (listed on #198); the day screen after ended events went to 70%; the three labels of #202 on screen.
+  - The iPhone 17 simulator has the latest build and five sample Do / Get items typed by an implementer. The iPhone 16 Pro Max simulator (the user's Google connection) still has the pre-v12 build.
+  - `design-ideas/v12-imago/speach-icon.png` is the user's, untracked. The `fonts/` folder (Nulshock) is no longer in the repository folder; the lead did not remove it. The x-api MCP server was not loaded in this session; a new session should have it.
+  - The mockup's page in `design-ideas/v12-imago/` does not have the 14-point top padding or the later wording; the app is ahead of it.
