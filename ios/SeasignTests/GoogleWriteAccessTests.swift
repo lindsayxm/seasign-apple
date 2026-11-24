@@ -309,7 +309,9 @@ import Testing
 
         stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: "30"))
         await model.connect(signIn: goodRedirect)
-        #expect(model.connectProblem == .unavailable)
+        // Task 198: our own 429 says Seasign is busy, not that Google
+        // could not be reached.
+        #expect(model.connectProblem == .busy)
         expectUnchanged("the list rate limited")
         // Task 178: our 429's Retry-After is kept as a hold, not ignored.
         #expect(model.retryNotBefore == clock.now.addingTimeInterval(30))
