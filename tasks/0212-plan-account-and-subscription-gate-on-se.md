@@ -5,7 +5,7 @@ status: in-progress
 owner: lead
 depends_on: []
 created: 2026-11-24T15:54:17Z
-updated: 2026-11-24T16:22:03Z
+updated: 2026-11-24T16:46:57Z
 ---
 
 ## Goal
@@ -33,3 +33,4 @@ User, 2026-11-24: Settings is behind an account plus a paid subscription taken t
 - 2026-11-24T15:55:23Z [lead] Lead: plan drafted (plans/2026-11-24-account-and-subscription.md) and decision recorded. Research: Apple's Sign in with Apple docs read in full through sosumi; the App Review Guidelines (dated 2026-10-16) read through a summarising fetch for 3.1 onward, so quotes need a check on the live page. Waiting for the user's approval and the six open decisions.
 - 2026-11-24T16:14:53Z [lead] Lead: second draft with the user's answers (sites, purchase-first order, zip row on the popup, 2.99 a month with no trial, sync and push pause on lapse, AI key work on hold, no email collection). Still open: paid-but-not-signed-in behaviour, subscriber's starting sites, terms and privacy pages. The user said not to start implementing.
 - 2026-11-24T16:22:03Z [lead] Lead: third draft: purchase-first confirmed, subscriber keeps the three sites (removable), starting list items Go outside / Concert tickets, terms page artisan.technology/seasign-terms. One point left to confirm: list items on every fresh install or only after subscribing.
+- 2026-11-24T16:46:57Z [lead] User: the two starting list items appear on every fresh install, no subscription needed. Plan updated; nothing left to confirm except the AI key (on hold) and a later free trial. Waiting for the user's word to start.

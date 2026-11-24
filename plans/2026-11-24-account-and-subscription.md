@@ -26,7 +26,7 @@ Date: 2026-11-24. Owner: lead session. Status: third draft, with all of the user
 | Collecting real emails | Skipped for now |
 | Paid but not signed in | Confirmed: the purchase-first flow as written, Settings stays open on that phone |
 | A new subscriber's sites | The same three, removable |
-| Starting list items | "Go outside" on the Do list and "Concert tickets" on the Get list |
+| Starting list items | "Go outside" on the Do list and "Concert tickets" on the Get list, on every fresh install, no subscription needed |
 | Terms and privacy policy | One page: `https://artisan.technology/seasign-terms` |
 
 ## What the research found
@@ -99,7 +99,7 @@ The popup's terms and privacy links both go to `https://artisan.technology/seasi
 2. The AI rule above, with its tests.
 3. The settings popup as in "The upgrade flow": UPGRADE NOW, 2.99 a month and what is included, Restore Purchases, and the "Change zip code" row.
 4. The three prepopulated sites on a fresh install, each first checked through the API's site resolver (feed found, headlines come back); a Free user's feed refreshes from them like anyone's, and the API already caches each site for everyone. "Add your calendar... ↑" in the events box. A new subscriber keeps the same three and can remove them.
-5. Starting list items on a fresh install: "Go outside" on the Do list and "Concert tickets" on the Get list. The lists are not behind the gate, so the lead reads this as every fresh install, Free included, and the items can be ticked and cleared like any other (to confirm). Seeded once, when the store is first created, like the default zip; never put back after the user removes them.
+5. Starting list items on a fresh install: "Go outside" on the Do list and "Concert tickets" on the Get list. Every fresh install gets them, Free included (confirmed by the user: they show what the lists are for), and they can be ticked and cleared like any other item. Seeded once, when the store is first created, like the default zip; never put back after the user removes them.
 6. Settings read-only when Lapsed.
 7. The AI rule's gate is built. Nothing else about the AI key or its Settings section changes: that work is on hold by the user's decision.
 
@@ -134,9 +134,8 @@ Real purchases in the sandbox, Apple's notifications reaching the API, sign-in a
 
 ## Still open for the user
 
-1. **Starting list items for Free users.** The plan seeds "Go outside" and "Concert tickets" on every fresh install, since the lists are free to use. Say if they should appear only after subscribing.
-2. **The AI key** (on hold): how AI keys will be handled. Until then the plan only adds the gate.
-3. **A free trial** later: adding one is an App Store Connect change plus one line on the popup.
+1. **The AI key** (on hold): how AI keys will be handled. Until then the plan only adds the gate.
+2. **A free trial** later: adding one is an App Store Connect change plus one line on the popup.
 
 ## Not in this plan
 

@@ -18,5 +18,5 @@ Added later on 2026-11-24, the user's answers to the plan's first draft:
 - **The AI key in Settings:** further work on hold until the user decides how AI keys will be handled.
 - **Real email collection:** skipped for now.
 - **A new subscriber** starts with the same three sites and can remove them.
-- **Starting list items:** "Go outside" on the Do list, "Concert tickets" on the Get list.
+- **Starting list items:** "Go outside" on the Do list, "Concert tickets" on the Get list. On every fresh install, no subscription needed: they show what the lists are for.
 - **Terms and privacy policy:** one page at `https://artisan.technology/seasign-terms`.
