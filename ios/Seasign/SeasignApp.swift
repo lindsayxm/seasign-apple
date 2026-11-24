@@ -6,7 +6,7 @@ struct SeasignApp: App {
     /// The local stores and the models that read them, or the fact that the
     /// user's store would not open (see `LocalStore`).
     private enum Session {
-        case ready(ModelContainer, TodayModel, ListsModel, EventsModel, GoogleCalendarModel, FeedModel, SavedModel, AISearchModel)
+        case ready(ModelContainer, TodayModel, ListsModel, EventsModel, GoogleCalendarModel, FeedModel, SavedModel, AISearchModel, SubscriptionModel)
         case storeUnreadable
     }
 
@@ -21,7 +21,7 @@ struct SeasignApp: App {
     var body: some Scene {
         WindowGroup {
             switch session {
-            case .ready(let container, let today, let lists, let events, let google, let feed, let saved, let ai):
+            case .ready(let container, let today, let lists, let events, let google, let feed, let saved, let ai, let subscription):
                 // The HUD accent comes from the settings row (design v12);
                 // the four main pages switch in place (`MainTabsView`).
                 HUDAccentRoot { MainTabsView() }
@@ -32,6 +32,7 @@ struct SeasignApp: App {
                     .environment(feed)
                     .environment(saved)
                     .environment(ai)
+                    .environment(subscription)
                     .modelContainer(container)
                     // The phone's 12- or 24-hour setting for every time shown,
                     // kept current while the app runs.
@@ -136,11 +137,21 @@ struct SeasignApp: App {
                 ? AISearchModel.debugFallback(feed: sample.feed, context: container.mainContext)
                 : AISearchModel(context: container.mainContext, feed: sample.feed, zone: zone))
             RemotePushRelay.shared.attach(google)
-            return .ready(container, today, lists, events, google, sample.feed, sample.saved, ai)
+            // `-debugSubscription free|subscribed|lapsed|unknown`: that state
+            // from a fixed store, with no StoreKit calls (task 215).
+            let subscription = SubscriptionRules.debugNamed(defaults.string(forKey: "debugSubscription"))
+                .map { SubscriptionModel(store: FixedSubscriptionStore(state: $0)) }
+                ?? SubscriptionModel(store: StoreKitSubscriptionStore())
+            subscription.start()
+            return .ready(container, today, lists, events, google, sample.feed, sample.saved, ai, subscription)
             #else
             let ai = AISearchModel(context: container.mainContext, feed: feed, zone: zone)
             RemotePushRelay.shared.attach(liveGoogle)
-            return .ready(container, today, lists, live, liveGoogle, feed, saved, ai)
+            // Listens for StoreKit transactions from launch, as Apple asks,
+            // so purchases made elsewhere and unfinished ones are finished.
+            let subscription = SubscriptionModel(store: StoreKitSubscriptionStore())
+            subscription.start()
+            return .ready(container, today, lists, live, liveGoogle, feed, saved, ai, subscription)
             #endif
         } catch {
             return .storeUnreadable
