@@ -9,40 +9,58 @@ extension SkyStore {
         settings().hudHue
     }
 
-    /// Sets the HUD hue (nil goes back to the default orange-red), creating
-    /// the settings row if there is none, as every setting does. `save`
-    /// false leaves the write in the context for a drag still under way;
-    /// the screens follow at once either way, and the drag's end saves.
-    func setHUDHue(_ hue: Double?, save: Bool = true) {
+    /// The HUD accent's lightness chosen in Settings (task 206), held to
+    /// 0...1; nil is lightness 0, the colour of the hue.
+    var hudLightness: Double? {
+        settings().hudLightness.map { HUDAccent.clampedLightness($0) }
+    }
+
+    /// Sets the HUD colour (both nil go back to the default orange-red),
+    /// creating the settings row if there is none, as every setting does.
+    /// Hue and lightness are written together, so a pick is never half
+    /// stored. `save` false leaves the write in the context for a drag
+    /// still under way; the screens follow at once either way, and the
+    /// drag's end saves.
+    func setHUDColour(hue: Double?, lightness: Double?, save: Bool = true) {
         let settings = settings()
         if settings.hudHue != hue { settings.hudHue = hue }
+        if settings.hudLightness != lightness { settings.hudLightness = lightness }
         if save { try? context.save() }
     }
 
-    /// Saves a hue a drag wrote with `save: false` and never saved (task
+    /// Saves a colour a drag wrote with `save: false` and never saved (task
     /// 196): the drag was cancelled, or Settings closed during it. Nothing
     /// happens when nothing is waiting, so it can be called at every chance.
-    func saveHUDHue() {
+    func saveHUDColour() {
         if context.hasChanges { try? context.save() }
     }
 }
 
-/// What the hue track does with a touch, kept apart from the view so it
-/// can be tested (task 196; rewritten in task 197 to the path the screen
-/// runs). The track sits in Settings' scroll view:
+/// One point in the colour picker: a hue in whole degrees (0...360) and a
+/// lightness in whole percent (0...1).
+struct HUDColourPick: Equatable {
+    var hue: Double
+    var lightness: Double
+}
+
+/// What the colour block does with a touch, kept apart from the view so it
+/// can be tested (task 196 for the hue track; task 206 for the block). The
+/// block sits in Settings' scroll view:
 ///
-/// - A drag is a UIKit pan (`HueTrackPan`) that may begin only when the
-///   finger's first move is more sideways than up or down
-///   (`isSideways`). Otherwise the pan fails, the scroll view (which waits
-///   for it) scrolls, and nothing here runs.
-/// - A pan that began sets the hue as it moves (written, not saved), sets
-///   it where it lifts and saves when it ends, and, when it is cancelled
-///   (the system took the touch, Settings closed), saves what it wrote.
-///   UIKit ends a pan once, with either `.ended` or `.cancelled`/`.failed`.
-/// - A tap is SwiftUI's `onTapGesture`, not the pan: it sets the hue where
-///   it lands and saves (`tap`).
-struct HueTouch: Equatable {
-    /// A pan recognizer's state, as far as the track cares.
+/// - A drag that starts in the block is a UIKit pan (`HUDColourFieldPan`)
+///   that begins whichever way the finger moves, and the scroll view's pan
+///   waits for it to fail, so the page does not scroll under it. A drag
+///   that starts outside the block never reaches it and scrolls as usual.
+/// - A pan that began sets the colour as it moves (written, not saved),
+///   sets it where it lifts and saves when it ends, and, when it is
+///   cancelled (the system took the touch, Settings closed), saves what it
+///   wrote. UIKit ends a pan once, with either `.ended` or
+///   `.cancelled`/`.failed`. A finger that leaves the block keeps moving
+///   the marker along the nearest edge.
+/// - A tap is SwiftUI's `onTapGesture`, not the pan: it sets the colour
+///   where it lands and saves (`tap`).
+struct HUDColourTouch: Equatable {
+    /// A pan recognizer's state, as far as the block cares.
     enum Phase: Equatable {
         case began
         case changed
@@ -51,115 +69,224 @@ struct HueTouch: Equatable {
         case cancelled
     }
 
-    /// What the track does to the stored hue.
+    /// What the block does to the stored colour.
     enum Write: Equatable {
         /// Nothing.
         case none
-        /// Set the hue; save it if `save`, else leave it for a later save.
-        case set(hue: Double, save: Bool)
-        /// Save a hue written earlier and not saved yet.
+        /// Set hue and lightness; save if `save`, else leave it for a later save.
+        case set(HUDColourPick, save: Bool)
+        /// Save a colour written earlier and not saved yet.
         case saveWaiting
     }
 
-    /// A hue was written during this pan and not saved yet.
+    /// A colour was written during this pan and not saved yet.
     private(set) var owesSave = false
 
-    /// Whether a pan that has just moved `translation` may begin: more
-    /// sideways than up or down. A drag up or down is left to the scroll view.
-    static func isSideways(_ translation: CGSize) -> Bool {
-        abs(translation.width) > abs(translation.height)
-    }
-
-    /// The pan reached `phase` with the finger at `x` along a track `width`
-    /// wide: what to write. The touch is reset when the pan ends either way.
-    mutating func handle(_ phase: Phase, atX x: CGFloat, width: CGFloat) -> Write {
-        let hue = HUDHueSlider.hue(atX: x, width: width)
+    /// The pan reached `phase` with the finger at `point` in a block of
+    /// `size`: what to write. The touch is reset when the pan ends either way.
+    mutating func handle(_ phase: Phase, at point: CGPoint, size: CGSize) -> Write {
+        let pick = HUDColourField.pick(at: point, size: size)
         switch phase {
         case .began, .changed:
             owesSave = true
-            return .set(hue: hue, save: false)
+            return .set(pick, save: false)
         case .ended:
-            self = HueTouch()
-            return .set(hue: hue, save: true)
+            self = HUDColourTouch()
+            return .set(pick, save: true)
         case .cancelled:
             let owes = owesSave
-            self = HueTouch()
+            self = HUDColourTouch()
             return owes ? .saveWaiting : .none
         }
     }
 
-    /// A tap at `x` along a track `width` wide: the hue there, saved.
-    static func tap(atX x: CGFloat, width: CGFloat) -> Write {
-        .set(hue: HUDHueSlider.hue(atX: x, width: width), save: true)
+    /// A tap at `point` in a block of `size`: the colour there, saved.
+    static func tap(at point: CGPoint, size: CGSize) -> Write {
+        .set(HUDColourField.pick(at: point, size: size), save: true)
     }
 }
 
-/// The HUD colour slider's arithmetic (task 195), kept apart from the view
-/// so it can be tested: where the thumb sits, what a touch or VoiceOver
-/// sets, and what VoiceOver says.
-enum HUDHueSlider {
-    /// The slider runs over the whole hue circle, in degrees.
-    static let range: ClosedRange<Double> = 0...360
+/// The colour picker's arithmetic (task 206, from task 195's hue slider),
+/// kept apart from the view so it can be tested: what the block shows,
+/// where the marker sits, what a touch or VoiceOver sets, and what is said.
+///
+/// Across the block, left to right, is the hue (0 to 360 degrees); up it is
+/// the lightness, from the colour of each hue along the bottom (lightness 0,
+/// `HUDAccent.rgb(hue:)`) to white along the top (lightness 1).
+enum HUDColourField {
+    /// The hue runs over the whole circle, in degrees.
+    static let hueRange: ClosedRange<Double> = 0...360
     /// One VoiceOver swipe moves the hue this many degrees.
-    static let step: Double = 10
-    /// The track is drawn from the accent at every this many degrees.
-    static let trackSpacing = 5
+    static let hueStep: Double = 10
+    /// One VoiceOver swipe moves the lightness this many percent.
+    static let lightnessStepPercent: Double = 10
 
-    /// Where the thumb sits for the stored hue: the hue itself, held to the
-    /// slider's range, or the default's own hue when none is stored.
+    /// The block's picture is one pixel per whole degree (0 to 360) by one
+    /// per whole percent of lightness (100 at the top row, 0 at the bottom):
+    /// the points a touch can pick.
+    static let columns = 361
+    static let rows = 101
+
+    /// Where the marker sits across for the stored hue: the hue itself, held
+    /// to the range, or the default's own hue when none is stored.
     static func shownHue(_ stored: Double?) -> Double {
         guard let stored, stored.isFinite else { return HUDAccent.defaultHue }
-        return min(max(stored, range.lowerBound), range.upperBound)
+        return min(max(stored, hueRange.lowerBound), hueRange.upperBound)
     }
 
-    /// The hue for a touch at `x` along a track `width` wide, in whole
-    /// degrees; touches past either end give that end.
-    static func hue(atX x: CGFloat, width: CGFloat) -> Double {
-        guard width > 0, x.isFinite else { return range.lowerBound }
-        let fraction = min(max(Double(x / width), 0), 1)
-        return (fraction * range.upperBound).rounded()
+    /// Where the marker sits up for the stored lightness: held to 0...1;
+    /// none stored is the bottom.
+    static func shownLightness(_ stored: Double?) -> Double {
+        HUDAccent.clampedLightness(stored)
     }
 
-    /// Where the thumb's centre sits along a track `width` wide.
-    static func x(forHue hue: Double, width: CGFloat) -> CGFloat {
-        CGFloat(hue / range.upperBound) * width
+    /// The colour for a touch at `point` in a block of `size`: the hue in
+    /// whole degrees across, the lightness in whole percent up from the
+    /// bottom. A touch past an edge gives that edge.
+    static func pick(at point: CGPoint, size: CGSize) -> HUDColourPick {
+        func fraction(_ value: CGFloat, _ length: CGFloat) -> Double {
+            guard length > 0, value.isFinite else { return 0 }
+            return min(max(Double(value / length), 0), 1)
+        }
+        let hue = (fraction(point.x, size.width) * hueRange.upperBound).rounded()
+        // Up from the bottom; a block with no height, or no position, is the bottom.
+        let up = size.height > 0 && point.y.isFinite ? 1 - fraction(point.y, size.height) : 0
+        return HUDColourPick(hue: hue, lightness: (up * 100).rounded() / 100)
+    }
+
+    /// The marker's centre in a block of `size` for what is stored.
+    static func point(hue: Double?, lightness: Double?, size: CGSize) -> CGPoint {
+        CGPoint(
+            x: CGFloat(shownHue(hue) / hueRange.upperBound) * size.width,
+            y: CGFloat(1 - shownLightness(lightness)) * size.height
+        )
     }
 
     /// The hue after one VoiceOver swipe up (`up`) or down: the next whole
-    /// step of `step` degrees, kept inside the range.
-    static func adjusted(_ stored: Double?, up: Bool) -> Double {
+    /// step of `hueStep` degrees, kept inside the range.
+    static func adjustedHue(_ stored: Double?, up: Bool) -> Double {
         let current = shownHue(stored)
         if up {
-            return min(range.upperBound, (current / step).rounded(.down) * step + step)
+            return min(hueRange.upperBound, (current / hueStep).rounded(.down) * hueStep + hueStep)
         }
-        return max(range.lowerBound, (current / step).rounded(.up) * step - step)
+        return max(hueRange.lowerBound, (current / hueStep).rounded(.up) * hueStep - hueStep)
     }
 
-    /// What VoiceOver says as the slider's value.
-    static func spokenValue(_ stored: Double?) -> String {
+    /// The lightness after one VoiceOver swipe up (`up`) or down: the next
+    /// whole step of `lightnessStepPercent`, kept inside 0...1. Worked in
+    /// whole percent so steps land exactly (0.3, not 0.30000000000000004).
+    static func adjustedLightness(_ stored: Double?, up: Bool) -> Double {
+        let percent = (shownLightness(stored) * 100).rounded()
+        let step = lightnessStepPercent
+        let next = up
+            ? min(100, (percent / step).rounded(.down) * step + step)
+            : max(0, (percent / step).rounded(.up) * step - step)
+        return next / 100
+    }
+
+    /// What VoiceOver says as the hue's value ("HUD color hue, 210 degrees").
+    static func spokenHue(_ stored: Double?) -> String {
         let degrees = Int(shownHue(stored).rounded())
-        return stored == nil
-            ? "default orange-red, hue \(degrees) degrees"
-            : "hue \(degrees) degrees"
+        return stored == nil ? "default orange-red, \(degrees) degrees" : "\(degrees) degrees"
     }
 
-    /// The track's colours, left to right: the accent the app would use at
-    /// each hue (`HUDAccent.rgb(hue:)`), not the raw hue circle.
-    static let trackColours: [SRGB] = stride(from: 0, through: Int(range.upperBound), by: trackSpacing)
-        .map { HUDAccent.rgb(hue: Double($0)) }
+    /// What VoiceOver says as the lightness's value ("HUD color lightness,
+    /// 40 percent").
+    static func spokenLightness(_ stored: Double?) -> String {
+        "\(Int((shownLightness(stored) * 100).rounded())) percent"
+    }
+
+    /// The line beside Default, describing the current choice (shown in
+    /// capitals).
+    static func choiceLabel(hue: Double?, lightness: Double?) -> String {
+        let percent = Int((shownLightness(lightness) * 100).rounded())
+        switch (hue, lightness) {
+        case (nil, nil): return "Default orange-red"
+        case (nil, _): return "Orange-red · lightness \(percent)%"
+        case (_, _): return "Hue \(Int(shownHue(hue).rounded()))° · lightness \(percent)%"
+        }
+    }
+
+    /// Every colour in the block's picture, row by row from the top
+    /// (lightness 1) to the bottom (lightness 0), each row left to right
+    /// (hue 0 to 360): exactly what `HUDAccent.rgb(hue:lightness:)` gives
+    /// there. Each hue's colour is solved once and mixed for every row.
+    static func fieldColours() -> [SRGB] {
+        let floors = (0..<columns).map { HUDAccent.rgb(hue: Double($0)) }
+        var colours: [SRGB] = []
+        colours.reserveCapacity(columns * rows)
+        for row in 0..<rows {
+            let lightness = Double(rows - 1 - row) / Double(rows - 1)
+            for floor in floors {
+                colours.append(HUDAccent.mix(floor, toWhite: lightness))
+            }
+        }
+        return colours
+    }
+
+    /// The picture's bytes, RGBX with 8 bits each, for an sRGB `CGImage`.
+    static func fieldBytes() -> [UInt8] {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(columns * rows * 4)
+        for colour in fieldColours() {
+            bytes.append(UInt8((colour.red * 255).rounded()))
+            bytes.append(UInt8((colour.green * 255).rounded()))
+            bytes.append(UInt8((colour.blue * 255).rounded()))
+            bytes.append(255)
+        }
+        return bytes
+    }
+
+    /// The block's picture, made once: an sRGB bitmap of `fieldColours`.
+    @MainActor static let fieldImage: CGImage? = {
+        let data = Data(fieldBytes())
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let provider = CGDataProvider(data: data as CFData) else { return nil }
+        return CGImage(
+            width: columns,
+            height: rows,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: columns * 4,
+            space: space,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        )
+    }()
+
+    /// Where the picture is drawn for a block of `size`, so that each
+    /// pixel's centre sits on the point a touch there picks (column `i` at
+    /// hue `i`, the top row's centre on the top edge): half a pixel spills
+    /// past every edge and is clipped. Between pixel centres the picture is
+    /// smoothed; neighbours are one degree or one percent apart.
+    static func imageFrame(size: CGSize) -> CGRect {
+        let columnWidth = size.width / CGFloat(columns - 1)
+        let rowHeight = size.height / CGFloat(rows - 1)
+        return CGRect(
+            x: -columnWidth / 2,
+            y: -rowHeight / 2,
+            width: size.width + columnWidth,
+            height: size.height + rowHeight
+        )
+    }
 }
 
-/// The HUD colour part of Settings (task 195): one hue slider whose track
-/// shows the accent each hue gives, a live preview (a filled tile, an
-/// outlined tile and a line of accent text on the dark plate), and Default,
-/// which goes back to the orange-red. It writes `Settings.hudHue` in the
-/// main store; every screen follows at once (`HUDAccentRoot`).
+/// The HUD colour part of Settings (task 195; the picker since task 206): a
+/// live preview (a filled tile, an outlined tile and a line of accent text
+/// on the dark plate), the colour block, a line that says the choice, and
+/// Default, which goes back to the orange-red. It writes `Settings.hudHue`
+/// and `Settings.hudLightness` in the main store; every screen follows at
+/// once (`HUDAccentRoot`).
 struct HUDColourSettingsSection: View {
     @Environment(\.modelContext) private var context
     @Environment(\.hudAccent) private var accent
     @Query private var settings: [Settings]
 
-    private var stored: Double? { settings.first?.hudHue }
+    private var storedHue: Double? { settings.first?.hudHue }
+    private var storedLightness: Double? { settings.first?.hudLightness }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -167,33 +294,35 @@ struct HUDColourSettingsSection: View {
 
             preview
 
-            HueTrack(stored: stored) { hue, done in
-                SkyStore(context: context).setHUDHue(hue, save: done)
+            HUDColourBlock(hue: storedHue, lightness: storedLightness) { hue, lightness, done in
+                SkyStore(context: context).setHUDColour(hue: hue, lightness: lightness, save: done)
             } saveWaiting: {
-                SkyStore(context: context).saveHUDHue()
+                SkyStore(context: context).saveHUDColour()
             }
 
             HStack(alignment: .center, spacing: 16) {
-                Text(caps: stored == nil ? "Default orange-red" : "Hue \(Int(HUDHueSlider.shownHue(stored).rounded()))°")
+                Text(caps: HUDColourField.choiceLabel(hue: storedHue, lightness: storedLightness))
                     .hudText(.detail)
                     .foregroundStyle(Palette.dimText)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
                     .accessibilityHidden(true)
                 Spacer(minLength: 8)
                 Button {
-                    SkyStore(context: context).setHUDHue(nil)
+                    SkyStore(context: context).setHUDColour(hue: nil, lightness: nil)
                 } label: {
                     Text(caps: "Default")
                 }
                 .buttonStyle(.hudLink(minWidth: 44, alignment: .trailing))
-                .disabled(stored == nil)
+                .disabled(storedHue == nil && storedLightness == nil)
                 .accessibilityLabel("Default HUD color")
                 .accessibilityHint("Goes back to the orange-red.")
             }
 
             HUDNote(text: "Every screen uses this color.")
         }
-        // Settings closed during a drag: keep the hue it showed.
-        .onDisappear { SkyStore(context: context).saveHUDHue() }
+        // Settings closed during a drag: keep the colour it showed.
+        .onDisappear { SkyStore(context: context).saveHUDColour() }
     }
 
     /// A filled tile with dark words, an outlined tile, and a line of
@@ -216,104 +345,125 @@ struct HUDColourSettingsSection: View {
         .padding(8)
         .background(Palette.hudPlate, in: HUDShape.rect)
         .overlay(HUDShape.rect.strokeBorder(Palette.rule.opacity(0.6), lineWidth: 1))
-        // The slider's value says the colour; the preview is for the eye.
+        // The picker's values say the colour; the preview is for the eye.
         .accessibilityHidden(true)
     }
 }
 
-/// The hue slider itself: a track painted with the accent each hue gives,
-/// and a thumb at the stored hue (at the default's hue when none is
-/// stored). A drag that starts sideways sets the hue as it moves and saves
-/// when it ends, a tap sets it where it lands and saves, and a drag that
-/// starts up or down is left to the scroll view (`HueTouch`); a drag that
-/// is cancelled saves what it set;
-/// VoiceOver reads it as "HUD colour" with the hue as its value and adjusts
-/// it in steps of `HUDHueSlider.step` degrees.
-private struct HueTrack: View {
-    var stored: Double?
-    /// A new hue, and whether the change is finished (save it).
-    var set: (Double, Bool) -> Void
-    /// Saves a hue written during a touch that never ended.
+/// The colour block itself (task 206): the picture of every colour the
+/// picker can give (`HUDColourField.fieldImage`, drawn from the colour
+/// function, not a stock gradient), and a ring at the stored choice (at
+/// the default's hue, bottom edge, when none is stored). A drag that starts
+/// in the block moves the ring both ways and does not scroll the page; a
+/// tap sets the colour where it lands (`HUDColourTouch`). VoiceOver finds
+/// two adjustable elements over it: the hue and the lightness.
+private struct HUDColourBlock: View {
+    var hue: Double?
+    var lightness: Double?
+    /// A new hue and lightness, and whether the change is finished (save it).
+    var set: (Double?, Double?, Bool) -> Void
+    /// Saves a colour written during a touch that never ended.
     var saveWaiting: () -> Void
 
-    @Environment(\.hudAccent) private var accent
+    static let height: CGFloat = 168
+    private static let markerSize: CGFloat = 22
 
-    /// Carries out what `HueTouch` decided.
-    private func apply(_ write: HueTouch.Write) {
+    /// Carries out what `HUDColourTouch` decided.
+    private func apply(_ write: HUDColourTouch.Write) {
         switch write {
         case .none: break
-        case .set(let hue, let save): set(hue, save)
+        case .set(let pick, let save): set(pick.hue, pick.lightness, save)
         case .saveWaiting: saveWaiting()
         }
     }
 
-    private static let trackHeight: CGFloat = 22
-    private static let thumbWidth: CGFloat = 14
-    private static let thumbHeight: CGFloat = 34
-
     var body: some View {
         GeometryReader { proxy in
-            let width = proxy.size.width
-            let thumbX = HUDHueSlider.x(forHue: HUDHueSlider.shownHue(stored), width: width)
-            ZStack(alignment: .leading) {
-                HUDShape.rect
-                    .fill(LinearGradient(
-                        colors: HUDHueSlider.trackColours.map(\.color),
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ))
-                    .frame(height: Self.trackHeight)
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(accent)
-                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Palette.white, lineWidth: 2))
-                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(Palette.hudPlate, lineWidth: 1))
-                    .frame(width: Self.thumbWidth, height: Self.thumbHeight)
-                    .offset(x: thumbX - Self.thumbWidth / 2)
+            let size = proxy.size
+            let frame = HUDColourField.imageFrame(size: size)
+            let marker = HUDColourField.point(hue: hue, lightness: lightness, size: size)
+            ZStack(alignment: .topLeading) {
+                ZStack(alignment: .topLeading) {
+                    if let image = HUDColourField.fieldImage {
+                        Image(decorative: image, scale: 1)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: frame.width, height: frame.height)
+                            .offset(x: frame.minX, y: frame.minY)
+                    }
+                }
+                .frame(width: size.width, height: size.height, alignment: .topLeading)
+                .clipShape(HUDShape.rect)
+                .overlay(HUDShape.rect.strokeBorder(Palette.rule.opacity(0.6), lineWidth: 1))
+
+                // A white ring between two dark lines reads on any colour,
+                // white included.
+                ZStack {
+                    Circle().stroke(Palette.hudPlate, lineWidth: 5)
+                    Circle().stroke(Palette.white, lineWidth: 2.5)
+                }
+                .frame(width: Self.markerSize, height: Self.markerSize)
+                .position(marker)
+                .allowsHitTesting(false)
             }
-            .frame(width: width, height: proxy.size.height)
+            .frame(width: size.width, height: size.height)
             .contentShape(Rectangle())
-            // A tap sets the hue where it lands; a sideways drag moves it
-            // (`HueTrackPan`). A drag up or down scrolls the page and
-            // changes nothing.
             .onTapGesture(coordinateSpace: .local) { location in
-                apply(HueTouch.tap(atX: location.x, width: width))
+                apply(HUDColourTouch.tap(at: location, size: size))
             }
-            .gesture(HueTrackPan(width: width, apply: apply))
+            .gesture(HUDColourFieldPan(size: size, apply: apply))
+            .accessibilityHidden(true)
+            .overlay { voiceOverElements }
         }
-        .frame(height: 44)
-        .padding(.horizontal, Self.thumbWidth / 2)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("HUD color")
-        .accessibilityValue(HUDHueSlider.spokenValue(stored))
-        .accessibilityAdjustableAction { direction in
-            // VoiceOver steps; not a touch, so not through `HueTouch`.
-            switch direction {
-            case .increment: set(HUDHueSlider.adjusted(stored, up: true), true)
-            case .decrement: set(HUDHueSlider.adjusted(stored, up: false), true)
-            @unknown default: break
-            }
+        .frame(height: Self.height)
+    }
+
+    /// Two adjustable elements over the block, for VoiceOver only: the hue
+    /// over the top half, the lightness over the bottom. Each swipe steps
+    /// one value and saves, keeping the other as stored.
+    private var voiceOverElements: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .contentShape(Rectangle())
+                .accessibilityElement()
+                .accessibilityLabel("HUD color hue")
+                .accessibilityValue(HUDColourField.spokenHue(hue))
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: set(HUDColourField.adjustedHue(hue, up: true), lightness, true)
+                    case .decrement: set(HUDColourField.adjustedHue(hue, up: false), lightness, true)
+                    @unknown default: break
+                    }
+                }
+            Color.clear
+                .contentShape(Rectangle())
+                .accessibilityElement()
+                .accessibilityLabel("HUD color lightness")
+                .accessibilityValue(HUDColourField.spokenLightness(lightness))
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: set(hue, HUDColourField.adjustedLightness(lightness, up: true), true)
+                    case .decrement: set(hue, HUDColourField.adjustedLightness(lightness, up: false), true)
+                    @unknown default: break
+                    }
+                }
         }
+        .allowsHitTesting(false)
     }
 }
 
-/// The hue track's drag (task 196): a UIKit pan, so it can stand aside for
-/// the scroll view. It begins only when the finger first moves sideways
-/// (`HueTouch.isSideways`); the scroll view's pan waits for it to fail, so
-/// a drag up or down that starts on the track scrolls the page and never
-/// touches the colour. Each state it reports goes through
-/// `HueTouch.handle`, which says what to write.
-private struct HueTrackPan: UIGestureRecognizerRepresentable {
-    var width: CGFloat
-    var apply: (HueTouch.Write) -> Void
+/// The block's drag (task 196 for the hue track; task 206 for the block):
+/// a UIKit pan, so the scroll view can be told to wait for it. It begins
+/// whichever way the finger first moves, and the scroll view's pan waits
+/// for it to fail, so a drag that starts in the block moves the colour and
+/// never scrolls the page. Each state it reports goes through
+/// `HUDColourTouch.handle`, which says what to write.
+private struct HUDColourFieldPan: UIGestureRecognizerRepresentable {
+    var size: CGSize
+    var apply: (HUDColourTouch.Write) -> Void
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var touch = HueTouch()
-
-        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-            guard let pan = recognizer as? UIPanGestureRecognizer else { return true }
-            let moved = pan.translation(in: pan.view)
-            return HueTouch.isSideways(CGSize(width: moved.x, height: moved.y))
-        }
+        var touch = HUDColourTouch()
 
         /// The scroll view's pan waits for this one to fail.
         func gestureRecognizer(
@@ -336,7 +486,7 @@ private struct HueTrackPan: UIGestureRecognizerRepresentable {
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        let phase: HueTouch.Phase
+        let phase: HUDColourTouch.Phase
         switch recognizer.state {
         case .began: phase = .began
         case .changed: phase = .changed
@@ -344,8 +494,6 @@ private struct HueTrackPan: UIGestureRecognizerRepresentable {
         case .cancelled, .failed: phase = .cancelled
         default: return
         }
-        let x = context.converter.localLocation.x
-        apply(context.coordinator.touch.handle(phase, atX: x, width: width))
+        apply(context.coordinator.touch.handle(phase, at: context.converter.localLocation, size: size))
     }
 }
-

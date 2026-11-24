@@ -32,10 +32,15 @@ final class Settings {
     /// in (task 172); nil is the system default. A voice no longer installed
     /// also reads as the default (`VoiceChoice.resolve`).
     var voiceIdentifier: String?
-    /// The HUD accent's hue in degrees, from the Settings slider (design
-    /// v12); nil is the default orange-red. `HUDAccent.rgb(hue:)` turns it
+    /// The HUD accent's hue in degrees, from the Settings colour picker
+    /// (design v12); nil is the default orange-red. `HUDAccent.rgb(hue:)` turns it
     /// into the colour.
     var hudHue: Double?
+    /// How far the HUD accent is mixed toward white, from the Settings
+    /// colour picker (task 206): nil or 0 is the colour of `hudHue`, 1 is
+    /// white. Read through `HUDAccent.clampedLightness`, which holds it to
+    /// 0...1; `HUDAccent.rgb(hue:lightness:)` turns both into the colour.
+    var hudLightness: Double?
 
     init(zip: String? = nil) {
         self.zip = zip

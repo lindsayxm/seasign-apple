@@ -4,7 +4,9 @@ import UIKit
 @testable import Seasign
 
 /// The HUD accent's colour rule (`plans/2026-11-23-v12-in-the-app.md`,
-/// Colour rule; `HUDAccent`).
+/// Colour rule; `HUDAccent`). Since task 206 the 3:1 ceiling from the white
+/// date tile holds at lightness 0 only (`rgb(hue:)`); the user asked for
+/// the range up to white. The two floors hold at every lightness.
 @Suite struct HUDAccentTests {
     private let plate = Palette.hudPlateRGB
     private let onFill = Palette.onAccentRGB
@@ -26,7 +28,9 @@ import UIKit
         #expect(abs(HUDAccent.luminanceCeiling - 0.26303) < 1e-4)
     }
 
-    /// The plan's checks, for one colour.
+    /// The plan's checks, for one colour at lightness 0 (`rgb(hue:)`):
+    /// both floors and the ceiling. Above lightness 0 only the floors apply
+    /// (`theWholeBlockKeepsTheFloors`).
     private func passes(_ accent: SRGB, _ label: String) {
         #expect(SRGB.contrast(accent, plate) >= 4.5, "\(label) \(accent) on the plate")
         #expect(SRGB.contrast(onFill, accent) >= 4.5, "\(label) \(accent) under on-fill text")
@@ -49,13 +53,16 @@ import UIKit
         #expect(HUDAccent.rgb(hue: .infinity) == SRGB(235, 78, 39))
     }
 
+    /// At lightness 0 (the bottom edge of the picker) every whole degree
+    /// keeps the floors and the ceiling, as in task 192.
     @Test func everyWholeDegreePasses() {
         for degree in 0..<360 {
             passes(HUDAccent.rgb(hue: Double(degree)), "hue \(degree)")
+            passes(HUDAccent.rgb(hue: Double(degree), lightness: 0), "hue \(degree) at lightness 0")
         }
     }
 
-    /// The slider is continuous: tenths of a degree pass too.
+    /// Tenths of a degree stay in the band too, at lightness 0.
     @Test func everyTenthOfADegreePasses() {
         for tenth in 0..<3600 {
             let accent = HUDAccent.rgb(hue: Double(tenth) / 10)
@@ -106,6 +113,80 @@ import UIKit
         #expect(red.red > red.green && red.red > red.blue)
     }
 
+    /// Task 206: the picker's whole block, at its own resolution (every
+    /// whole degree by every whole percent of lightness, which includes
+    /// the 21 steps of 5 percent): both floors hold everywhere, lightness 0
+    /// is today's colour exactly, lightness 1 is white, the output is 8-bit,
+    /// and the luminance never falls as the lightness rises.
+    @Test func theWholeBlockKeepsTheFloors() {
+        var failures: [String] = []
+        for degree in 0...360 {
+            let hue = Double(degree)
+            let floor = HUDAccent.rgb(hue: hue)
+            var previous = -1.0
+            for percent in 0...100 {
+                let lightness = Double(percent) / 100
+                let accent = HUDAccent.rgb(hue: hue, lightness: lightness)
+                let luminance = accent.relativeLuminance
+                if SRGB.contrast(accent, plate) < 4.5 { failures.append("\(degree)° \(percent)% on the plate") }
+                if SRGB.contrast(onFill, accent) < 4.5 { failures.append("\(degree)° \(percent)% under on-fill text") }
+                if luminance < previous { failures.append("\(degree)° \(percent)% darker than \(percent - 1)%") }
+                if accent != accent.rounded8Bit { failures.append("\(degree)° \(percent)% not 8-bit") }
+                previous = luminance
+            }
+            if HUDAccent.rgb(hue: hue, lightness: 0) != floor { failures.append("\(degree)° at 0 is not today's colour") }
+            if HUDAccent.rgb(hue: hue, lightness: nil) != floor { failures.append("\(degree)° at nil is not today's colour") }
+            if HUDAccent.rgb(hue: hue, lightness: 1) != white { failures.append("\(degree)° at 1 is not white") }
+        }
+        #expect(failures.isEmpty, "\(failures.count) failures, first: \(failures.prefix(5))")
+    }
+
+    /// The default (no hue) mixes from the orange-red exactly, not from the
+    /// function at its hue; lightness out of range or not a number is held.
+    @Test func lightnessEndsAndEdges() {
+        #expect(HUDAccent.rgb(hue: nil, lightness: nil) == SRGB(235, 78, 39))
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0) == SRGB(235, 78, 39))
+        #expect(HUDAccent.rgb(hue: nil, lightness: .nan) == SRGB(235, 78, 39))
+        #expect(HUDAccent.rgb(hue: nil, lightness: -2) == SRGB(235, 78, 39))
+        #expect(HUDAccent.rgb(hue: nil, lightness: 1) == white)
+        #expect(HUDAccent.rgb(hue: nil, lightness: 7) == white)
+        #expect(HUDAccent.rgb(hue: nil, lightness: .infinity) == SRGB(235, 78, 39))
+        #expect(HUDAccent.clampedLightness(0.25) == 0.25)
+        #expect(HUDAccent.clampedLightness(nil) == 0)
+        // Just above 0 is already a step lighter or the same, never darker.
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0.001).relativeLuminance >= HUDAccent.defaultRGB.relativeLuminance)
+    }
+
+    /// The mix, worked by hand outside Swift (Python, the same formulas):
+    /// the orange-red's L* is 55.337; lightness t aims at L* 55.337 +
+    /// t(100 - 55.337), and each component is mixed toward white in linear
+    /// light by the share that reaches that luminance, then rounded.
+    @Test func theMixMatchesHandWorkedNumbers() {
+        #expect(abs(HUDAccent.cieLightness(luminance: HUDAccent.defaultRGB.relativeLuminance) - 55.3365) < 1e-3)
+        #expect(abs(HUDAccent.luminance(cieLightness: 100) - 1) < 1e-12)
+        #expect(abs(HUDAccent.luminance(cieLightness: HUDAccent.cieLightness(luminance: 0.4)) - 0.4) < 1e-12)
+        #expect(abs(HUDAccent.luminance(cieLightness: HUDAccent.cieLightness(luminance: 0.005)) - 0.005) < 1e-12)
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0.25) == SRGB(238, 132, 118))
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0.4) == SRGB(241, 158, 150))
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0.5) == SRGB(243, 175, 169))
+        #expect(HUDAccent.rgb(hue: nil, lightness: 0.75) == SRGB(248, 216, 213))
+        // Halfway up is about halfway to white in L*, so the luminance at
+        // 0.5 (0.527 before rounding) sits well below a straight luminance
+        // halfway (0.616).
+        let half = HUDAccent.rgb(hue: nil, lightness: 0.5).relativeLuminance
+        #expect(abs(half - 0.5265) < 0.005)
+    }
+
+    /// Mixing toward white keeps the hue's character until it is nearly white.
+    @Test func lightnessKeepsTheHue() {
+        let blue = HUDAccent.rgb(hue: 230, lightness: 0.6)
+        #expect(blue.blue > blue.red && blue.blue > blue.green)
+        let green = HUDAccent.rgb(hue: 120, lightness: 0.6)
+        #expect(green.green > green.red && green.green > green.blue)
+        let red = HUDAccent.rgb(hue: 0, lightness: 0.6)
+        #expect(red.red > red.green && red.red > red.blue)
+    }
+
     /// The HUD's mono sizes are the system monospaced face.
     @Test func monoStylesAreMonospaced() {
         for style in HUDType.all {
@@ -133,10 +214,13 @@ import UIKit
     }
 
     /// The old warning colour (`Palette.sun`, rgb(252, 104, 96)) was about
-    /// 1.3:1 from the default accent; white is at least 3:1 from every hue.
+    /// 1.3:1 from the default accent; white is at least 3:1 from every hue
+    /// at lightness 0. Since task 206 the user may pick lighter, up to white
+    /// itself, where the accent matches the white parts by the user's choice;
+    /// this holds at lightness 0 only.
     @Test func noHueMakesAWarningLookLikeTheAccent() {
         for degree in 0...360 {
-            let accent = HUDAccent.rgb(hue: Double(degree))
+            let accent = HUDAccent.rgb(hue: Double(degree), lightness: 0)
             #expect(SRGB.contrast(HUDWarning.colour, accent) >= 3, "hue \(degree)")
         }
         #expect(SRGB.contrast(SRGB(252, 104, 96), HUDAccent.defaultRGB) < 1.5)
