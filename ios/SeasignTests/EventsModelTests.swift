@@ -475,8 +475,9 @@ private final class World {
 
     /// On a return to the foreground the minute loop's own check and the
     /// return's fresh one can both be in flight. The scheduled answer, which
-    /// may come from the API's cache, never replaces the fresh one, whichever
-    /// lands first.
+    /// may come from the API's cache, is dropped when it lands after the
+    /// fresh one; one that lands first is shown until the fresh one lands
+    /// (the next test).
     @Test func aScheduledAnswerThatLandsAfterAFreshOneIsDropped() async throws {
         stub.set(TestLinks.google, .events([show]))
         let held = HeldCalendarTransport(stub)
@@ -559,6 +560,205 @@ private final class World {
         held.releaseAll()
         await scheduled.value
         #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+    }
+
+    // MARK: Holds and the order of answers (task 164)
+
+    /// The return's fresh request gets our 429 while the minute loop's
+    /// scheduled request, sent before it, is out. The scheduled answer is
+    /// shown but is no news about the limit: the 60-second hold stands, so a
+    /// pull inside it sends nothing. An answer to a request sent once the
+    /// hold has passed clears it.
+    @Test func aScheduledAnswerSentBeforeA429KeepsItsHold() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let limiter = RateLimitTransport(held)
+        let model = model(try inMemoryContext(), transport: limiter)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += EventsModel.refreshInterval
+
+        held.setHolding(true)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        let scheduled = Task { await model.refresh() }
+        await held.waitUntilHeld(1)
+        world.clock.now += 1
+        limiter.limit(retryAfter: "60")
+        await model.refresh(force: true)
+        let hold = world.clock.now.addingTimeInterval(60)
+        #expect(model.retryNotBefore == hold)
+
+        limiter.lift()
+        held.setHolding(false)
+        held.releaseAll()
+        await scheduled.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+        #expect(model.retryNotBefore == hold)
+
+        // A pull inside the hold sends nothing.
+        let sent = limiter.count("postCalendarEvents")
+        world.clock.now += 30
+        await model.refresh(force: true)
+        #expect(limiter.count("postCalendarEvents") == sent)
+
+        // Once it has passed, a pull goes out and its answer clears it.
+        world.clock.now += 30
+        await model.refresh(force: true)
+        #expect(limiter.count("postCalendarEvents") == sent + 1)
+        #expect(model.retryNotBefore == nil)
+    }
+
+    /// The day screen records its own 429 here (`hold`) while one of Today's
+    /// requests is out, sent after an earlier hold had passed: that request's
+    /// answer leaves the new hold in place.
+    @Test func anAnswerKeepsAHoldTheDayScreenSetWhileItWasOut() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+        model.hold(10)
+        world.clock.now += EventsModel.refreshInterval
+
+        // Sent with the old, passed hold still recorded...
+        held.setHolding(true)
+        let scheduled = Task { await model.refresh() }
+        await held.waitUntilHeld(1)
+        // ...and the day screen's 429 arrives while it is out.
+        world.clock.now += 1
+        model.hold(60)
+        let hold = world.clock.now.addingTimeInterval(60)
+        held.releaseAll()
+        await scheduled.value
+        #expect(model.retryNotBefore == hold)
+
+        let sent = stub.requests.count
+        held.setHolding(false)
+        world.clock.now += 59
+        await model.refresh(force: true)
+        #expect(stub.requests.count == sent)
+        world.clock.now += 1
+        await model.refresh(force: true)
+        #expect(stub.requests.count == sent + 1)
+        #expect(model.retryNotBefore == nil)
+    }
+
+    /// Adding a link checks it even during a hold, and its answer clears a
+    /// hold that was on when it was sent; one set while it was out stays.
+    @Test func anAddKeepsAHoldSetWhileItWasOut() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        stub.set(TestLinks.icloud, .events([lunch]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+
+        model.hold(60)
+        try await model.add(name: "Family", link: TestLinks.google)
+        #expect(model.retryNotBefore == nil)
+
+        world.clock.now += 1
+        held.setHolding(true)
+        let adding = Task { try await model.add(name: "Work", link: TestLinks.icloud) }
+        await held.waitUntilHeld(1)
+        world.clock.now += 1
+        model.hold(60)
+        let hold = world.clock.now.addingTimeInterval(60)
+        held.setHolding(false)
+        held.releaseAll()
+        try await adding.value
+        #expect(model.links.count == 2)
+        #expect(model.retryNotBefore == hold)
+        #expect(stub.requests.count == 2)
+    }
+
+    /// Two fresh requests out at once (a return, then a pull): the pull's
+    /// answer lands first and the return's, older, is dropped when it lands
+    /// after it. In the other order both are shown, the newer last.
+    @Test func anOlderFreshAnswerDoesNotReplaceANewerOne() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += EventsModel.refreshInterval
+
+        held.setHolding(true)
+        let comeBack = Task { await model.refresh(force: true) }
+        await held.waitUntilHeld(1)
+        held.setHolding(false)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        await model.refresh(force: true)
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+        held.releaseAll()
+        await comeBack.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+        #expect(stub.requests.suffix(2).map(\.fresh) == [true, true])
+
+        // The older lands first: shown, then replaced by the newer.
+        held.setHolding(true)
+        stub.set(TestLinks.google, .events([show, lunch]))
+        let first = Task { await model.refresh(force: true) }
+        await held.waitUntilHeld(1)
+        stub.set(TestLinks.google, .events([show]))
+        let second = Task { await model.refresh(force: true) }
+        await held.waitUntilHeld(2)
+        held.releaseFirst()
+        await first.value
+        #expect(times(model) == ["8:25PM Hanna's show", "TUE 12:00PM Lunch"])
+        held.releaseAll()
+        await second.value
+        #expect(times(model) == ["8:25PM Hanna's show"])
+    }
+
+    /// New York, then Los Angeles, then New York again: a scheduled New York
+    /// request sent before all this hangs, and lands after the newer New
+    /// York answer is shown. It does not replace it.
+    @Test func anOlderScheduledAnswerDoesNotReplaceANewerOneAfterTheZoneComesBack() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += EventsModel.refreshInterval
+
+        held.setHolding(true)
+        let hung = Task { await model.refresh() }
+        await held.waitUntilHeld(1)
+        held.setHolding(false)
+
+        world.zone = TimeZone(identifier: "America/Los_Angeles")!
+        await model.refresh()
+        #expect(model.snapshot?.timezone == "America/Los_Angeles")
+        world.zone = TimeZone(identifier: "America/New_York")!
+        stub.set(TestLinks.google, .events([show, dentist]))
+        await model.refresh()
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+        #expect(stub.requests.suffix(3).allSatisfy { $0.fresh == nil })
+
+        held.releaseAll()
+        await hung.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+    }
+
+    /// A scheduled request sent while a fresh one is out, landing after the
+    /// fresh answer was shown, is dropped: it may come from the API's cache,
+    /// read before the fresh request was.
+    @Test func aScheduledRequestSentWhileAFreshOneWasOutIsDroppedIfItLandsAfterIt() async throws {
+        stub.set(TestLinks.google, .events([show]))
+        let held = HeldCalendarTransport(stub)
+        let model = model(try inMemoryContext(), transport: held)
+        try await model.add(name: "Family", link: TestLinks.google)
+        world.clock.now += EventsModel.refreshInterval
+
+        held.setHolding(true)
+        stub.set(TestLinks.google, .events([show, dentist]))
+        let pull = Task { await model.refresh(force: true) }
+        await held.waitUntilHeld(1)
+        stub.set(TestLinks.google, .events([show]))
+        let scheduled = Task { await model.refresh() }
+        await held.waitUntilHeld(2)
+        held.releaseFirst()
+        await pull.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+        held.releaseAll()
+        await scheduled.value
+        #expect(times(model) == ["8:25PM Hanna's show", "MON 9:00AM Dentist"])
+        #expect(stub.requests.suffix(2).map(\.fresh) == [true, nil])
     }
 
     /// A fresh answer for more links than a scheduled request asked for (a

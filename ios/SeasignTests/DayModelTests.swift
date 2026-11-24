@@ -738,6 +738,89 @@ private final class Zone {
         #expect(googleStub.count(GoogleAPIStub.postEvents) == sent)
     }
 
+    /// Task 164: the day request gets our 429 with a long delay while
+    /// Today's poll is out, and the poll's answer says Google limited the
+    /// calendar. The answer keeps the long hold (`answered`), and Google's
+    /// 60-second hold does not shorten it (`holdAtLeast`).
+    @Test func googlesShortHoldDoesNotShortenALongerKeptHold() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        let events = try eventsModel(context, links: [])
+        let day = dayModel(events: events, google: google)
+        let limited = GoogleAPIStub.events([(0, "Coffee", "2026-11-19T19:00:00Z", "2026-11-19T19:30:00Z")], statuses: ["rate_limited"])
+        googleStub.answer(GoogleAPIStub.postEvents, googleLimited(600), limited)
+        googleStub.hold(GoogleAPIStub.postEvents)
+        let read = Task { await day.refreshGoogle(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 1)
+        let poll = Task { await google.refresh(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 2)
+
+        googleStub.releaseOldest(GoogleAPIStub.postEvents)
+        #expect(await finishes(read))
+        let hold = clock.now.addingTimeInterval(600)
+        #expect(google.retryNotBefore == hold)
+        googleStub.release(GoogleAPIStub.postEvents)
+        #expect(await finishes(poll))
+        #expect(google.retryNotBefore == hold)
+        #expect(google.statusProblem == .rateLimited)
+    }
+
+    /// Task 164, the other way round: a kept hold shorter than Google's 60
+    /// seconds is lengthened to 60 by the poll's answer.
+    @Test func googlesHoldLengthensAShorterKeptHold() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        let events = try eventsModel(context, links: [])
+        let day = dayModel(events: events, google: google)
+        let limited = GoogleAPIStub.events([(0, "Coffee", "2026-11-19T19:00:00Z", "2026-11-19T19:30:00Z")], statuses: ["rate_limited"])
+        googleStub.answer(GoogleAPIStub.postEvents, googleLimited(30), limited)
+        googleStub.hold(GoogleAPIStub.postEvents)
+        let read = Task { await day.refreshGoogle(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 1)
+        let poll = Task { await google.refresh(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 2)
+
+        googleStub.releaseOldest(GoogleAPIStub.postEvents)
+        #expect(await finishes(read))
+        #expect(google.retryNotBefore == clock.now.addingTimeInterval(30))
+        googleStub.release(GoogleAPIStub.postEvents)
+        #expect(await finishes(poll))
+        #expect(google.retryNotBefore == clock.now.addingTimeInterval(GoogleCalendarModel.googleRateLimitHold))
+    }
+
+    /// Task 164: an answer that keeps a back-off set while it was out keeps
+    /// its failure count too, so the next failure backs off twice as long
+    /// (10 seconds, not the first failure's 5).
+    @Test func aKeptBackOffKeepsItsFailureCount() async throws {
+        let context = try inMemoryContext()
+        let google = await connectedGoogle(context)
+        let events = try eventsModel(context, links: [])
+        let day = dayModel(events: events, google: google)
+        let failed = GoogleAPIStub.error(.internalServerError, "unavailable")
+        let todays = GoogleAPIStub.events([(0, "Coffee", "2026-11-19T19:00:00Z", "2026-11-19T19:30:00Z")], statuses: [nil])
+        // The day request fails first; Today's poll, out meanwhile, is answered.
+        googleStub.answer(GoogleAPIStub.postEvents, failed, todays, failed)
+        googleStub.hold(GoogleAPIStub.postEvents)
+        let read = Task { await day.refreshGoogle(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 1)
+        let poll = Task { await google.refresh(force: true) }
+        await googleStub.waitUntilParked(GoogleAPIStub.postEvents, count: 2)
+
+        googleStub.releaseOldest(GoogleAPIStub.postEvents)
+        #expect(await finishes(read))
+        #expect(google.retryNotBefore == clock.now.addingTimeInterval(GooglePoll.backoff(failures: 1)))
+        googleStub.release(GoogleAPIStub.postEvents)
+        #expect(await finishes(poll))
+        #expect(google.retryNotBefore == clock.now.addingTimeInterval(5))
+        #expect(google.statusProblem == .unavailable)
+
+        // The back-off passes and the next poll fails: the second in a row.
+        clock.advance(5)
+        await google.refresh(force: true)
+        #expect(google.retryNotBefore == clock.now.addingTimeInterval(10))
+        #expect(google.statusProblem == .unavailable)
+    }
+
     /// L2: opened while a hold is on, the screen does not sit on "Reading
     /// your calendars…": it shows what it has and says when it will read.
     @Test func openedDuringAHoldTheScreenSaysItWillReadAgainShortly() async throws {

@@ -76,20 +76,29 @@ final class EventsModel {
     @ObservationIgnored private let now: @Sendable () -> Date
     /// Set for the DEBUG sample: nothing is fetched and nothing is dropped.
     @ObservationIgnored private var isFrozen = false
-    /// Requests sent by `refresh` so far.
+    /// Requests sent by `refresh` so far; each request's number is the count
+    /// once it is sent.
     @ObservationIgnored private var requestsSent = 0
-    /// `requestsSent` when the snapshot last took a fresh answer; nil once
-    /// the snapshot is cleared. A scheduled answer to a request sent by then
-    /// is dropped: it may come from the API's cache and is never newer than
+    /// The newest fresh request whose answer was shown. A fresh answer to an
+    /// older request is dropped (a return's slow answer landing after a
+    /// later pull's).
+    @ObservationIgnored private var freshShown: Int?
+    /// A scheduled answer to a request numbered this or lower is dropped:
+    /// one sent before a scheduled answer that was shown (a hung request
+    /// after the zone went A, B, A), and one sent before a fresh answer was
+    /// shown, which may come from the API's cache and is never newer than
     /// that fresh answer (on a return to the foreground the minute loop and
-    /// the return can both ask at once). Only a fresh answer that was shown
-    /// counts, so a fresh request that fails (a 429, say) or whose answer
-    /// was out of date never hides a scheduled answer. No links or zone
-    /// need comparing: an answer for other links or another zone is dropped
-    /// as out of date anyway, and a fresh answer for more links (one added,
-    /// then removed) still holds newer events for the scheduled one's links,
-    /// since a removed link never comes back with the same id.
-    @ObservationIgnored private var freshShownAt: Int?
+    /// the return can both ask at once). A fresh answer is not dropped for a
+    /// scheduled one: it was read again, the scheduled one maybe not.
+    ///
+    /// Both marks clear with the snapshot. Only answers that were shown
+    /// count, so a request that fails (a 429, say) or whose answer was out
+    /// of date never hides another. No links or zone need comparing: an
+    /// answer for other links or another zone is dropped as out of date
+    /// anyway, and a newer answer for more links (one added, then removed)
+    /// still holds newer events for the older one's links, since a removed
+    /// link never comes back with the same id.
+    @ObservationIgnored private var scheduledShownThrough: Int?
 
     /// `timeZone` is asked each time events are fetched or shown: the zip's
     /// zone when a zip is set, otherwise the phone's (see `EventZone`).
@@ -187,6 +196,7 @@ final class EventsModel {
         let fresh = force
         requestsSent += 1
         let number = requestsSent
+        let holdAtStart = retryNotBefore
         let answer: CalendarAnswer
         do {
             answer = try await api.calendarEvents(links: links.map(\.url), timezone: zone, fresh: fresh)
@@ -196,15 +206,24 @@ final class EventsModel {
             if case .rateLimited(let seconds)? = error as? SeasignAPI.CalendarFailure { hold(seconds) }
             return
         }
-        retryNotBefore = nil
-        // A fresh answer shown since this scheduled request went out is
-        // newer than this one.
-        if !fresh, let freshShownAt, freshShownAt >= number { return }
+        answered(holdAtStart: holdAtStart)
+        // A newer answer has been shown since this request went out.
+        if fresh {
+            if let freshShown, freshShown > number { return }
+        } else {
+            if let scheduledShownThrough, scheduledShownThrough >= number { return }
+        }
         // The links or the zone may have changed while the request was in
         // flight; whatever changed them asks again.
         guard ids == links.map(\.id), zone == timeZone().identifier else { return }
         setSnapshot(.make(from: answer, links: ids, timezone: zone, previous: snapshot, now: now()))
-        if fresh { freshShownAt = requestsSent }
+        if fresh {
+            freshShown = number
+            // Every request sent by now, this one's answer included.
+            scheduledShownThrough = requestsSent
+        } else {
+            scheduledShownThrough = max(scheduledShownThrough ?? 0, number)
+        }
     }
 
     /// Checks a link typed in Settings by asking the API to read it, and
@@ -217,6 +236,7 @@ final class EventsModel {
         try checkRoom(for: url)
 
         let zone = timeZone().identifier
+        let holdAtStart = retryNotBefore
         let answer: CalendarAnswer
         do {
             // Fresh: the link may have been cached by an earlier try.
@@ -227,7 +247,7 @@ final class EventsModel {
         } catch {
             throw AddProblem.unavailable
         }
-        retryNotBefore = nil
+        answered(holdAtStart: holdAtStart)
         guard let status = answer.calendars.first(where: { $0.index == 0 }) else {
             throw AddProblem.unavailable
         }
@@ -272,14 +292,27 @@ final class EventsModel {
         retryNotBefore = now().addingTimeInterval(TimeInterval(seconds))
     }
 
+    /// A request sent while `retryNotBefore` was `holdAtStart` was answered:
+    /// the API let it through, so the hold is over, unless a 429 (another of
+    /// Today's requests, the day screen's) set a new hold while this one was
+    /// out and it has not passed. This answer is no news about that limit.
+    /// The same rule as `GoogleCalendarModel.answered(holdAtStart:)`.
+    private func answered(holdAtStart: Date?) {
+        if let retryNotBefore, retryNotBefore != holdAtStart, now() < retryNotBefore { return }
+        retryNotBefore = nil
+    }
+
     private func checkRoom(for url: String) throws {
         guard links.count < Self.maxLinks else { throw AddProblem.limitReached }
         guard !links.contains(where: { $0.url == url }) else { throw AddProblem.alreadyAdded }
     }
 
     private func setSnapshot(_ value: EventsSnapshot?) {
-        // Nothing is shown, so no fresh answer is newer than a scheduled one.
-        if value == nil { freshShownAt = nil }
+        // Nothing is shown, so no answer is newer than one still out.
+        if value == nil {
+            freshShown = nil
+            scheduledShownThrough = nil
+        }
         guard value != snapshot else { return }
         snapshot = value
         store.cache(value)
