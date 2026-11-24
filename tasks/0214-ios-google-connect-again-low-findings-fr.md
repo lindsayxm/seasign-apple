@@ -5,7 +5,7 @@ status: in-progress
 owner: implementer-2
 depends_on: []
 created: 2026-11-24T17:01:20Z
-updated: 2026-11-24T17:40:03Z
+updated: 2026-11-24T17:45:51Z
 ---
 
 ## Goal
@@ -31,3 +31,4 @@ From the re-review of task 178 (its note has lines). (1) Connect again from a wo
 - 2026-11-24T17:01:20Z [li] created (backlog)
 - 2026-11-24T17:40:03Z [li] status: backlog → todo
 - 2026-11-24T17:40:03Z [implementer-2] status: todo → in-progress — claimed by implementer-2
+- 2026-11-24T17:45:51Z [implementer-2] Tests written first (GoogleConnectAgainTests, MARK Task 214) with only the compile shim in the model (new ConnectProblem.busy and its text, sample(connectProblem:), ConnectProblem.debugNamed). Against the unfixed connect()/endSignIn (iPhone 17 / 27.2, -only-testing GoogleConnectAgainTests, 34 tests, 7 issues): item 1 aConnectAgainInsideOurOwn429HoldDoesNotOpenTheSheet failed (sheet opened, authorization_code sent, message .unavailable not .busy); item 2 aConnectProblemIsClearedWhenTheSignInEnds failed (accountNotShown left after expiry); item 3 aSignInThatEndsWhileTheSheetIsUpKeepsTheSheetsSignIn failed (stayed expired, nothing stored). Pins passed as they should: aDisconnectWhileTheSheetIsUpKeepsNothing; aConnectAgainInsideOurOwn429HoldDoesNotAskAgain re-pointed so the hold begins while the sheet is up (a poll 429 inside the sign-in closure), keeping the in-connect serverLimitHold branch covered.
