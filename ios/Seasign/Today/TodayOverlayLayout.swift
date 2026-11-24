@@ -88,6 +88,9 @@ struct TodayOverlayLayout {
         static let titleLine: CGFloat = 19
         static let titleRowHeight: CGFloat = 38
         static let titlePitch: CGFloat = 54
+        /// The tightest pitch a small screen may use to fit a second row
+        /// (task 207): the rows 8 apart.
+        static let titlePitchFloor: CGFloat = 46
         /// A row is shown only when it ends at least this far above the tiles.
         static let titlesAboveTiles: CGFloat = 17
     }
@@ -151,6 +154,9 @@ struct TodayOverlayLayout {
     let titleWidth: CGFloat
     /// How many title rows fit above the tiles (never more than five).
     let titleCapacity: Int
+    /// From one row's top to the next: `Mockup.titlePitch`, or tighter on a
+    /// screen that would otherwise fit a single row (`titlePitch(fitting:)`).
+    let titlePitch: CGFloat
 
     // Bottom tiles.
     let tiles: [CGRect]
@@ -247,7 +253,8 @@ struct TodayOverlayLayout {
         titlesTop = horizon + M.titlesBelowHorizon
         titleWidth = width - M.titleFromRight - M.titleX
         let room = (size.height - M.bottomTilesFromBottom) - M.titlesAboveTiles - titlesTop
-        titleCapacity = Self.titleRows(fitting: room)
+        titlePitch = Self.titlePitch(fitting: room)
+        titleCapacity = Self.titleRows(fitting: room, pitch: titlePitch)
     }
 
     /// The four-tile bar on a screen `screen` big, in full-screen points:
@@ -268,12 +275,25 @@ struct TodayOverlayLayout {
         max(0, (screenWidth - 2 * Mockup.margin - 3 * Mockup.tileGap) / 4)
     }
 
-    /// How many whole two-line rows fit in `room` points, never more than five.
-    static func titleRows(fitting room: CGFloat) -> Int {
+    /// The rows' pitch in `room` points (task 207, the user's choice of
+    /// 2026-11-24): the mockup's 54 wherever two rows fit at it or not even
+    /// one does; where only one fits, the largest whole-point pitch, 46 or
+    /// more, that fits a second (50 on the iPhone SE), so a small screen
+    /// shows two titles. With no such pitch it stays 54 and one row shows.
+    static func titlePitch(fitting room: CGFloat) -> CGFloat {
+        guard titleRows(fitting: room, pitch: Mockup.titlePitch) == 1 else { return Mockup.titlePitch }
+        // No rounding tolerance here: the second row must end clear of the tiles.
+        let tight = (room - Mockup.titleRowHeight).rounded(.down)
+        return tight >= Mockup.titlePitchFloor ? min(tight, Mockup.titlePitch) : Mockup.titlePitch
+    }
+
+    /// How many whole two-line rows fit in `room` points on `pitch`, never
+    /// more than five.
+    static func titleRows(fitting room: CGFloat, pitch: CGFloat = Mockup.titlePitch) -> Int {
         var count = 0
         // A hair of tolerance for rounding.
         while count < HeadlineFit.maxCount,
-              CGFloat(count) * Mockup.titlePitch + Mockup.titleRowHeight <= room + 0.5 {
+              CGFloat(count) * pitch + Mockup.titleRowHeight <= room + 0.5 {
             count += 1
         }
         return count
@@ -283,19 +303,19 @@ struct TodayOverlayLayout {
 
     /// The top of title row `index`.
     func titleRowTop(_ index: Int) -> CGFloat {
-        titlesTop + CGFloat(index) * Mockup.titlePitch
+        titlesTop + CGFloat(index) * titlePitch
     }
 
     /// Title row `index` as a band from the number to the column's end, half
     /// a gap above and below, so the bands of neighbouring rows meet and a
     /// drop between two titles still lands on one.
     func titleBand(_ index: Int) -> CGRect {
-        let half = (Mockup.titlePitch - Mockup.titleRowHeight) / 2
+        let half = (titlePitch - Mockup.titleRowHeight) / 2
         return CGRect(
             x: Mockup.numberX,
             y: titleRowTop(index) - half,
             width: Mockup.titleX + titleWidth - Mockup.numberX,
-            height: Mockup.titlePitch
+            height: titlePitch
         )
     }
 

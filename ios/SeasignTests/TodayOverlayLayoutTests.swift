@@ -326,14 +326,34 @@ import UIKit
 
     /// iPhone SE size: the titles give way first, whole rows at a time; the
     /// top and the tiles keep their places. Task 205: at 12 points on a 54
-    /// pitch one title fits (two did at 10.5 on 51).
+    /// pitch one title fits (two did at 10.5 on 51). Task 207: so the pitch
+    /// tightens to 50 there and two fit.
+    /// Task 207: the pitch tightens only where it turns one row into two.
+    @Test func thePitchTightensOnlyToFitASecondRow() {
+        // Two or more rows fit at 54, or none does: 54.
+        #expect(TodayOverlayLayout.titlePitch(fitting: 92) == 54)
+        #expect(TodayOverlayLayout.titlePitch(fitting: 300) == 54)
+        #expect(TodayOverlayLayout.titlePitch(fitting: 30) == 54)
+        // One fits: the largest whole pitch that fits a second, 46 or more.
+        #expect(TodayOverlayLayout.titlePitch(fitting: 88.68) == 50)
+        #expect(TodayOverlayLayout.titleRows(fitting: 88.68, pitch: 50) == 2)
+        #expect(TodayOverlayLayout.titlePitch(fitting: 84) == 46)
+        // Too little room for a second row even 8 apart: 54, one row.
+        #expect(TodayOverlayLayout.titlePitch(fitting: 83.9) == 54)
+        #expect(TodayOverlayLayout.titleRows(fitting: 83.9, pitch: 54) == 1)
+    }
+
     @Test func aSmallScreenScalesEverything() {
         let layout = layout(sample, size: se)
         #expect(abs(layout.horizonY - 386 * 375 / 393) < 0.001)
         #expect(layout.tiles[0].minY == CGFloat(667 - 118))
-        #expect(layout.titleCapacity == 1)
-        #expect(layout.titleRowTop(0) + 38 <= layout.tiles[0].minY - 17)
-        #expect(layout.titleRowTop(1) + 38 > layout.tiles[0].minY - 17)
+        #expect(layout.titleCapacity == 2)
+        #expect(layout.titlePitch == 50)
+        #expect(layout.titleRowTop(1) == layout.titleRowTop(0) + 50)
+        #expect(layout.titleRowTop(1) + 38 <= layout.tiles[0].minY - 17)
+        #expect(layout.titleRowTop(0) + 54 + 38 > layout.tiles[0].minY - 17)
+        #expect(layout.titleBand(0).maxY == layout.titleBand(1).minY && layout.titleBand(0).height == 50)
+        #expect(self.layout(sample).titlePitch == 54 && self.layout(sample, size: iPhone17).titlePitch == 54)
         #expect(layout.eventsBox.minY == 105 && layout.markRect.minY == 66)
         // The frame still clears the date tile.
         #expect(layout.frame.minY > layout.dateTile.maxY)
