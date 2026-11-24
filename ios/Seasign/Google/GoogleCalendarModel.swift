@@ -368,8 +368,10 @@ final class GoogleCalendarModel {
         do {
             fresh = try await client.exchange(code: code, verifier: pkce.verifier)
         } catch {
-            // Disconnected meanwhile: there is nothing to report.
-            guard started == generation else { return }
+            // Disconnected (or a newer Connect) meanwhile: there is nothing
+            // to report. The sign-in here ending meanwhile is not a
+            // Disconnect: the failure is reported as after it ended (task 198).
+            guard goesOn(after: &started, attempt: attempt) else { return }
             switch error {
             case GoogleTokenError.invalidGrant:
                 connectProblem = .google("invalid_grant")
@@ -438,11 +440,12 @@ final class GoogleCalendarModel {
             case .cannotTell(let failure):
                 // A working connection stays exactly as it was. Nothing is
                 // revoked: either token's revoke would end the other's grant
-                // if both are the same account's. Our 429 still holds. A
-                // failure may pass; a list without a primary will not.
+                // if both are the same account's. Our 429 still holds, and
+                // says Seasign is busy (task 198). A failure may pass; a list
+                // without a primary will not.
                 if let failure = listFailure ?? failure {
                     holdForServerLimit(failure)
-                    connectProblem = .unavailable
+                    connectProblem = Self.isServerLimit(failure) ? .busy : .unavailable
                 } else {
                     connectProblem = .accountNotShown
                 }
@@ -576,6 +579,12 @@ final class GoogleCalendarModel {
     private func handBack(_ token: GoogleSecret, begun: Int) {
         guard let client, begun == connectsBegun else { return }
         Task { await client.revoke(token) }
+    }
+
+    /// Whether `error` is our own 429 (its Retry-After).
+    private static func isServerLimit(_ error: any Error) -> Bool {
+        if case SeasignAPI.GoogleFailure.rateLimited = error { return true }
+        return false
     }
 
     /// Our 429 on a read whose failure changes nothing else here: its
@@ -875,8 +884,7 @@ final class GoogleCalendarModel {
     /// Google limited a calendar: hold for `seconds`, but never shorten a
     /// longer hold that is already on (`answered` may have kept one).
     private func holdAtLeast(_ seconds: TimeInterval) {
-        if let retryNotBefore, retryNotBefore >= now().addingTimeInterval(seconds) { return }
-        hold(seconds)
+        holdAtLeast(seconds, serverLimit: false)
     }
 
     // MARK: The day screen (task 170)
@@ -1056,11 +1064,14 @@ final class GoogleCalendarModel {
         store.setGrantedScopes(kept)
     }
 
-    /// Our 429 on the add path: hold Today's requests too, never shortening
-    /// a longer hold that is already on.
+    /// Hold for `seconds` (our 429 on the add path, or Google's limit on a
+    /// calendar), never shortening a longer hold that is already on. A hold
+    /// of our own 429 that is still on and is lengthened stays marked as
+    /// ours (task 198), so Connect again still says Seasign is busy rather
+    /// than meet our 429 inside the Connect. A back-off is never marked ours.
     private func holdAtLeast(_ seconds: TimeInterval, serverLimit: Bool) {
         if let retryNotBefore, retryNotBefore >= now().addingTimeInterval(seconds) { return }
-        hold(seconds, serverLimit: serverLimit)
+        hold(seconds, serverLimit: serverLimit || serverLimitHold() != nil)
     }
 
     // MARK: Push

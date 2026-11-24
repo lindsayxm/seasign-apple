@@ -532,7 +532,8 @@ final class RevokedAtSave: @unchecked Sendable {
 
     /// Item 1: another primary, and the old sign-in cannot be asked (our
     /// 429): the account cannot be told, so the working connection stays as
-    /// it was, nothing is revoked, and the 429's Retry-After is kept.
+    /// it was, nothing is revoked, and the 429's Retry-After is kept. Since
+    /// task 198 the note says Seasign is busy (it was "couldn't reach Google").
     @Test func aChangedPrimaryTheOldSignInCannotConfirmLeavesTheWorkingConnectionAsItWas() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let store = RecordingGoogleTokenStore()
@@ -552,7 +553,7 @@ final class RevokedAtSave: @unchecked Sendable {
             [(0, "Coffee", "2026-11-19T19:00:00Z", "2026-11-19T19:30:00Z"), (1, "Dinner", "2026-11-19T23:00:00Z", "2026-11-20T00:00:00Z")],
             statuses: [nil, nil]
         ))
-        try await expectAUnchanged(model, context, store, ids: ids, before: before)
+        try await expectAUnchanged(model, context, store, ids: ids, before: before, problem: .busy)
     }
 
     /// Item 1: another primary, and the old sign-in has ended at Google
@@ -923,7 +924,8 @@ final class RevokedAtSave: @unchecked Sendable {
     /// 429 does, the hold unchanged, nothing kept or revoked. Since task 214
     /// a hold already on when Connect is tapped stops it before the sheet
     /// (`aConnectAgainInsideOurOwn429HoldDoesNotOpenTheSheet`), so here the
-    /// hold begins while the sheet is up: a poll meets our 429 then.
+    /// hold begins while the sheet is up: a poll meets our 429 then. Since
+    /// task 198 both say Seasign is busy (before: "couldn't reach Google").
     @Test func aConnectAgainInsideOurOwn429HoldDoesNotAskAgain() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let store = RecordingGoogleTokenStore()
@@ -934,7 +936,7 @@ final class RevokedAtSave: @unchecked Sendable {
         stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: "30"))
         let signIn = signIn
         try await bounded { await model.connect(signIn: signIn) }
-        try #require(model.connectProblem == .unavailable)
+        try #require(model.connectProblem == .busy)
         let firstHold = try #require(model.retryNotBefore)
         #expect(firstHold == clock.now.addingTimeInterval(30))
 
@@ -958,7 +960,7 @@ final class RevokedAtSave: @unchecked Sendable {
             [(0, "Coffee", "2026-11-19T19:00:00Z", "2026-11-19T19:30:00Z"), (1, "Dinner", "2026-11-19T23:00:00Z", "2026-11-20T00:00:00Z")],
             statuses: [nil, nil]
         ))
-        try await expectAUnchanged(model, context, store, ids: ids, before: before)
+        try await expectAUnchanged(model, context, store, ids: ids, before: before, problem: .busy)
     }
 
     enum OldSignInFailure: String, CaseIterable, Sendable {
@@ -1288,6 +1290,251 @@ final class RevokedAtSave: @unchecked Sendable {
         #expect(await endpoint.waitForRevoked(count: 1) == [FakeGoogle.refresh])
         try await Task.sleep(for: .milliseconds(100))
         #expect(endpoint.revoked == [FakeGoogle.refresh])
+    }
+
+    // MARK: Task 198 (the #214 review's lows)
+
+    /// (c) Only our own 429 stops Connect again before the sheet: a back-off
+    /// (a poll that could not reach the API) or Google's limit on one
+    /// calendar does not, and the sheet opens as usual.
+    @Test func aBackOffOrGooglesHoldStillOpensTheSheet() async throws {
+        for cause in ["back-off", "google"] {
+            let context = ModelContext(try SeasignSchema.inMemoryContainer())
+            let store = RecordingGoogleTokenStore()
+            let model = try await connectedAsA(context, store: store)
+            if cause == "back-off" {
+                stub.setOffline(true)
+                await model.refresh(force: true)
+                stub.setOffline(false)
+                try #require(model.statusProblem == .unavailable, "\(cause)")
+            } else {
+                stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.events([], statuses: ["rate_limited", nil]))
+                await model.refresh(force: true)
+                try #require(model.retryNotBefore == clock.now.addingTimeInterval(GoogleCalendarModel.googleRateLimitHold), "\(cause)")
+            }
+            try #require(model.retryNotBefore.map { $0 > clock.now } == true, "\(cause)")
+
+            answerAccountA(refresh: "fake-refresh-two", access: Self.accessA2)
+            let sheets = SheetsOpened()
+            let signIn = signIn
+            try await bounded {
+                await model.connect { url, scheme in
+                    sheets.count += 1
+                    return try await signIn(url, scheme)
+                }
+            }
+            #expect(sheets.count == 1, "\(cause)")
+            #expect(model.connectProblem == nil, "\(cause)")
+            #expect(model.connection == .connected, "\(cause)")
+            #expect(store.stored?.secret == "fake-refresh-two", "\(cause)")
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(endpoint.revoked.isEmpty, "\(cause)")
+        }
+    }
+
+    /// (e) Google's 60-second hold lengthening our own 429's hold (a request
+    /// sent before our 429 answered after it, naming a calendar Google
+    /// limited) keeps it ours: Connect again still says Seasign is busy and
+    /// opens no sheet. Before, the flag was reset, the sheet opened, and
+    /// the Connect met our 429 inside it.
+    @Test func googlesHoldLengtheningOurOwnKeepsConnectAgainBusy() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+        let ids = model.calendars.map(\.id)
+
+        // Today's poll and the day screen's read are both out.
+        stub.hold(GoogleAPIStub.postEvents)
+        stub.answer(
+            GoogleAPIStub.postEvents,
+            GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: "30"),
+            GoogleAPIStub.events([], statuses: ["rate_limited", nil])
+        )
+        let poll = Task { await model.refresh(force: true) }
+        await stub.waitUntilParked(GoogleAPIStub.postEvents, count: 1)
+        let day = Task { await model.dayEvents(day: "2026-11-19", timezone: "America/Chicago") }
+        await stub.waitUntilParked(GoogleAPIStub.postEvents, count: 2)
+        // The poll meets our 429 first; then the day read, sent before it,
+        // names a calendar Google limited.
+        stub.releaseOldest(GoogleAPIStub.postEvents)
+        try await bounded { await poll.value }
+        try #require(model.statusProblem == .rateLimited)
+        try #require(model.retryNotBefore == clock.now.addingTimeInterval(30))
+        stub.release(GoogleAPIStub.postEvents)
+        _ = try await bounded { await day.value }
+        try #require(model.retryNotBefore == clock.now.addingTimeInterval(GoogleCalendarModel.googleRateLimitHold))
+
+        clock.advance(10)
+        answerAccountA(refresh: "fake-refresh-two", access: Self.accessA2)
+        let codes = endpoint.sent(grant: "authorization_code").count
+        let before = stub.seen.count
+        let sheets = SheetsOpened()
+        let signIn = signIn
+        try await bounded {
+            await model.connect { url, scheme in
+                sheets.count += 1
+                return try await signIn(url, scheme)
+            }
+        }
+        #expect(sheets.count == 0)
+        #expect(model.connectProblem == .busy)
+        #expect(endpoint.sent(grant: "authorization_code").count == codes)
+        #expect(stub.seen.count == before)
+        #expect(model.connection == .connected)
+        #expect(store.stored?.secret == FakeGoogle.refresh)
+        #expect(model.calendars.map(\.id) == ids)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// (c) The sign-in here ends while the sheet is up and the sheet's
+    /// sign-in is another account: it goes on as a Connect after the sign-in
+    /// ended, so the old account's choices go and the new sign-in is kept.
+    /// Nothing is revoked (the old grant is already gone at Google).
+    @Test func aSignInThatEndsWhileTheSheetIsUpAndComesBackAsAnotherAccountStartsAfresh() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        let sheets = SheetsOpened()
+        let clock = clock
+        let signIn = signIn
+        try await bounded {
+            await model.connect { url, scheme in
+                clock.advance(3600)
+                await model.refresh()
+                sheets.connectionWhileUp = model.connection
+                self.answerAccountB()
+                self.endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(access: Self.accessB, refresh: Self.refreshB, expiresIn: 7200))
+                return try await signIn(url, scheme)
+            }
+        }
+        try await idle(model)
+
+        #expect(sheets.connectionWhileUp == .expired)
+        #expect(model.connection == .connected)
+        #expect(model.connectProblem == nil)
+        #expect(!model.isConnecting)
+        #expect(store.stored?.secret == Self.refreshB)
+        #expect(model.calendars.map(\.calendarID) == ["other@example.test", "family-id"])
+        #expect(model.newEventsCalendarID == nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// (c) The same, with the new list unreadable: there is nothing left to
+    /// protect, so the new sign-in is kept and the list is read later.
+    @Test func aSignInThatEndsWhileTheSheetIsUpWithAnUnreadableListKeepsTheNewSignIn() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        let clock = clock
+        let stub = stub
+        let signIn = signIn
+        try await bounded {
+            await model.connect { url, scheme in
+                clock.advance(3600)
+                await model.refresh()
+                self.answerAccountB()
+                self.endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(access: Self.accessB, refresh: Self.refreshB, expiresIn: 7200))
+                // The list read with the new sign-in cannot reach the API.
+                stub.setOffline(true)
+                return try await signIn(url, scheme)
+            }
+        }
+        stub.setOffline(false)
+
+        #expect(model.connection == .connected)
+        #expect(model.connectProblem == nil)
+        #expect(store.stored?.secret == Self.refreshB)
+        #expect(model.calendars.isEmpty)
+        #expect(model.newEventsCalendarID == nil)
+        #expect(model.statusProblem == .unavailable)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// (c) Disconnect and then a newer Connect while the first sheet is up:
+    /// the first sheet's code is not exchanged (no grant to hand back), and
+    /// the newer Connect's sign-in is kept untouched.
+    @Test func aDisconnectAndANewerConnectWhileTheSheetIsUpKeepTheNewerOne() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+
+        let codes = endpoint.sent(grant: "authorization_code").count
+        let signIn = signIn
+        try await bounded {
+            await model.connect { url, scheme in
+                await model.disconnect()
+                self.answerAccountA(refresh: "fake-refresh-two", access: Self.accessA2)
+                await model.connect(signIn: signIn)
+                return try await signIn(url, scheme)
+            }
+        }
+
+        #expect(model.connection == .connected)
+        #expect(model.connectProblem == nil)
+        #expect(!model.isConnecting)
+        #expect(store.stored?.secret == "fake-refresh-two")
+        // One exchange: the newer Connect's. The first sheet's code was not sent.
+        #expect(endpoint.sent(grant: "authorization_code").count == codes + 1)
+        #expect(await endpoint.waitForRevoked(count: 1) == [FakeGoogle.refresh])
+        try await Task.sleep(for: .milliseconds(100))
+        // Only the Disconnect's revoke of the old sign-in; nothing of the new one.
+        #expect(endpoint.revoked == [FakeGoogle.refresh])
+    }
+
+    /// (d) The exchange fails just as the sign-in here ends (a poll meets
+    /// invalid_grant meanwhile): the failure is still said (before, nothing
+    /// was shown), beside the ended state's Connect again. Nothing is kept
+    /// or revoked.
+    @Test func anExchangeThatFailsAsTheSignInEndsSaysWhy() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.error("invalid_grant"))
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        endpoint.hold(grant: "authorization_code")
+        let signIn = signIn
+        let connecting = Task { await model.connect(signIn: signIn) }
+        await endpoint.waitForSent(grant: "authorization_code", count: 1)
+        clock.advance(3600)
+        await model.refresh()
+        try #require(model.connection == .expired)
+        endpoint.release()
+        try await bounded { await connecting.value }
+
+        #expect(model.connection == .expired)
+        #expect(model.connectProblem == .google("invalid_grant"))
+        #expect(!model.isConnecting)
+        #expect(store.stored == nil)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// (d)'s limit: after a Disconnect the failed exchange still says nothing.
+    @Test func anExchangeThatFailsAfterADisconnectSaysNothing() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.error("invalid_grant"))
+        endpoint.hold(grant: "authorization_code")
+        let signIn = signIn
+        let connecting = Task { await model.connect(signIn: signIn) }
+        await endpoint.waitForSent(grant: "authorization_code", count: 1)
+        try await bounded { await model.disconnect() }
+        endpoint.release()
+        try await bounded { await connecting.value }
+
+        #expect(model.connection == .notConnected)
+        #expect(model.connectProblem == nil)
+        #expect(!model.isConnecting)
     }
 
     @Test func theBusyNoteSaysSeasignIsBusyAndToTryAgainInAMoment() {
