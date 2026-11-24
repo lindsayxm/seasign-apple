@@ -40,6 +40,10 @@ final class GoogleCalendarModel {
         /// named no primary calendar, so the account could not be told and
         /// nothing changed. Trying again gets the same list (task 178).
         case accountNotShown
+        /// Connect again from a working connection inside our own 429's
+        /// Retry-After: the sheet was not opened and nothing was sent (the
+        /// list read it needs would meet the same 429) (task 214).
+        case busy
         /// The sign-in could not be written to the Keychain.
         case notSaved
 
@@ -63,6 +67,8 @@ final class GoogleCalendarModel {
                 "We couldn't reach Google. Check your connection and try again."
             case .accountNotShown:
                 "Google didn't show which account you signed in with, so nothing changed. To add events, disconnect and connect again."
+            case .busy:
+                "Seasign is busy right now, so nothing changed. Try again in a moment."
             case .notSaved:
                 "The sign-in couldn't be saved on this phone. Try again."
             }
@@ -308,6 +314,14 @@ final class GoogleCalendarModel {
             connectProblem = .notConfigured
             return
         }
+        // Connect again from a working connection reads the calendar list
+        // before anything is kept; inside our own 429's Retry-After that read
+        // would meet the same 429. So the sheet is not opened and nothing is
+        // sent (task 214). Nothing has begun: no attempt, no revoke skipped.
+        if connection == .connected, serverLimitHold() != nil {
+            connectProblem = .busy
+            return
+        }
         connectAttempt += 1
         let attempt = connectAttempt
         connectsBegun += 1
@@ -330,7 +344,11 @@ final class GoogleCalendarModel {
             connectProblem = .couldNotOpen
             return
         }
-        guard started == generation else { return }
+        // Disconnected (or a newer Connect) while the sheet was up: the code
+        // is not exchanged, so there is no grant to hand back. The sign-in
+        // here ending meanwhile is not a Disconnect: this goes on as a
+        // Connect after it ended, and the sheet's sign-in is kept (task 214).
+        guard goesOn(after: &started, attempt: attempt) else { return }
         let code: GoogleSecret
         switch GoogleAuthorization.code(from: callback, config: client.config, state: pkce.state) {
         case .success(let value):
@@ -1177,6 +1195,9 @@ final class GoogleCalendarModel {
         retryNotBefore = nil
         failures = 0
         statusProblem = nil
+        // A note left by an earlier Connect no longer applies; Settings now
+        // says the sign-in ended and offers Connect again (task 214).
+        connectProblem = nil
         setConnection(state)
     }
 
@@ -1377,8 +1398,12 @@ extension GoogleCalendarModel {
     /// Personal and Family are the user's own (offered for new events),
     /// Holidays is read-only. With write access by default; `readOnly`
     /// (`-debugGoogleReadOnly YES`) shows a connection without it, as one
-    /// made before write access was asked for.
-    static func sample(now: Date = Date(), timeZone: TimeZone = .current, readOnly: Bool = false) throws -> GoogleCalendarModel {
+    /// made before write access was asked for. `connectProblem`
+    /// (`-debugGoogleConnectProblem <case>`) shows that Connect problem's
+    /// note in Settings, on this sample only (task 214).
+    static func sample(
+        now: Date = Date(), timeZone: TimeZone = .current, readOnly: Bool = false, connectProblem: ConnectProblem? = nil
+    ) throws -> GoogleCalendarModel {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let store = GoogleCalendarStore(context: context)
         store.setConnection(.connected)
@@ -1414,7 +1439,29 @@ extension GoogleCalendarModel {
         )
         model.isFrozen = true
         model.watch.showSampleProblem(calendar: "sample-family", code: "webhook_refused")
+        model.connectProblem = connectProblem
         return model
+    }
+}
+
+extension GoogleCalendarModel.ConnectProblem {
+    /// Debug-only: the case named by `-debugGoogleConnectProblem` (its
+    /// name in code, e.g. `accountNotShown`); nil for any other value.
+    /// `google(_)` is not offered.
+    static func debugNamed(_ name: String?) -> Self? {
+        switch name {
+        case "notConfigured": .notConfigured
+        case "couldNotOpen": .couldNotOpen
+        case "denied": .denied
+        case "badAnswer": .badAnswer
+        case "missingScope": .missingScope
+        case "addingNotAllowed": .addingNotAllowed
+        case "unavailable": .unavailable
+        case "accountNotShown": .accountNotShown
+        case "busy": .busy
+        case "notSaved": .notSaved
+        default: nil
+        }
     }
 }
 #endif

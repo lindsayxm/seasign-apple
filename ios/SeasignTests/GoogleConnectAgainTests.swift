@@ -920,7 +920,10 @@ final class RevokedAtSave: @unchecked Sendable {
 
     /// Finding 3: a Connect again inside our own 429's Retry-After does not
     /// read the list again (it would meet the same 429): it ends as that
-    /// 429 does, the hold unchanged, nothing kept or revoked.
+    /// 429 does, the hold unchanged, nothing kept or revoked. Since task 214
+    /// a hold already on when Connect is tapped stops it before the sheet
+    /// (`aConnectAgainInsideOurOwn429HoldDoesNotOpenTheSheet`), so here the
+    /// hold begins while the sheet is up: a poll meets our 429 then.
     @Test func aConnectAgainInsideOurOwn429HoldDoesNotAskAgain() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let store = RecordingGoogleTokenStore()
@@ -932,16 +935,25 @@ final class RevokedAtSave: @unchecked Sendable {
         let signIn = signIn
         try await bounded { await model.connect(signIn: signIn) }
         try #require(model.connectProblem == .unavailable)
-        let hold = try #require(model.retryNotBefore)
-        #expect(hold == clock.now.addingTimeInterval(30))
+        let firstHold = try #require(model.retryNotBefore)
+        #expect(firstHold == clock.now.addingTimeInterval(30))
 
-        clock.advance(10)
+        clock.advance(30)
+        stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: "30"))
         let before = stub.seen.count
-        try await bounded { await model.connect(signIn: signIn) }
+        try await bounded {
+            await model.connect { url, scheme in
+                await model.refresh(force: true)
+                return try await signIn(url, scheme)
+            }
+        }
+        let hold = try #require(model.retryNotBefore)
+        try #require(hold == clock.now.addingTimeInterval(30))
+        try #require(model.statusProblem == .rateLimited)
 
         #expect(requests(GoogleAPIStub.getCalendars, from: before).isEmpty)
         #expect(model.retryNotBefore == hold)
-        clock.advance(20)
+        clock.advance(30)
         stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.events(
             [(0, "Coffee", "2026-11-19T19:00:00Z", "2026-11-19T19:30:00Z"), (1, "Dinner", "2026-11-19T23:00:00Z", "2026-11-20T00:00:00Z")],
             statuses: [nil, nil]
@@ -1128,4 +1140,177 @@ final class RevokedAtSave: @unchecked Sendable {
             == "Google didn't show which account you signed in with, so nothing changed. To add events, disconnect and connect again.")
         #expect(Problem.unavailable.message == "We couldn't reach Google. Check your connection and try again.")
     }
+
+    // MARK: Task 214
+
+    /// Item 1: Connect again from a working connection inside our own 429's
+    /// Retry-After does not open Google's sheet and sends nothing (the list
+    /// read it needs would meet the same 429; before, the user went through
+    /// the whole sheet to be told Google couldn't be reached). Settings says
+    /// Seasign is busy. Once the hold has passed, the sheet opens as usual.
+    @Test func aConnectAgainInsideOurOwn429HoldDoesNotOpenTheSheet() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+        let ids = model.calendars.map(\.id)
+        // A poll meets our 429.
+        stub.answer(GoogleAPIStub.postEvents, GoogleAPIStub.error(.tooManyRequests, "rate_limited", retryAfter: "30"))
+        await model.refresh(force: true)
+        let hold = try #require(model.retryNotBefore)
+        try #require(hold == clock.now.addingTimeInterval(30))
+        try #require(model.statusProblem == .rateLimited)
+
+        answerAccountA(refresh: "fake-refresh-two", access: Self.accessA2)
+        clock.advance(10)
+        let before = stub.seen.count
+        let codes = endpoint.sent(grant: "authorization_code").count
+        let sheets = SheetsOpened()
+        let signIn = signIn
+        try await bounded {
+            await model.connect { url, scheme in
+                sheets.count += 1
+                return try await signIn(url, scheme)
+            }
+        }
+
+        #expect(sheets.count == 0)
+        #expect(model.connectProblem == .busy)
+        #expect(!model.isConnecting)
+        #expect(endpoint.sent(grant: "authorization_code").count == codes)
+        #expect(stub.seen.count == before)
+        #expect(model.retryNotBefore == hold)
+        #expect(model.connection == .connected)
+        #expect(store.stored?.secret == FakeGoogle.refresh)
+        #expect(model.calendars.map(\.id) == ids)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+
+        // The hold has passed: the sheet opens, and the same account is kept.
+        clock.advance(20)
+        try await bounded {
+            await model.connect { url, scheme in
+                sheets.count += 1
+                return try await signIn(url, scheme)
+            }
+        }
+        #expect(sheets.count == 1)
+        #expect(model.connectProblem == nil)
+        #expect(store.stored?.secret == "fake-refresh-two")
+        #expect(model.calendars.map(\.id) == ids)
+    }
+
+    /// Item 2: a Connect problem's note does not outlive the sign-in. When
+    /// the sign-in ends, Settings shows the ended state and "Connect again";
+    /// a note left from before (here "disconnect and connect again") no
+    /// longer applies.
+    @Test func aConnectProblemIsClearedWhenTheSignInEnds() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(access: Self.accessB, refresh: Self.refreshB, scope: FakeGoogle.allScopes))
+        stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.calendars(roles: [("family-id", "Family", false, "owner")]))
+        let signIn = signIn
+        try await bounded { await model.connect(signIn: signIn) }
+        try #require(model.connectProblem == .accountNotShown)
+        try #require(model.connection == .connected)
+
+        clock.advance(3600)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        await model.refresh()
+        try await idle(model)
+        try #require(model.connection == .expired)
+
+        #expect(model.connectProblem == nil)
+    }
+
+    /// Item 3: the sign-in here ends (a poll meets invalid_grant) while
+    /// Google's sheet is up. That is not a Disconnect: the sheet's sign-in
+    /// is exchanged and kept, as a Connect after the sign-in ended, and the
+    /// same account keeps its choices. Before, it was dropped unexchanged and
+    /// the user was left with the ended sign-in.
+    @Test func aSignInThatEndsWhileTheSheetIsUpKeepsTheSheetsSignIn() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+        let ids = model.calendars.map(\.id)
+
+        answerAccountA(refresh: "fake-refresh-two", access: Self.accessA2)
+        endpoint.answer("refresh_token", FakeGoogleEndpoint.error("invalid_grant"))
+        let sheets = SheetsOpened()
+        let clock = clock
+        let signIn = signIn
+        try await bounded {
+            await model.connect { url, scheme in
+                clock.advance(3600)
+                await model.refresh()
+                sheets.connectionWhileUp = model.connection
+                return try await signIn(url, scheme)
+            }
+        }
+
+        #expect(sheets.connectionWhileUp == .expired)
+        #expect(model.connection == .connected)
+        #expect(model.connectProblem == nil)
+        #expect(!model.isConnecting)
+        #expect(store.stored?.secret == "fake-refresh-two")
+        #expect(model.calendars.map(\.id) == ids)
+        #expect(model.chosen.map(\.calendarID) == ["me@example.test", "family-id"])
+        #expect(model.newEventsCalendarID == "family-id")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked.isEmpty)
+    }
+
+    /// Item 3's limit: a Disconnect while the sheet is up still keeps
+    /// nothing. The sheet's code is not even exchanged, so there is no new
+    /// grant to hand back; the Disconnect revokes the old sign-in itself.
+    @Test func aDisconnectWhileTheSheetIsUpKeepsNothing() async throws {
+        let context = ModelContext(try SeasignSchema.inMemoryContainer())
+        let store = RecordingGoogleTokenStore()
+        let model = try await connectedAsA(context, store: store)
+
+        answerAccountA(refresh: "fake-refresh-two", access: Self.accessA2)
+        let codes = endpoint.sent(grant: "authorization_code").count
+        let signIn = signIn
+        try await bounded {
+            await model.connect { url, scheme in
+                await model.disconnect()
+                return try await signIn(url, scheme)
+            }
+        }
+
+        #expect(model.connection == .notConnected)
+        #expect(model.connectProblem == nil)
+        #expect(!model.isConnecting)
+        #expect(store.stored == nil)
+        #expect(model.calendars.isEmpty)
+        #expect(endpoint.sent(grant: "authorization_code").count == codes)
+        #expect(await endpoint.waitForRevoked(count: 1) == [FakeGoogle.refresh])
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(endpoint.revoked == [FakeGoogle.refresh])
+    }
+
+    @Test func theBusyNoteSaysSeasignIsBusyAndToTryAgainInAMoment() {
+        #expect(GoogleCalendarModel.ConnectProblem.busy.message
+            == "Seasign is busy right now, so nothing changed. Try again in a moment.")
+    }
+
+    /// Item 4: the DEBUG launch argument `-debugGoogleConnectProblem <case>`
+    /// sets that problem on the frozen sample only.
+    @Test func theDebugSampleShowsTheConnectProblemItIsGiven() throws {
+        typealias Problem = GoogleCalendarModel.ConnectProblem
+        #expect(try GoogleCalendarModel.sample().connectProblem == nil)
+        let sample = try GoogleCalendarModel.sample(readOnly: true, connectProblem: .debugNamed("accountNotShown"))
+        #expect(sample.connectProblem == .accountNotShown)
+        #expect(Problem.debugNamed("busy") == .busy)
+        #expect(Problem.debugNamed("unavailable") == .unavailable)
+        #expect(Problem.debugNamed(nil) == nil)
+        #expect(Problem.debugNamed("YES") == nil)
+    }
+}
+
+/// What a test's sign-in sheet saw.
+@MainActor final class SheetsOpened {
+    var count = 0
+    var connectionWhileUp: GoogleConnection?
 }

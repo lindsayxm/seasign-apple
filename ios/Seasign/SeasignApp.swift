@@ -86,9 +86,14 @@ struct SeasignApp: App {
             // `-debugGoogle YES`: a connected Google account with sample
             // calendars and events, in memory, with no token and no requests;
             // `-debugGoogleReadOnly YES` the same without write access.
+            // `-debugGoogleConnectProblem <case>` (with either) shows that
+            // Connect problem's note on the sample, e.g. `accountNotShown`.
             let googleReadOnly = defaults.bool(forKey: "debugGoogleReadOnly")
             let google = defaults.bool(forKey: "debugGoogle") || googleReadOnly
-                ? (try? GoogleCalendarModel.sample(readOnly: googleReadOnly)) ?? liveGoogle
+                ? (try? GoogleCalendarModel.sample(
+                    readOnly: googleReadOnly,
+                    connectProblem: .debugNamed(defaults.string(forKey: "debugGoogleConnectProblem"))
+                )) ?? liveGoogle
                 : liveGoogle
             let showAI = defaults.bool(forKey: "debugAI")
             let sample = debugSamples(

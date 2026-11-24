@@ -313,6 +313,11 @@ import Testing
         expectUnchanged("the list rate limited")
         // Task 178: our 429's Retry-After is kept as a hold, not ignored.
         #expect(model.retryNotBefore == clock.now.addingTimeInterval(30))
+        // Task 214: inside that hold, Connect again opens no sheet.
+        await model.connect(signIn: goodRedirect)
+        #expect(model.connectProblem == .busy)
+        expectUnchanged("inside our 429's hold")
+        clock.advance(30)
 
         stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.error(.forbidden, "google_forbidden"))
         await model.connect(signIn: goodRedirect)
@@ -365,12 +370,12 @@ import Testing
     }
 
     /// Task 175: a poll's renewal finds the sign-in ended (`invalid_grant`)
-    /// while the Connect again sheet is up. The outcome, as it stands: the
-    /// connection is expired, and the sign-in made in the sheet is dropped
-    /// without a message (its code is never exchanged), so Settings shows
-    /// Connect again. The choices and the calendar for new events stay, as
-    /// for any ended sign-in.
-    @Test func aSignInThatEndsWhileTheConnectAgainSheetIsUpDropsTheSheetsSignIn() async throws {
+    /// while the Connect again sheet is up. Since task 214 that is not taken
+    /// for a Disconnect: the sign-in made in the sheet is exchanged and kept,
+    /// as a Connect after the sign-in ended (before, it was dropped
+    /// unexchanged and the connection stayed expired). The same account
+    /// keeps its choices and its calendar for new events; nothing is revoked.
+    @Test func aSignInThatEndsWhileTheConnectAgainSheetIsUpKeepsTheSheetsSignIn() async throws {
         let context = ModelContext(try SeasignSchema.inMemoryContainer())
         let store = InMemoryGoogleTokenStore()
         let model = await connected(context, store: store)
@@ -379,6 +384,7 @@ import Testing
         let clock = clock
         let endpoint = endpoint
         let sheet = goodRedirect
+        endpoint.answer("authorization_code", FakeGoogleEndpoint.tokens(refresh: "fake-refresh-two"))
 
         await model.connect(signIn: { url, scheme in
             clock.advance(3600)
@@ -388,13 +394,13 @@ import Testing
             return try await sheet(url, scheme)
         })
 
-        #expect(model.connection == .expired)
+        #expect(model.connection == .connected)
         #expect(model.connectProblem == nil)
         #expect(!model.isConnecting)
-        #expect(store.stored == nil)
-        #expect(endpoint.sent(grant: "authorization_code").count == 1)
-        #expect(!model.canAddEvents)
-        #expect(!model.canPoll)
+        #expect(store.stored?.secret == "fake-refresh-two")
+        #expect(endpoint.sent(grant: "authorization_code").count == 2)
+        #expect(model.canAddEvents)
+        #expect(model.canPoll)
         #expect(model.calendars.map(\.id) == ids)
         #expect(model.newEventsCalendarID == "family-id")
         #expect(endpoint.revoked.isEmpty)
