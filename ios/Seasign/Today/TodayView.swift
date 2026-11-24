@@ -322,7 +322,7 @@ struct TodayView: View {
                         space: Self.space,
                         changed: { starFlight.move(finger: $0) },
                         ended: { finger in starDropped(finger: finger, shown: shown, layout: layout) },
-                        cancelled: { starFlight.cancel() }
+                        gestureReset: { starFlight.gestureReset() }
                     ),
                     // The headline pull, for VoiceOver, also when the plate
                     // is empty (the titles carry it too).

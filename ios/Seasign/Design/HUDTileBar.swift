@@ -52,9 +52,10 @@ struct HUDTileBar: View {
         var changed: (CGPoint) -> Void
         /// The finger lifted there.
         var ended: (CGPoint) -> Void
-        /// The drag stopped without the finger lifting (the system took
-        /// the touch): put the star back. Also called after `ended`.
-        var cancelled: () -> Void
+        /// The drag's gesture state went back: after `ended` or before it
+        /// (SwiftUI does not say which), or alone when the system took the
+        /// touch. Put the star back.
+        var gestureReset: () -> Void
     }
 
     /// A VoiceOver action for the page showing, offered on its (filled)
@@ -84,7 +85,7 @@ struct HUDTileBar: View {
         }
         .frame(height: TodayOverlayLayout.Mockup.tileHeight)
         .onChange(of: isDraggingStar) { _, dragging in
-            if !dragging { starDrag?.cancelled() }
+            if !dragging { starDrag?.gestureReset() }
         }
     }
 

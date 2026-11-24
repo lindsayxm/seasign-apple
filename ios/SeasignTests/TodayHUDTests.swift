@@ -224,6 +224,61 @@ import Testing
         #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == .save(1))
     }
 
+    /// Task 198: a real drop saves whichever SwiftUI reports first, the
+    /// gesture's end or its state going back; a drag the system cancelled
+    /// (the reset alone) saves nothing, and the next drag is a normal one.
+    @Test func aDropSavesInEitherOrderOfEndAndReset() {
+        let over = CGPoint(x: 120, y: layout.titleRowTop(1) + 8 + StarDrop.lift)
+        // The end first, then the reset.
+        var flight = StarFlight()
+        flight.move(finger: over)
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == .save(1))
+        flight.gestureReset()
+        #expect(!flight.isFlying)
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == StarDrop.Outcome.none)
+        // The reset first, then the end: the star is back at once, and the
+        // drop still saves, once.
+        flight.move(finger: over)
+        flight.gestureReset()
+        #expect(!flight.isFlying && flight.row(bands: bands) == nil)
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == .save(1))
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == StarDrop.Outcome.none)
+        // Reset first, then the end off Today (a cover opened): nothing.
+        flight.move(finger: over)
+        flight.gestureReset()
+        let covered = TodayActivity(tab: .day, coverOpen: true, appActive: true)
+        #expect(flight.land(finger: over, bands: bands, activity: covered) { _ in false } == StarDrop.Outcome.none)
+    }
+
+    @Test func aResetAloneOrAfterTodayCancelledSavesNothing() {
+        let over = CGPoint(x: 120, y: layout.titleRowTop(1) + 8 + StarDrop.lift)
+        var flight = StarFlight()
+        // A reset with nothing out stays idle: a later stray end saves nothing.
+        flight.gestureReset()
+        #expect(!flight.isFlying)
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == StarDrop.Outcome.none)
+        // Today cancelled (a cover, another page, the app left), then the
+        // reset and a late end: nothing.
+        flight.move(finger: over)
+        flight.cancel()
+        flight.gestureReset()
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == StarDrop.Outcome.none)
+        // The reset, then Today cancelled, then the end: nothing.
+        flight.move(finger: over)
+        flight.gestureReset()
+        flight.cancel()
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == StarDrop.Outcome.none)
+        // The system took the touch (a reset, no end); the next drag starts
+        // afresh and its drop elsewhere saves nothing, its drop on a title saves.
+        flight.move(finger: over)
+        flight.gestureReset()
+        flight.move(finger: CGPoint(x: 200, y: 300))
+        #expect(flight.isFlying)
+        #expect(flight.land(finger: CGPoint(x: 200, y: 300), bands: bands, activity: onToday) { _ in false } == StarDrop.Outcome.none)
+        flight.move(finger: over)
+        #expect(flight.land(finger: over, bands: bands, activity: onToday) { _ in false } == .save(1))
+    }
+
     /// Task 207: on the iPhone SE the two rows are 50 apart; their bands
     /// meet halfway between the rows, a drop on either saves it, and nothing
     /// lies under the second.

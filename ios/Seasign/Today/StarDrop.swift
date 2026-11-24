@@ -49,40 +49,60 @@ enum StarDrop {
 /// drag can end. Today keeps one of these; a drag that is cancelled (an
 /// alert, the app leaving the foreground, a cover opening, the system taking
 /// the touch) puts the star back, so it and the row outline never stay up.
+///
+/// The drag's end reaches it twice: `land` (the gesture's `onEnded`) and
+/// `gestureReset` (its `@GestureState` going back, which also comes when the
+/// system cancels the drag and then alone). SwiftUI does not document their
+/// order, so either order saves a real drop (task 198): the reset puts the
+/// star back but leaves the drag's one landing pending until the next drag
+/// moves or Today cancels.
 struct StarFlight: Equatable {
     /// Where the star is drawn; nil when it is in its tile.
     private(set) var star: CGPoint?
+    /// The drag's gesture state went back while the star was out, and its
+    /// end may still be reported: one landing still counts.
+    private var landingPending = false
 
     var isFlying: Bool { star != nil }
 
-    /// The finger moved to `finger`.
+    /// The finger moved to `finger` (a new drag starts this way too, which
+    /// drops any landing left pending by an earlier one).
     mutating func move(finger: CGPoint) {
         star = StarDrop.star(finger: finger)
+        landingPending = false
     }
 
     /// The finger lifted at `finger`: the star goes back, and the outcome
-    /// says what the drop does. A landing counts only while a drag is under
-    /// way (the star is out) and Today is the page showing with nothing over
-    /// it (`TodayActivity.isOnScreen`); any other landing saves nothing.
-    ///
-    /// `HUDTileBar` reports the end (`onEnded`) before the reset that
-    /// cancels (its `@GestureState` going back, seen in `onChange`), so a
-    /// real drop still finds the star out.
+    /// says what the drop does. A landing counts only for a drag under way
+    /// (the star is out, or its gesture state has just gone back) and while
+    /// Today is the page showing with nothing over it
+    /// (`TodayActivity.isOnScreen`); any other landing saves nothing.
     mutating func land(
         finger: CGPoint,
         bands: [CGRect],
         activity: TodayActivity,
         isSaved: (Int) -> Bool
     ) -> StarDrop.Outcome {
-        let wasFlying = isFlying
+        let counts = isFlying || landingPending
         star = nil
-        guard wasFlying, activity.isOnScreen else { return .none }
+        landingPending = false
+        guard counts, activity.isOnScreen else { return .none }
         return StarDrop.outcome(at: StarDrop.star(finger: finger), bands: bands, isSaved: isSaved)
     }
 
-    /// The drag ended without a drop: the star goes back.
+    /// The drag's gesture state went back: it ended (before or after
+    /// `land`) or the system took the touch. The star goes back; if it was
+    /// out, the drag's landing may still come and counts.
+    mutating func gestureReset() {
+        if star != nil { landingPending = true }
+        star = nil
+    }
+
+    /// Today cancelled the drag (a cover opened, another page, the app left
+    /// the foreground): the star goes back and no landing counts.
     mutating func cancel() {
         star = nil
+        landingPending = false
     }
 
     /// The row the star is over, for the outline.
