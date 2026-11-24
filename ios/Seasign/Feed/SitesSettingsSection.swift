@@ -30,7 +30,7 @@ struct SitesSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HUDSectionHeader(title: "Sites")
+            HUDSectionHeader(title: "Sea signs")
 
             ForEach(model.sites, id: \.id) { site in
                 row(site)
@@ -114,7 +114,7 @@ struct SitesSettingsSection: View {
 
     private var addForm: some View {
         VStack(alignment: .leading, spacing: 10) {
-            field("Page address", text: $address, prompt: "example.com/science")
+            field("Web page address", text: $address, prompt: "example.com/science")
                 .keyboardType(.URL)
                 .textContentType(.URL)
                 .textInputAutocapitalization(.never)

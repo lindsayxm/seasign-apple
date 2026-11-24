@@ -36,7 +36,7 @@ struct CalendarSettingsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HUDSectionHeader(title: "Calendars")
+            HUDSectionHeader(title: "Other calendars")
 
             ForEach(model.links, id: \.id) { link in
                 row(link)
