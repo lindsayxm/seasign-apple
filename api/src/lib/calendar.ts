@@ -212,14 +212,13 @@ type Gap = { from: number; to: number; at: number };
 const gaps = new Map<string, Gap>();
 
 /**
- * The instant at which the zone's clocks show the given wall-clock time. In
- * the repeated hour of a fall-back either reading may be given. A time in the
- * skipped hour of a spring-forward is never shown: it is placed at the instant
- * the clocks jump over it, so that a later time is never placed before an
- * earlier one (an event never ends before it starts) and a day whose midnight
- * is skipped begins where its date does.
+ * The instant at which the zone's clocks show the given wall-clock time (in
+ * the repeated hour of a fall-back either reading may be given), or, for a
+ * time the clocks skip, its two readings, one either side of the jump: with
+ * the offset after the gap (`earlier`) and with the offset before it (`later`).
+ * Asks the zone at most three times.
  */
-function wallToEpoch(wall: number, timeZone: string): number {
+function readWall(wall: number, timeZone: string): number | { earlier: number; later: number } {
   const atWall = offsetAt(wall, timeZone);
   const first = wall - atWall;
   const atFirst = offsetAt(first, timeZone);
@@ -227,14 +226,43 @@ function wallToEpoch(wall: number, timeZone: string): number {
   const second = wall - atFirst;
   const atSecond = offsetAt(second, timeZone);
   if (atSecond === atFirst) return second;
-  // Neither reading shows `wall`: the clocks skip it. Each reading is one side
-  // of the jump; the jump is the first instant whose clocks are past `wall`.
+  return { earlier: Math.min(second, wall - atSecond), later: Math.max(second, wall - atSecond) };
+}
+
+/**
+ * A TZID time (an IANA zone the file does not define) as RFC 5545 section
+ * 3.3.5 reads it: a time the clocks skip takes the offset from before the gap,
+ * so Berlin 02:30 on the day the clocks go forward is 03:30 CEST. That is how
+ * the same file with a VTIMEZONE is read (`zoneOffset`), and how an EXDATE or
+ * RECURRENCE-ID written in UTC names such an instance. No search: this is on
+ * the parse path, where every value is charged one ZONE_WORK. An end that
+ * falls before its start this way leaves the event without a length (`shapeOf`).
+ */
+function tzidToEpoch(wall: number, timeZone: string): number {
+  const read = readWall(wall, timeZone);
+  return typeof read === "number" ? read : read.later;
+}
+
+/**
+ * The instant at which the zone's clocks show the given wall-clock time, for
+ * floating and all-day times and day bounds, placed when a request is answered.
+ * In the repeated hour of a fall-back either reading may be given. A time in
+ * the skipped hour of a spring-forward is never shown: it is placed at the
+ * instant the clocks jump over it, so that a later time is never placed before
+ * an earlier one (an event never ends before it starts) and a day whose
+ * midnight is skipped begins where its date does.
+ */
+function wallToEpoch(wall: number, timeZone: string): number {
+  const read = readWall(wall, timeZone);
+  if (typeof read === "number") return read;
+  // Each reading is one side of the jump; the jump is the first instant whose
+  // clocks are past `wall`.
   const known = gaps.get(timeZone);
   if (known && wall >= known.from && wall < known.to) return known.at;
-  let low = Math.min(second, wall - atSecond);
-  let high = Math.max(second, wall - atSecond);
+  let low = read.earlier;
+  let high = read.later;
   const past = (epoch: number) => epoch + offsetAt(epoch, timeZone) > wall;
-  if (past(low) || !past(high)) return second;
+  if (past(low) || !past(high)) return read.later;
   while (high - low > 1) {
     const middle = Math.floor((low + high) / 2);
     if (past(middle)) high = middle;
@@ -319,7 +347,7 @@ function resolveWall(wall: number, zone: Zone, budget: Budget): Resolved {
     case "file":
       return { kind: "instant", value: wall - zoneOffset(zone.zone, wall, budget) };
     case "iana":
-      return { kind: "instant", value: wallToEpoch(wall, zone.timeZone) };
+      return { kind: "instant", value: tzidToEpoch(wall, zone.timeZone) };
     case "floating":
       return { kind: "floating", value: wall };
   }
