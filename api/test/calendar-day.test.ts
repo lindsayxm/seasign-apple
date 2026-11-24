@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CACHED_KEEP_BEFORE, MAX_CALENDAR_BYTES, dayBounds, dayEvents, dayInRange, dayWall, parseCalendar, upcomingEvents } from "../src/lib/calendar.ts";
 import { calendarCacheKey } from "../src/routes/calendar.ts";
 import { startWorker } from "./start-worker.ts";
+import { offsetChanges } from "./zone-changes.ts";
 
 startWorker();
 
@@ -435,19 +436,31 @@ describe("days whose clocks jump at midnight", () => {
   });
 
   it("starts each day of 2026 where its date begins and ends it where the next begins, in every zone", () => {
+    // Checked on the days around each change of offset (found with Intl alone,
+    // so whatever zone data the runtime has: Node's still has America/Asuncion
+    // jumping over midnight), and on the first of each month. Every day of
+    // every zone took 5 to 18 s under load (task 174).
     const failures: string[] = [];
+    let checked = 0;
     for (const zone of Intl.supportedValuesOf("timeZone")) {
-      const first = dayWall("2026-01-01")!;
-      let previous = dayBounds(first - 86400, zone);
-      for (let wall = first; wall < dayWall("2027-01-01")!; wall += 86400) {
+      const days = new Set<number>();
+      for (let month = 1; month <= 12; month++) days.add(dayWall(`2026-${String(month).padStart(2, "0")}-01`)!);
+      for (const change of offsetChanges(zone, 2026)) {
+        for (const at of [change.at - 1, change.at]) {
+          const wall = dayWall(dateIn(at, zone))!;
+          for (const day of [wall - 86400, wall, wall + 86400]) days.add(day);
+        }
+      }
+      for (const wall of days) {
+        checked++;
         const bounds = dayBounds(wall, zone);
         const day = dayText(wall);
-        if (dateIn(bounds.from, zone) !== day || dateIn(bounds.from - 1, zone) !== dayText(wall - 86400) || previous.to !== bounds.from) {
+        if (dateIn(bounds.from, zone) !== day || dateIn(bounds.from - 1, zone) !== dayText(wall - 86400) || dayBounds(wall - 86400, zone).to !== bounds.from) {
           failures.push(`${zone} ${day}`);
         }
-        previous = bounds;
       }
     }
+    expect(checked).toBeGreaterThan(5000);
     expect(failures).toEqual([]);
   }, 30_000);
 

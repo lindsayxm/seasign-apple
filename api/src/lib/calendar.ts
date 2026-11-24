@@ -205,14 +205,44 @@ function offsetAt(epoch: number, timeZone: string): number {
   return wall / 1000 - epoch;
 }
 
-/** The instant at which the zone's clocks show the given wall-clock time. */
+/** A span of wall-clock times a zone's clocks skip (`from` up to `to`), and the instant they jump. */
+type Gap = { from: number; to: number; at: number };
+
+/** The last skipped span found in each zone, so that many times in one gap cost one search. */
+const gaps = new Map<string, Gap>();
+
+/**
+ * The instant at which the zone's clocks show the given wall-clock time. In
+ * the repeated hour of a fall-back either reading may be given. A time in the
+ * skipped hour of a spring-forward is never shown: it is placed at the instant
+ * the clocks jump over it, so that a later time is never placed before an
+ * earlier one (an event never ends before it starts) and a day whose midnight
+ * is skipped begins where its date does.
+ */
 function wallToEpoch(wall: number, timeZone: string): number {
-  const first = wall - offsetAt(wall, timeZone);
-  const second = wall - offsetAt(first, timeZone);
-  // Away from a clock change both agree. In the repeated hour of a fall-back
-  // either answer is valid; in the skipped hour of a spring-forward neither
-  // is, and the later instant is used, as calendar apps do.
-  return second;
+  const atWall = offsetAt(wall, timeZone);
+  const first = wall - atWall;
+  const atFirst = offsetAt(first, timeZone);
+  if (atFirst === atWall) return first;
+  const second = wall - atFirst;
+  const atSecond = offsetAt(second, timeZone);
+  if (atSecond === atFirst) return second;
+  // Neither reading shows `wall`: the clocks skip it. Each reading is one side
+  // of the jump; the jump is the first instant whose clocks are past `wall`.
+  const known = gaps.get(timeZone);
+  if (known && wall >= known.from && wall < known.to) return known.at;
+  let low = Math.min(second, wall - atSecond);
+  let high = Math.max(second, wall - atSecond);
+  const past = (epoch: number) => epoch + offsetAt(epoch, timeZone) > wall;
+  if (past(low) || !past(high)) return second;
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2);
+    if (past(middle)) high = middle;
+    else low = middle;
+  }
+  if (gaps.size >= 300) gaps.clear();
+  gaps.set(timeZone, { from: low + offsetAt(low, timeZone) + 1, to: high + offsetAt(high, timeZone), at: high });
+  return high;
 }
 
 /** The date and time of an ical.js Time, read as if it were UTC. */
@@ -238,10 +268,13 @@ type Zone =
 type Budget = { work: number; partial: boolean; zones: Map<string, Zone>; fileZones: Map<string, FileZone> };
 
 function zoneOf(property: Property, time: Time, budget: Budget): Zone {
-  if (time.isDate) return { type: "date" };
-  const zone = time.zone;
-  if (time.zone === ICAL.Timezone.utcTimezone) return { type: "utc" };
-  const tzid = property.getParameter("tzid");
+  return zoneFor(time.isDate, time.zone === ICAL.Timezone.utcTimezone, property.getParameter("tzid"), budget);
+}
+
+/** `zoneOf` from plain values: whether the time is a date, whether it is in UTC, and its TZID parameter. */
+function zoneFor(isDate: boolean, utc: boolean, tzid: unknown, budget: Budget): Zone {
+  if (isDate) return { type: "date" };
+  if (utc) return { type: "utc" };
   if (typeof tzid !== "string") return { type: "floating" };
   const defined = budget.fileZones.get(tzid);
   if (defined) return { type: "file", zone: defined };
@@ -868,6 +901,33 @@ function shapeOf(component: Component, recurring: boolean, budget: Budget): Shap
  */
 type Window = { keepFrom: number; keepUntil: number; countFrom: number };
 
+/**
+ * A RECURRENCE-ID as plain values (no ical.js objects are kept), placed only
+ * once the length of the events it may replace is known: an instance far back
+ * can still be running when it is long.
+ */
+type OverrideId = { wall: number; isDate: boolean; utc: boolean; tzid: unknown };
+
+/**
+ * The instances one UID's overrides replace. `ids` is sorted by wall clock;
+ * those from `placedFrom` on have been placed, and their keys are in `keys`.
+ * Each is placed at most once, however many events share the UID.
+ */
+type Overridden = { ids: OverrideId[]; placedFrom: number; keys: Set<string> };
+
+/** The keys of the replaced instances that could overlap the window for an event `duration` long. */
+function replacedKeys(overridden: Overridden, keepFrom: number, duration: number, budget: Budget): Set<string> {
+  // The same bound as for EXDATE: an instance this far back ends before the window.
+  while (overridden.placedFrom > 0) {
+    const id = overridden.ids[overridden.placedFrom - 1] as OverrideId;
+    if (id.wall + NEAR <= keepFrom - duration) break;
+    overridden.placedFrom--;
+    budget.work--;
+    overridden.keys.add(key(resolveWall(id.wall, zoneFor(id.isDate, id.utc, id.tzid, budget), budget)));
+  }
+  return overridden.keys;
+}
+
 /** What `expand` adds to. `earlier` holds at most 2 x MAX_KEPT; `earlierCut` is true once some were let go. */
 type Kept = { events: StoredEvent[]; earlier: StoredEvent[]; earlierCut: boolean };
 
@@ -886,7 +946,7 @@ function cutEarlier(kept: Kept, limit: number): void {
  */
 function expand(
   component: Component,
-  overridden: Set<string> | undefined,
+  overridden: Overridden | undefined,
   single: boolean,
   { keepFrom, keepUntil, countFrom }: Window,
   budget: Budget,
@@ -921,7 +981,7 @@ function expand(
 
   if (!recurring) {
     const only = resolveWall(shape.startWall, zone, budget);
-    if (!overridden?.has(key(only))) emit(only);
+    if (!(overridden && replacedKeys(overridden, keepFrom, duration, budget).has(key(only)))) emit(only);
     return;
   }
 
@@ -980,13 +1040,14 @@ function expand(
     }
   }
 
+  const replaced = overridden && replacedKeys(overridden, keepFrom, duration, budget);
   const seen = new Set<string>();
   /** Adds an occurrence unless it was already added, is excluded, or is replaced by an override. */
   const offer = (occurrence: Resolved, wall: number) => {
     const id = key(occurrence);
     if (seen.has(id)) return;
     seen.add(id);
-    if (excluded.has(id) || overridden?.has(id) || excludedDays.has(Math.floor(wall / DAY))) return;
+    if (excluded.has(id) || replaced?.has(id) || excludedDays.has(Math.floor(wall / DAY))) return;
     emit(occurrence);
   };
 
@@ -1614,7 +1675,7 @@ export function parseCalendar(text: string, now: Date, keepBefore: number = KEEP
   // share a UID; the overrides carry a RECURRENCE-ID.
   const masters: JCal[] = [];
   const overrides: JCal[] = [];
-  const overridden = new Map<string, Set<string>>();
+  const overridden = new Map<string, Overridden>();
   for (const data of eventData) {
     try {
       const vevent = wrap(data);
@@ -1627,16 +1688,22 @@ export function parseCalendar(text: string, now: Date, keepBefore: number = KEEP
       const uid = vevent.getFirstPropertyValue("uid");
       const id = idProperty.getFirstValue();
       if (typeof uid === "string" && id instanceof ICAL.Time) {
-        // Only an instance near the window needs suppressing.
+        // An instance that starts after the window never needs suppressing.
+        // One that starts long before it may still be running, if the event
+        // is long: that is decided in `expand`, which knows the length.
         const wall = wallSeconds(id);
-        if (wall + NEAR <= window.keepFrom || wall - NEAR >= window.keepUntil) continue;
-        let keys = overridden.get(uid);
-        if (!keys) overridden.set(uid, (keys = new Set()));
-        keys.add(key(resolve(id, zoneOf(idProperty, id, budget), budget)));
+        if (wall - NEAR >= window.keepUntil) continue;
+        let entry = overridden.get(uid);
+        if (!entry) overridden.set(uid, (entry = { ids: [], placedFrom: 0, keys: new Set() }));
+        entry.ids.push({ wall, isDate: id.isDate, utc: id.zone === ICAL.Timezone.utcTimezone, tzid: idProperty.getParameter("tzid") });
       }
     } catch {
       budget.partial = true;
     }
+  }
+  for (const entry of overridden.values()) {
+    entry.ids.sort((a, b) => a.wall - b.wall);
+    entry.placedFrom = entry.ids.length;
   }
 
   const kept: Kept = { events: [], earlier: [], earlierCut: false };
@@ -1766,21 +1833,10 @@ export function dayInRange(day: string, now: Date, timeZone: string): number | n
  * midnight on its clocks, so 23 or 25 hours on a day the clocks change.
  */
 export function dayBounds(wall: number, timeZone: string): { from: number; to: number } {
-  return { from: dayStart(wall, timeZone), to: dayStart(wall + DAY, timeZone) };
-}
-
-/**
- * The instant a date begins in a zone: its midnight or, where the clocks jump
- * over midnight (America/Santiago on 2026-09-06, America/Havana on
- * 2026-03-08), the moment they jump. `wallToEpoch` gives a time in the
- * skipped hour as the earlier of its two readings in zones west of UTC, which
- * here would be 23:00 the evening before; the two readings straddle the jump,
- * and the later one is where the date begins.
- */
-function dayStart(wall: number, timeZone: string): number {
-  const at = wallToEpoch(wall, timeZone);
-  if (at + offsetAt(at, timeZone) === wall) return at;
-  return Math.max(at, wall - offsetAt(wall, timeZone));
+  // A date begins at its midnight or, where the clocks jump over midnight
+  // (America/Santiago on 2026-09-06, America/Havana on 2026-03-08), at the
+  // moment they jump, which is where `wallToEpoch` places a skipped time.
+  return { from: wallToEpoch(wall, timeZone), to: wallToEpoch(wall + DAY, timeZone) };
 }
 
 /**
