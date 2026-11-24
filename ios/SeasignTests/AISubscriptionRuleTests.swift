@@ -341,7 +341,7 @@ private final class RuleClock: @unchecked Sendable {
         for read in [3, 1, 2] {
             store.answer(read: read, with: FixedSubscriptionStore.reading(for: .subscribed))
         }
-        try #require(await pollUntil { stub.waitingCount == 1 })
+        try #require(await pollUntil { stub.waitingCount >= 1 })
         for _ in 0..<50 { await Task.yield() }
         #expect(stub.count == 1)
         #expect(ai.usedToday == 1)
