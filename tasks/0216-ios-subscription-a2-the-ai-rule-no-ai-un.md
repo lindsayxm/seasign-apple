@@ -5,7 +5,7 @@ status: review
 owner: implementer-1
 depends_on: [215]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T21:49:04Z
+updated: 2026-11-24T21:54:49Z
 ---
 
 ## Goal
@@ -42,3 +42,4 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 - 2026-11-24T21:43:11Z [implementer-1] Done in faaf580. Full suite: iOS 18.3 (iPhone 16) 'Test run with 955 tests in 105 suites passed', ** TEST SUCCEEDED **; iOS 27.2 (iPhone 17) same 955/105, ** TEST SUCCEEDED **. Release simulator build succeeds; no debug flag strings in the Release binary. Screenshot (iPhone 17, -debugSubscription lapsed -debugAI YES plus -debugSaved/-debugEvents/-debugLists/-debugNoZip/-debugGoogle, sample data only): toggle stays on USE MY LIST after tapping Let AI Search, note 'AI search is off because your subscription has ended.'; Today showed only site sample headlines. The iPhone 17 simulator now has this build installed (behaves as before for a normal launch: pre-gate default is Subscribed).
 - 2026-11-24T21:43:11Z [implementer-1] status: in-progress → review
 - 2026-11-24T21:49:04Z [implementer-1] Mutant 5 (gate decided before the awaited refresh, only the rule checked after): searchesWhoseReadsOverlapSendOnce failed on stub.count == 1 and usedToday == 1 (3 requests). Its wait changed to waitingCount >= 1 so a double send fails on the count (commit after faaf580). Reverted; AISubscriptionRuleTests 15/15 passed on 18.3 and 27.2. Checked -debugAI YES alone (sample flags) on iPhone 17: Today shows the AI-found sample headlines, so the not-yet-answered fixed-store model lands Subscribed as expected.
+- 2026-11-24T21:54:49Z [implementer-1] Lead: suite at a1ffe30: 955 tests in 105 suites passed, TEST SUCCEEDED, on iPhone 17 / iOS 27.2 and iPhone 16 / iOS 18.3.1 (log read with an unanchored '✘ Test' grep: no failures).
