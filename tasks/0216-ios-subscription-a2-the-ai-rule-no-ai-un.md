@@ -1,11 +1,11 @@
 ---
 id: 216
 title: iOS subscription A2: the AI rule: no AI unless Subscribed
-status: in-progress
+status: review
 owner: implementer-1
 depends_on: [215]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T21:15:39Z
+updated: 2026-11-24T21:49:04Z
 ---
 
 ## Goal
@@ -36,3 +36,9 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 - 2026-11-24T21:13:49Z [li] From the #215 re-review: the state is only re-judged on refresh(), so a Subscribed state outlives its expiry until the next read: the gate must await refresh() and use that answer before each paid request. Small test fixes to make in this task: in StoreKitSubscriptionTests.aStaleSubscribedAnswerPastItsExpiryIsLapsed assert the model still says subscribed before the clock moves (drop the print); in the natural-expiry test assert what StoreKit reported.
 - 2026-11-24T21:15:39Z [li] status: backlog → todo
 - 2026-11-24T21:15:39Z [implementer-1] status: todo → in-progress — claimed by implementer-1
+- 2026-11-24T21:22:08Z [implementer-1] Design: pure rule AIRule.mayRun(SubscriptionAccess) next to SearchGate (true only for Subscribed; signed-in ignored until phase C). SearchGate gets a required subscription field checked before the mode (.notSubscribed); AIPrecondition gets subscription cases checked first, so setMode/isActive/showsAI/Settings note/canSearchNow follow it. AISearchModel takes a required SubscriptionSource (protocol; SubscriptionModel conforms); run() awaits subscription.refresh() first and uses that answer, then gate+charge+isSearching in one synchronous main-actor turn. SubscriptionModel calls registered handlers on every landed read; AISearchModel moves the mode to Use My List on any landed non-Subscribed answer. The unread placeholder (.unknown before the first read lands) sends nothing and hides AI but does not move the stored mode, so a subscriber is not flipped at every launch once 217 wires the real model; a landed Unknown (failed read) does move it.
+- 2026-11-24T21:34:05Z [implementer-1] Fail-first, by mutation on iPhone 16 / iOS 18.3 (logs kept in the session scratchpad): (1) AIRule.mayRun returning true: 12 of 15 new tests failed (only subscribed-path, overlap and default tests passed, as expected). (2+4) run() using the last state instead of awaiting refresh, and the launch check applying the unread placeholder: the caught-before-send, read-in-flight, overlap, reads-counted and launch tests failed. (3) the lapse handler not moving the mode: 8 tests failed. Item 6: the stale-answer assertion flipped to .free failed showing .subscribed on 18.3; the natural-expiry assertion flipped to [] failed showing [1] (subscribed) on 18.3 at the lapse moment and [2] (expired) on 27.2. Experiment on 18.3: StoreKit reports expired within a second after the clock check reads Lapsed, so the test now waits up to 10 s for [.expired].
+- 2026-11-24T21:34:05Z [implementer-1] Swift Testing prints parameterized results with a leading zero-width space (U+200B), so a grep anchored on '^✘ Test ' misses failing parameterized tests; grep '✘ Test' unanchored.
+- 2026-11-24T21:43:11Z [implementer-1] Done in faaf580. Full suite: iOS 18.3 (iPhone 16) 'Test run with 955 tests in 105 suites passed', ** TEST SUCCEEDED **; iOS 27.2 (iPhone 17) same 955/105, ** TEST SUCCEEDED **. Release simulator build succeeds; no debug flag strings in the Release binary. Screenshot (iPhone 17, -debugSubscription lapsed -debugAI YES plus -debugSaved/-debugEvents/-debugLists/-debugNoZip/-debugGoogle, sample data only): toggle stays on USE MY LIST after tapping Let AI Search, note 'AI search is off because your subscription has ended.'; Today showed only site sample headlines. The iPhone 17 simulator now has this build installed (behaves as before for a normal launch: pre-gate default is Subscribed).
+- 2026-11-24T21:43:11Z [implementer-1] status: in-progress → review
+- 2026-11-24T21:49:04Z [implementer-1] Mutant 5 (gate decided before the awaited refresh, only the rule checked after): searchesWhoseReadsOverlapSendOnce failed on stub.count == 1 and usedToday == 1 (3 requests). Its wait changed to waitingCount >= 1 so a double send fails on the count (commit after faaf580). Reverted; AISubscriptionRuleTests 15/15 passed on 18.3 and 27.2. Checked -debugAI YES alone (sample flags) on iPhone 17: Today shows the AI-found sample headlines, so the not-yet-answered fixed-store model lands Subscribed as expected.
