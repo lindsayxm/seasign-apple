@@ -311,6 +311,8 @@ import Testing
         await model.connect(signIn: goodRedirect)
         #expect(model.connectProblem == .unavailable)
         expectUnchanged("the list rate limited")
+        // Task 178: our 429's Retry-After is kept as a hold, not ignored.
+        #expect(model.retryNotBefore == clock.now.addingTimeInterval(30))
 
         stub.answer(GoogleAPIStub.getCalendars, GoogleAPIStub.error(.forbidden, "google_forbidden"))
         await model.connect(signIn: goodRedirect)

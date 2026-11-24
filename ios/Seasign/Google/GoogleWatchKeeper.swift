@@ -510,18 +510,28 @@ final class GoogleWatchKeeper {
         updateLive()
     }
 
-    /// Runs `call` with an access token; on a 401 renews it and tries once more.
+    /// Runs `call` with an access token; on a 401 renews it and tries once
+    /// more, unless the connection ended meanwhile (`forget`): the token the
+    /// host has then may be another account's, so it is left alone and the
+    /// request is not sent again with it (task 178).
     private func withToken<T>(_ call: (SeasignAPI, GoogleSecret) async throws -> T) async throws -> T {
         guard let host else { throw SeasignAPI.GooglePushFailure.unavailable }
+        let started = generation
         let token = try await host.watchToken()
+        guard started == generation else { throw ConnectionEnded() }
         do {
             return try await call(api, token)
         } catch SeasignAPI.GooglePushFailure.googleAuth {
+            guard started == generation else { throw ConnectionEnded() }
             host.watchTokenRejected()
             let renewed = try await host.watchToken()
+            guard started == generation else { throw ConnectionEnded() }
             return try await call(api, renewed)
         }
     }
+
+    /// The connection ended while a request was out; its answer is dropped.
+    private struct ConnectionEnded: Error {}
 
     #if DEBUG
     /// For the frozen `-debugGoogle` sample: a calendar Google would not watch.

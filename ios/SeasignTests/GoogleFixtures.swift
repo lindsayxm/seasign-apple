@@ -109,6 +109,16 @@ final class FakeGoogleEndpoint: @unchecked Sendable {
         return revoked
     }
 
+    /// Waits up to five seconds until at least `count` requests of `grant`
+    /// have been sent (a held one counts once it is waiting).
+    func waitForSent(grant: String, count: Int) async {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while sent(grant: grant).count < count, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        if sent(grant: grant).count < count { Issue.record("expected \(count) \(grant) requests") }
+    }
+
     var http: GoogleHTTP {
         { [self] request in try await self.handle(request) }
     }
@@ -202,6 +212,16 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
 
     func answer(_ operationID: String, _ list: Answer...) {
         lock.withLock { answers[operationID] = list }
+    }
+
+    /// Answers for `operationID` sent with the Google token `token`, used
+    /// before the answers for any token (task 178: two accounts' lists).
+    func answer(_ operationID: String, token: String, _ list: Answer...) {
+        lock.withLock { answers[Self.tokenKey(operationID, token)] = list }
+    }
+
+    private static func tokenKey(_ operationID: String, _ token: String) -> String {
+        "\(operationID)\ntoken:\(token)"
     }
 
     func setOffline(_ value: Bool) {
@@ -330,10 +350,14 @@ final class GoogleAPIStub: ClientTransport, @unchecked Sendable {
         // As URLSession does: a request whose task is cancelled fails.
         if Task.isCancelled { throw URLError(.cancelled) }
         let (isOffline, answer) = lock.withLock { () -> (Bool, Answer?) in
-            var list = answers[operationID] ?? []
+            var key = operationID
+            if let token = entry.token, answers[Self.tokenKey(operationID, token)] != nil {
+                key = Self.tokenKey(operationID, token)
+            }
+            var list = answers[key] ?? []
             let first = list.first
             if list.count > 1 { list.removeFirst() }
-            answers[operationID] = list
+            answers[key] = list
             return (offline, first)
         }
         if isOffline { throw URLError(.cannotConnectToHost) }

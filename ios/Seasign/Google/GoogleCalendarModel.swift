@@ -151,6 +151,11 @@ final class GoogleCalendarModel {
     @ObservationIgnored private var pushFetch: Task<GooglePushOutcome, Never>?
     /// Moves with each Connect, so only the latest one clears `isConnecting`.
     @ObservationIgnored private var connectAttempt = 0
+    /// Moves only when a Connect begins (not on Disconnect). A revoke decided
+    /// before a Connect began is not sent once it has: Google's revoke ends
+    /// the account's whole grant, so it would end the new Connect's too if it
+    /// is the same account (task 178).
+    @ObservationIgnored private var connectsBegun = 0
     /// When the last answer arrived (memory only, so a poll that changes
     /// nothing redraws nothing).
     @ObservationIgnored private var lastFetch: Date?
@@ -299,6 +304,8 @@ final class GoogleCalendarModel {
         }
         connectAttempt += 1
         let attempt = connectAttempt
+        connectsBegun += 1
+        let begun = connectsBegun
         isConnecting = true
         connectProblem = nil
         // A Disconnect (or a newer Connect) has already cleared it otherwise.
@@ -354,8 +361,7 @@ final class GoogleCalendarModel {
         guard started == generation else {
             // Disconnected during the exchange: the new grant is handed back
             // to Google and nothing is kept.
-            let token = fresh.refresh ?? fresh.access
-            Task { await client.revoke(token) }
+            handBack(fresh.refresh ?? fresh.access, begun: begun)
             return
         }
         // Connect again from a working connection (to add write access): a
@@ -366,10 +372,7 @@ final class GoogleCalendarModel {
         var wasConnected = connection == .connected
         guard fresh.grantsNeededScopes, let refreshToken = fresh.refresh else {
             // Nothing is kept; the partial grant is handed back to Google.
-            if !wasConnected {
-                let token = fresh.refresh ?? fresh.access
-                Task { await client.revoke(token) }
-            }
+            if !wasConnected { handBack(fresh.refresh ?? fresh.access, begun: begun) }
             connectProblem = .missingScope
             return
         }
@@ -378,36 +381,45 @@ final class GoogleCalendarModel {
         // ended) may come back as another Google account: the sheet is
         // ephemeral and Google's login_hint is only a hint. The account is
         // told apart by its primary calendar's id, read with the new token
-        // before anything is kept (task 175).
+        // before anything is kept (task 175); see `matchAccount` (task 178).
         var list: [GoogleCalendarEntry]?
-        if connection != .notConnected, let known = calendars.first(where: \.isPrimary)?.calendarID {
-            let fetched: [GoogleCalendarEntry]
+        var listFailure: (any Error)?
+        var primaryRenamedFrom: String?
+        if connection != .notConnected {
             do {
-                fetched = try await api.googleCalendars(token: fresh.access)
+                list = try await api.googleCalendars(token: fresh.access)
             } catch {
-                // The account cannot be told, so nothing is kept (a working
-                // connection stays exactly as it was).
-                if started != generation || !wasConnected { Task { await client.revoke(refreshToken) } }
-                if started == generation { connectProblem = .unavailable }
-                return
+                listFailure = error
             }
-            guard started == generation else {
+            var match: AccountMatch?
+            if started == generation { match = await matchAccount(newList: list) }
+            guard let match, started == generation else {
                 // Disconnected meanwhile: handed back, nothing kept.
-                Task { await client.revoke(refreshToken) }
+                handBack(refreshToken, begun: begun)
                 return
             }
-            list = fetched
-            if fetched.first(where: \.primary)?.id != known {
-                // Another account: Disconnect the old one first (its channels
-                // stopped with its own token, its refresh token revoked
-                // before the new one is saved, its choices, events, calendar
-                // for new events and watch state gone), then a fresh Connect.
-                let ended = forgetAccount()
-                let afterForget = generation
-                await stopAndRevoke(ended)
-                guard afterForget == generation else {
+            switch match {
+            case .same(let renamedFrom):
+                primaryRenamedFrom = renamedFrom
+            case .cannotTell(let failure):
+                // A working connection stays exactly as it was. Nothing is
+                // revoked: either token's revoke would end the other's grant
+                // if both are the same account's. Our 429 still holds.
+                if let failure = listFailure ?? failure { holdForServerLimit(failure) }
+                connectProblem = .unavailable
+                return
+            case .other(let revokeOld):
+                // Disconnect the old account first (its channels stopped with
+                // its own token, its refresh token revoked before the new one
+                // is saved, its choices, events, calendar for new events and
+                // watch state gone), then a fresh Connect. After the sign-in
+                // ended, its channels were stopped then and its token is gone.
+                var ended = forgetAccount()
+                if !revokeOld { ended.refreshToken = nil }
+                if wasConnected { await stopAndRevoke(ended) }
+                guard ended.generation == generation else {
                     // Disconnected meanwhile: nothing of the new one is kept.
-                    Task { await client.revoke(refreshToken) }
+                    handBack(refreshToken, begun: begun)
                     return
                 }
                 started = generation
@@ -418,7 +430,7 @@ final class GoogleCalendarModel {
         do {
             try tokens.save(refreshToken)
         } catch {
-            if !wasConnected { Task { await client.revoke(refreshToken) } }
+            if !wasConnected { handBack(refreshToken, begun: begun) }
             connectProblem = .notSaved
             return
         }
@@ -435,11 +447,80 @@ final class GoogleCalendarModel {
         store.setConnected(grantedScopes: fresh.scopes)
         if wasConnected, !fresh.grantsWriteScope { connectProblem = .addingNotAllowed }
         if let list {
-            applyCalendarList(list)
+            applyCalendarList(list, primaryRenamedFrom: primaryRenamedFrom)
+        } else if let listFailure {
+            // Read just now (after the sign-in ended) and failed: as when a
+            // first Connect's list load fails, with its status and hold (our
+            // 429's Retry-After); Settings reads it again.
+            handle(listFailure)
         } else {
             await loadCalendars()
         }
         await refresh(force: true)
+    }
+
+    /// What a Connect again's new sign-in is, next to the account here.
+    private enum AccountMatch {
+        /// The same account: everything is kept. `renamedFrom` is the
+        /// primary calendar's id as known here when it now has another one.
+        case same(renamedFrom: String?)
+        /// Another account, or, after the sign-in ended, one that cannot be
+        /// told: the account here is forgotten first. `revokeOld`: its
+        /// sign-in still works and is revoked.
+        case other(revokeOld: Bool)
+        /// Cannot be told while the connection here works: nothing is kept.
+        case cannotTell((any Error)?)
+    }
+
+    /// Tells whether the sign-in that read `newList` (nil: it could not be
+    /// read) is the account here (task 178).
+    ///
+    /// - The same primary calendar id: the same account.
+    /// - After the sign-in ended there is nothing left to protect (Google
+    ///   has ended the grant and its token is gone here), so anything else
+    ///   (another primary, none on the list, no list) starts afresh, and the
+    ///   new sign-in is kept.
+    /// - From a working connection, a list without a primary cannot tell.
+    ///   Another primary id is another account, or the same one whose
+    ///   primary id changed (an email rename): the old sign-in is asked,
+    ///   with its own token, which primary it has now. The same one is the
+    ///   same account; another is another account; if it cannot be asked,
+    ///   it cannot tell; if Google has ended it, there is nothing to protect.
+    private func matchAccount(newList list: [GoogleCalendarEntry]?) async -> AccountMatch {
+        let newPrimary = list?.first(where: \.primary)?.id
+        let known = calendars.first(where: \.isPrimary)?.calendarID
+        if let newPrimary, newPrimary == known { return .same(renamedFrom: nil) }
+        guard connection == .connected else { return .other(revokeOld: false) }
+        guard let newPrimary else { return .cannotTell(nil) }
+        let oldPrimary: String?
+        do {
+            oldPrimary = try await withToken { api, token in try await api.googleCalendars(token: token) }
+                .first(where: \.primary)?.id
+        } catch GoogleAccess.Failure.signInEnded {
+            return .other(revokeOld: false)
+        } catch {
+            return .cannotTell(error)
+        }
+        guard let oldPrimary else { return .cannotTell(nil) }
+        return oldPrimary == newPrimary ? .same(renamedFrom: known) : .other(revokeOld: true)
+    }
+
+    /// Hands a grant this Connect does not keep back to Google, unless a
+    /// newer Connect has begun since: Google's revoke ends the account's
+    /// whole grant, so it would end that one's too if it is the same account.
+    /// The grant then stays at Google (unused; the user can remove it in
+    /// their Google Account).
+    private func handBack(_ token: GoogleSecret, begun: Int) {
+        guard let client, begun == connectsBegun else { return }
+        Task { await client.revoke(token) }
+    }
+
+    /// Our 429 on a read whose failure changes nothing else here: its
+    /// Retry-After holds Today's requests too, as on the add path.
+    private func holdForServerLimit(_ error: any Error) {
+        if case SeasignAPI.GoogleFailure.rateLimited(let seconds) = error {
+            holdAtLeast(TimeInterval(seconds), serverLimit: true)
+        }
     }
 
     /// Fetches the account's calendar list and folds it into the choices,
@@ -476,11 +557,18 @@ final class GoogleCalendarModel {
         return nil
     }
 
-    /// Folds a calendar list just read into the choices.
-    private func applyCalendarList(_ list: [GoogleCalendarEntry]) {
+    /// Folds a calendar list just read into the choices. `primaryRenamedFrom`:
+    /// the same account's primary calendar had this id here; its choice
+    /// follows it to the new id (on or off, and its events).
+    private func applyCalendarList(_ list: [GoogleCalendarEntry], primaryRenamedFrom renamed: String? = nil) {
         listLoadedAt = now()
         statusProblem = nil
-        let existing = calendars.map { (id: $0.id, calendarID: $0.calendarID, isOn: $0.isOn) }
+        let newPrimary = list.first(where: \.primary)?.id
+        let existing = calendars.map { choice in
+            var calendarID = choice.calendarID
+            if let renamed, let newPrimary, calendarID == renamed { calendarID = newPrimary }
+            return (id: choice.id, calendarID: calendarID, isOn: choice.isOn)
+        }
         store.replaceChoices(with: GoogleCalendarMerge.merge(existing: existing, fetched: list))
         calendars = store.choices()
         if let snapshot { setSnapshot(snapshot.keeping(Set(chosen.map(\.id)))) }
@@ -540,7 +628,8 @@ final class GoogleCalendarModel {
     /// effort and in this order: stops the push channels (after any watch
     /// already out), and asks Google to revoke the sign-in; revoking first
     /// would leave the API no token to stop the channels with. The revoke
-    /// waits for the channels at most `unwatchWait`. When the
+    /// waits for the channels at most `unwatchWait`, and is not sent if a
+    /// Connect has begun meanwhile (it could end that one's grant). When the
     /// device token has not arrived yet, the watch keeper alone keeps one
     /// access token in memory for the unwatch it owes (`GoogleWatchKeeper.stop`).
     func disconnect() async {
@@ -560,6 +649,8 @@ final class GoogleCalendarModel {
         var mayNeedUnwatch: Bool
         var channelsLeft: Bool
         var generation: Int
+        /// `connectsBegun` then: the revoke is not sent once a Connect has begun.
+        var connectsBegun: Int
     }
 
     /// Disconnect's first half: forgets the account here at once (the token
@@ -575,7 +666,8 @@ final class GoogleCalendarModel {
             lastToken: access?.lastToken,
             mayNeedUnwatch: watch.mayNeedUnwatch,
             channelsLeft: watch.channelsMayBeLeft,
-            generation: generation
+            generation: generation,
+            connectsBegun: connectsBegun
         )
         watch.forget()
         try? tokens.delete()
@@ -598,7 +690,8 @@ final class GoogleCalendarModel {
 
     /// Disconnect's second half, best effort and in this order: stops the
     /// forgotten account's push channels (after any watch already out),
-    /// waiting at most `unwatchWait`, then asks Google to revoke its sign-in.
+    /// waiting at most `unwatchWait`, then asks Google to revoke its sign-in
+    /// unless a Connect has begun since.
     private func stopAndRevoke(_ ended: EndedAccount) async {
         if ended.mayNeedUnwatch {
             let stopping = Task { [weak self, watch, client] in
@@ -621,7 +714,12 @@ final class GoogleCalendarModel {
             // and the API forgets the channels whatever Google says of the token.
             await PushDeadline.race(stopping, deadline: unwatchWait, fallback: ())
         }
-        if let token = ended.refreshToken, let client { await client.revoke(token) }
+        // Not once a Connect has begun since (task 178): the revoke, sent up
+        // to `unwatchWait` late, would end that sign-in's grant too if it is
+        // the same account. The old grant then stays at Google.
+        if let token = ended.refreshToken, let client, ended.connectsBegun == connectsBegun {
+            await client.revoke(token)
+        }
     }
 
     // MARK: Events
@@ -873,6 +971,10 @@ final class GoogleCalendarModel {
             }
         } catch is RepeatedAuthFailure {
             return .failed(.signInTrouble)
+        } catch is SignInChanged {
+            // A 401 for the sign-in before a switch: not sent again with the
+            // new one's token. Nothing was added.
+            return .failed(.signInTrouble)
         } catch {
             return .failed(.unavailable)
         }
@@ -941,15 +1043,22 @@ final class GoogleCalendarModel {
     }
 
     /// Runs `call` with an access token; on a 401 `google_auth` renews the
-    /// token and tries once more.
+    /// token and tries once more, unless the sign-in changed meanwhile
+    /// (Disconnect, Connect again, the sign-in ended): the token in memory
+    /// then is not the one Google refused, so it is left alone, and the
+    /// request is not sent again with another account's token (task 178).
     private func withToken<T>(_ call: (SeasignAPI, GoogleSecret) async throws -> T) async throws -> T {
         guard let access else { throw SeasignAPI.GoogleFailure.unavailable }
+        let started = generation
         let token = try await access.token()
+        guard started == generation else { throw SignInChanged() }
         do {
             return try await call(api, token)
         } catch SeasignAPI.GoogleFailure.googleAuth {
+            guard started == generation else { throw SignInChanged() }
             access.invalidate()
             let renewed = try await access.token()
+            guard started == generation else { throw SignInChanged() }
             do {
                 return try await call(api, renewed)
             } catch SeasignAPI.GoogleFailure.googleAuth {
@@ -959,6 +1068,8 @@ final class GoogleCalendarModel {
     }
 
     private struct RepeatedAuthFailure: Error {}
+    /// The sign-in changed while a request was out; its answer is dropped.
+    private struct SignInChanged: Error {}
 
     private func handle(_ error: any Error) {
         switch error {
