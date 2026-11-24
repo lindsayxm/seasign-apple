@@ -1,7 +1,7 @@
 {
   "model": "claude-fable-5-2",
   "advisorModel": "fable",
-  "enabledMcpjsonServers": ["XcodeBuildMCP", "sosumi", "cloudflare-api", "cloudflare-docs", "better-auth"],
+  "enabledMcpjsonServers": ["XcodeBuildMCP", "sosumi", "cloudflare-api", "cloudflare-docs", "better-auth", "x-api"],
   "permissions": {
     "allow": [
       "Bash(./tasks/task *)",
