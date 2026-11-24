@@ -50,7 +50,8 @@ struct HUDColourPick: Equatable {
 /// - A drag that starts in the block is a UIKit pan (`HUDColourFieldPan`)
 ///   that begins whichever way the finger moves, and the scroll view's pan
 ///   waits for it to fail, so the page does not scroll under it. A drag
-///   that starts outside the block never reaches it and scrolls as usual.
+///   that starts outside the block, even just outside, fails the pan
+///   (`mayBegin`) and scrolls as usual.
 /// - A pan that began sets the colour as it moves (written, not saved),
 ///   sets it where it lifts and saves when it ends, and, when it is
 ///   cancelled (the system took the touch, Settings closed), saves what it
@@ -100,9 +101,20 @@ struct HUDColourTouch: Equatable {
         }
     }
 
-    /// A tap at `point` in a block of `size`: the colour there, saved.
+    /// A tap at `point` in a block of `size`: the colour there, saved. A
+    /// tap that SwiftUI hands over from just outside the block (a finger
+    /// has some area) writes nothing.
     static func tap(at point: CGPoint, size: CGSize) -> Write {
-        .set(HUDColourField.pick(at: point, size: size), save: true)
+        guard HUDColourField.contains(point, size: size) else { return .none }
+        return .set(HUDColourField.pick(at: point, size: size), save: true)
+    }
+
+    /// Whether a pan whose finger is now at `location`, having moved
+    /// `translation`, may begin: only when it went down inside the block
+    /// of `size`. SwiftUI offers the pan touches that land just outside the
+    /// block too; those are left to the scroll view.
+    static func mayBegin(at location: CGPoint, translation: CGPoint, size: CGSize) -> Bool {
+        HUDColourField.contains(CGPoint(x: location.x - translation.x, y: location.y - translation.y), size: size)
     }
 }
 
@@ -152,6 +164,13 @@ enum HUDColourField {
         // Up from the bottom; a block with no height, or no position, is the bottom.
         let up = size.height > 0 && point.y.isFinite ? 1 - fraction(point.y, size.height) : 0
         return HUDColourPick(hue: hue, lightness: (up * 100).rounded() / 100)
+    }
+
+    /// Whether `point` lies in a block of `size`, edges included.
+    static func contains(_ point: CGPoint, size: CGSize) -> Bool {
+        point.x.isFinite && point.y.isFinite
+            && point.x >= 0 && point.x <= size.width
+            && point.y >= 0 && point.y <= size.height
     }
 
     /// The marker's centre in a block of `size` for what is stored.
@@ -464,6 +483,22 @@ private struct HUDColourFieldPan: UIGestureRecognizerRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var touch = HUDColourTouch()
+        var size: CGSize
+        let converter: CoordinateSpaceConverter
+
+        init(size: CGSize, converter: CoordinateSpaceConverter) {
+            self.size = size
+            self.converter = converter
+        }
+
+        /// Begins only for a touch that went down inside the block.
+        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            HUDColourTouch.mayBegin(
+                at: converter.localLocation,
+                translation: converter.localTranslation ?? .zero,
+                size: size
+            )
+        }
 
         /// The scroll view's pan waits for this one to fail.
         func gestureRecognizer(
@@ -475,7 +510,11 @@ private struct HUDColourFieldPan: UIGestureRecognizerRepresentable {
     }
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
-        Coordinator()
+        Coordinator(size: size, converter: converter)
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        context.coordinator.size = size
     }
 
     func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
