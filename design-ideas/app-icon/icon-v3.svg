@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Redrawn from the user's icon-v3.png. Ground #F4F2EE; the mark is 832 wide,
+       96 in from every edge, in two blocks 392 tall with a 48 gap (the horizon)
+       centred on the icon; top-left and bottom-right corners rounded at 184. -->
+  <defs>
+    <clipPath id="sky"><path d="M280 96 H928 V488 H96 V280 A184 184 0 0 1 280 96 Z"/></clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="#F4F2EE"/>
+  <!-- sky -->
+  <path d="M280 96 H928 V488 H96 V280 A184 184 0 0 1 280 96 Z" fill="#12181F"/>
+  <!-- the sun: a circle of radius 340 centred on the icon, shown above the horizon -->
+  <circle cx="512" cy="512" r="340" fill="#EB4F28" clip-path="url(#sky)"/>
+  <!-- water -->
+  <path d="M96 536 H928 V744 A184 184 0 0 1 744 928 H96 Z" fill="#636F77"/>
+</svg>

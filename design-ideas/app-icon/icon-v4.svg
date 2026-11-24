@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Sky, sun, horizon line and water inside an off-white border. The border is 48
+       wide (the same as the horizon line); the picture's corners are rounded at 181,
+       so they run parallel to the phone's own icon corners (about 229 on 1024). -->
+  <defs>
+    <clipPath id="picture"><rect x="48" y="48" width="928" height="928" rx="181"/></clipPath>
+    <clipPath id="sky"><rect x="48" y="48" width="928" height="440"/></clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="#F4F2EE"/>
+  <g clip-path="url(#picture)">
+    <rect x="48" y="48" width="928" height="440" fill="#12181F"/>
+    <circle cx="512" cy="512" r="340" fill="#EB4F28" clip-path="url(#sky)"/>
+    <rect x="48" y="536" width="928" height="440" fill="#5A7288"/>
+  </g>
+</svg>
