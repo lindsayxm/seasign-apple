@@ -90,3 +90,26 @@ final class ListsModel {
         }
     }
 }
+
+#if DEBUG
+extension ListsModel {
+    /// Debug-only (`-debugLists YES`): a few Do and Get items, one of each
+    /// checked off, written into `context`, which is an in-memory store (see
+    /// `SeasignApp`). Nothing reaches the user's own store.
+    static func sample(context: ModelContext, now: Date = Date()) throws -> ListsModel {
+        let items: [(ListKind, String, Bool)] = [
+            (.todo, "Call the dentist about Thursday", false),
+            (.todo, "Return the library books", true),
+            (.todo, "Book the ferry for Saturday", false),
+            (.get, "Oat milk", false),
+            (.get, "Batteries, AA", true),
+            (.get, "Birthday card for Sam", false),
+        ]
+        for (index, (kind, title, done)) in items.enumerated() {
+            context.insert(ListItem(kind: kind, title: title, isDone: done, createdAt: now.addingTimeInterval(Double(index - items.count) * 60)))
+        }
+        try context.save()
+        return ListsModel(context: context, now: { now })
+    }
+}
+#endif

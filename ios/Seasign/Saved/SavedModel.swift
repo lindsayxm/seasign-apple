@@ -269,6 +269,19 @@ final class SavedModel {
 }
 
 #if DEBUG
+extension SavedModel.Problem {
+    /// The problem a DEBUG launch argument names (`-debugSavedProblem
+    /// notesNotSaved`), or nil.
+    static func debugNamed(_ name: String?) -> Self? {
+        switch name {
+        case "notSaved": .notSaved
+        case "notRemoved": .notRemoved
+        case "notesNotSaved": .notesNotSaved
+        default: nil
+        }
+    }
+}
+
 extension SavedModel {
     /// Debug-only (`-debugSaved YES`): three saved articles, one with notes
     /// and one whose feed item is not in the cache, written into `context`,

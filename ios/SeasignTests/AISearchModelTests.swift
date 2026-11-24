@@ -878,6 +878,53 @@ private final class AIClock: @unchecked Sendable {
     }
 }
 
+/// Task 198: the DEBUG flags for the states nobody had seen keep to stores
+/// held in memory and the fake key store.
+@Suite @MainActor struct DebugStateFlagTests {
+    @Test func aSavedProblemAloneUsesTheInMemorySavedStore() throws {
+        let context = try inMemoryContext()
+        let feed = FeedModel(context: context)
+        let saved = SavedModel(context: context)
+        let samples = SeasignApp.debugSamples(
+            feed: feed, saved: saved, showFeed: false, showSaved: false, showAI: false,
+            savedProblem: .notesNotSaved
+        )
+        #expect(samples.saved !== saved)
+        #expect(samples.saved.problem == .notesNotSaved)
+        #expect(samples.saved.entries.isEmpty)
+        #expect(samples.feed === feed && samples.ai == nil)
+        #expect(SavedModel.Problem.debugNamed("notSaved") == .notSaved)
+        #expect(SavedModel.Problem.debugNamed("nonsense") == nil)
+        // No flag: the user's own models.
+        let none = SeasignApp.debugSamples(feed: feed, saved: saved, showFeed: false, showSaved: false, showAI: false)
+        #expect(none.saved === saved && none.saved.problem == nil)
+    }
+
+    @Test func theUnreadableKeySampleSaysTheKeyCannotBeRead() throws {
+        let context = try inMemoryContext()
+        let samples = SeasignApp.debugSamples(
+            feed: FeedModel(context: context), saved: SavedModel(context: context),
+            showFeed: true, showSaved: false, showAI: true, aiKeyUnreadable: true
+        )
+        let ai = try #require(samples.ai)
+        #expect(ai.isDebugFrozenInMemory)
+        #expect(ai.keyStatus == .unknown)
+        ai.refreshKeyStatus()
+        #expect(ai.keyStatus == .unknown)
+    }
+
+    @Test func theListSampleHoldsBothListsInMemory() throws {
+        let lists = try ListsModel.sample(context: try inMemoryContext())
+        #expect(lists.items(.todo).count == 3 && lists.items(.get).count == 3)
+        #expect(lists.items.filter(\.isDone).count == 2)
+    }
+
+    @Test func theNoZipTodayHasNoZip() throws {
+        let today = try #require(SeasignApp.debugTodayWithoutZip())
+        #expect(today.zip == nil && today.placeName == nil)
+    }
+}
+
 /// The key is in the Keychain (here, the in-memory fake) and in the request
 /// header, and nowhere else: not in the store files on disk, not in
 /// UserDefaults, not in any description of the model or its problems.

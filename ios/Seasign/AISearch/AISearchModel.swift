@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Security
 import SwiftData
 
 /// AI search: the settings behind the pill toggle, the key (in the Keychain
@@ -468,7 +469,10 @@ extension AISearchModel {
     /// today, written into `context` (an in-memory store, see `SeasignApp`).
     /// Nothing is sent, and neither the user's store nor the real Keychain is
     /// touched. The AI-found items themselves come from `FeedModel.addSampleAIItems`.
-    static func sample(feed: FeedModel, context: ModelContext, now: Date = Date()) -> AISearchModel {
+    /// `keyUnreadable` (`-debugAIKeyUnreadable YES`): the in-memory key store
+    /// will not answer, as a locked Keychain would, so Settings shows that
+    /// the key can't be read now.
+    static func sample(feed: FeedModel, context: ModelContext, now: Date = Date(), keyUnreadable: Bool = false) -> AISearchModel {
         let settings = SkyStore(context: context).settings()
         settings.aiModeRaw = AIMode.aiSearch.rawValue
         settings.aiProviderRaw = AIProvider.anthropic.rawValue
@@ -477,14 +481,19 @@ extension AISearchModel {
         settings.aiLastSentAt = now.addingTimeInterval(-2 * 3600)
         context.insert(SearchCount(day: SearchDay.key(now, timeZone: .autoupdatingCurrent), count: 2))
         try? context.save()
+        let keys = InMemoryKeyStore(APIKey(typed: sampleKey))
         let model = AISearchModel(
             context: context,
-            keyStore: InMemoryKeyStore(APIKey(typed: sampleKey)),
+            keyStore: keys,
             feed: feed,
             now: { Date() }
         )
         model.isFrozen = true
         model.lastSearch = LastSearch(at: now.addingTimeInterval(-2 * 3600), found: 3)
+        if keyUnreadable {
+            keys.setFailure(KeychainFailure(status: errSecInteractionNotAllowed))
+            model.refreshKeyStatus()
+        }
         return model
     }
 
