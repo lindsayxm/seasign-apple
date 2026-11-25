@@ -1,7 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
-import { createAuth } from "./auth.ts";
-import { AUTH_UNAVAILABLE } from "./lib/session.ts";
+import type { MiddlewareHandler } from "hono";
 import { rateLimit } from "./lib/rate-limit.ts";
+import { authRoutes } from "./routes/auth.ts";
 import { calendar } from "./routes/calendar.ts";
 import { discover } from "./routes/discover.ts";
 import { feed } from "./routes/feed.ts";
@@ -19,10 +19,13 @@ export const app = new OpenAPIHono<{ Bindings: CloudflareBindings }>();
 // Every answer of the Google routes, the limiter's and the body limit's
 // included, says not to cache it: it is read with the user's token and is
 // meant to be fresh. Registered first so that it wraps all of them.
-app.use("/v1/google/*", async (c, next) => {
+const noStore: MiddlewareHandler = async (c, next) => {
   await next();
   c.res.headers.set("Cache-Control", "no-store");
-});
+};
+app.use("/v1/google/*", noStore);
+// The same for Better Auth's answers, which carry session tokens (task 13).
+app.use("/api/auth/*", noStore);
 
 // Per-client-IP limits on the open routes (src/lib/rate-limit.ts). They are
 // registered first so that a refused request costs no body read, no outbound
@@ -37,6 +40,9 @@ app.use("/v1/discover", rateLimit("discover"));
 const googleLimit = rateLimit("google");
 const notifyLimit = rateLimit("notify");
 app.use("/v1/google/*", (c, next) => (c.req.path === NOTIFY_PATH ? notifyLimit(c, next) : googleLimit(c, next)));
+// Better Auth's endpoints (task 13): sign-in costs a fetch of Apple's keys and
+// D1 writes, so it is limited per client like the open /v1 routes.
+app.use("/api/auth/*", rateLimit("auth"));
 
 /**
  * The largest request body any route reads. The biggest honest one is a
@@ -49,8 +55,9 @@ export const MAX_BODY_BYTES = 64 * 1024;
 // ever held; the routes then read the counted copy. Content-Length is only
 // used to refuse early: a request whose header says less than it sends is
 // still counted (Hono's `bodyLimit` trusts the header when there is one).
-// The answer has the same shape as every route's own 400.
-app.use("/v1/*", async (c, next) => {
+// The answer has the same shape as every route's own 400. It covers
+// /api/auth/* too (task 13).
+const limitBody: MiddlewareHandler<{ Bindings: CloudflareBindings }> = async (c, next) => {
   const body = c.req.raw.body;
   if (!body) return next();
   const tooLarge = () => c.json({ error: "invalid_request" as const, message: "The request body is too large" }, 400);
@@ -77,16 +84,13 @@ app.use("/v1/*", async (c, next) => {
   headers.set("content-length", String(size));
   c.req.raw = new Request(c.req.raw, { body: buffer.slice(0, size), headers });
   return next();
-});
+};
+app.use("/v1/*", limitBody);
+app.use("/api/auth/*", limitBody);
 
-// Better Auth (task 13): Sign in with Apple by ID token, sign-out and the
-// session read, with an instance made from this request's bindings. Not in
-// the OpenAPI spec: the phone calls Better Auth's own endpoints.
-app.all("/api/auth/*", async (c) => {
-  const auth = createAuth(c.env);
-  if (!auth) return c.json(AUTH_UNAVAILABLE, 503);
-  return auth.handler(c.req.raw);
-});
+// Better Auth (task 13): only sign-in with an Apple ID token, get-session and
+// sign-out get through (src/routes/auth.ts). Not in the OpenAPI spec.
+app.route("/", authRoutes);
 
 app.route("/", health);
 app.route("/", sky);

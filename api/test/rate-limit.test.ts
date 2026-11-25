@@ -11,6 +11,15 @@ startWorker();
 const FAKE_KEY = "fake-llm-key-for-tests-0000";
 /** An obviously fake Google access token, for the Google routes. */
 const FAKE_GOOGLE_TOKEN = "ya29.fake-google-token-for-tests";
+/**
+ * An Apple-shaped identity token with a made-up signature: it parses, so
+ * Better Auth goes to fetch Apple's key list (which fails here) and answers
+ * 401. Its payload carries no real claims.
+ */
+const FAKE_APPLE_TOKEN = [{ alg: "RS256", kid: "fake-kid" }, { iss: "https://appleid.apple.com", sub: "fake" }]
+  .map((part) => btoa(JSON.stringify(part)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""))
+  .concat("ZmFrZS1zaWduYXR1cmU")
+  .join(".");
 
 /**
  * One request per limited route that would be served normally: valid, with
@@ -29,6 +38,8 @@ const ROUTES: Record<RateLimitGroup, { path: string; init: () => RequestInit; of
   google: { path: "/v1/google/events", init: () => json({ calendars: ["primary"] }, { "x-google-token": FAKE_GOOGLE_TOKEN }) },
   // Google's webhook: a sync message is answered 200 at once, with no fetch and no database read.
   notify: { path: "/v1/google/notify", init: () => googleCall(), offline: true },
+  // Sign in with Apple: Better Auth fetches Apple's key list, which fails, and answers 401.
+  auth: { path: "/api/auth/sign-in/social", init: () => json({ provider: "apple", idToken: { token: FAKE_APPLE_TOKEN } }) },
 };
 
 /** The same routes with a request each one refuses with a 400 before any fetch: cheap to send in bulk. */
@@ -41,6 +52,8 @@ const INVALID: Record<RateLimitGroup, { path: string; init: () => RequestInit; s
   google: { path: "/v1/google/events", init: () => json({ calendars: [] }, { "x-google-token": FAKE_GOOGLE_TOKEN }) },
   // The webhook refuses nothing: whatever arrives is answered 200.
   notify: { path: "/v1/google/notify", init: () => googleCall(), status: 200 },
+  // A sign-in without an ID token is refused before Better Auth runs.
+  auth: { path: "/api/auth/sign-in/social", init: () => json({ provider: "apple" }) },
 };
 
 /** A call as Google makes it to the webhook: the first message on a channel. */

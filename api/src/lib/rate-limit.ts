@@ -52,6 +52,14 @@ export const RATE_LIMITS = {
    * channel token.
    */
   notify: { binding: "RATE_LIMIT_NOTIFY", namespaceId: "19007", limit: 1200, period: 60 },
+  /**
+   * /api/auth/* (task 13): sign-in with an Apple ID token, get-session and
+   * sign-out. The phone signs in once after a purchase and reads its session
+   * now and then; a sign-in costs a fetch of Apple's key list and a few D1
+   * writes, so 20 a minute per address is ample for people and a brake on
+   * scripts.
+   */
+  auth: { binding: "RATE_LIMIT_AUTH", namespaceId: "19008", limit: 20, period: 60 },
 } as const satisfies Record<string, { binding: keyof CloudflareBindings; namespaceId: string; limit: number; period: 10 | 60 }>;
 
 export type RateLimitGroup = keyof typeof RATE_LIMITS;

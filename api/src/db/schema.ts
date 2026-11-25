@@ -43,11 +43,15 @@ export type CalendarChannel = typeof calendarChannels.$inferSelect;
 // src/auth.ts (Apple provider and the bearer plugin add no columns). The
 // generator's relations are left out: joins are not turned on. Regenerate
 // when a Better Auth upgrade or a new plugin changes the schema, and keep the
-// table and column names: the adapter maps by them.
+// table and column names: the adapter maps by them. `user.apple_email` was
+// added by hand after generation and is not part of Better Auth's schema.
 //
 // What is kept, and what is not (src/auth.ts makes it so):
-// - user: the email from the Apple identity token at first sign-in (a real or
-//   private relay address), never overwritten by a later sign-in; name is
+// - user: an account is Apple's `sub` and nothing else. Better Auth's
+//   `email` column (NOT NULL, UNIQUE, and what Better Auth would link
+//   accounts by) holds `<sub>@apple.seasign.invalid`, made from the sub, never
+//   a real address; `email_verified` is false. The real address Apple sent is
+//   in our own `apple_email` column (task 13 rework, migration 0002). Name is
 //   empty unless Apple sent one.
 // - account: provider "apple" and Apple's stable `sub` as account_id. The
 //   identity token, access and refresh token columns stay empty.
@@ -70,6 +74,14 @@ export const user = sqliteTable("user", {
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
+  /**
+   * Ours, not Better Auth's (Better Auth does not know this column): the
+   * email from the first verified Apple identity token that carried one,
+   * lower-cased, a real or private relay address. Not unique: two Apple
+   * accounts may share an address and are still two users. Written by
+   * recordAppleEmail in src/auth.ts, never by anything the client sends.
+   */
+  appleEmail: text("apple_email"),
 });
 
 export const session = sqliteTable(

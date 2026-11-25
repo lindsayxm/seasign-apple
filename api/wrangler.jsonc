@@ -57,6 +57,8 @@
 		{ "name": "RATE_LIMIT_RESOLVE", "namespace_id": "19004", "simple": { "limit": 10, "period": 60 } },
 		{ "name": "RATE_LIMIT_DISCOVER", "namespace_id": "19005", "simple": { "limit": 5, "period": 60 } },
 		{ "name": "RATE_LIMIT_GOOGLE", "namespace_id": "19006", "simple": { "limit": 600, "period": 60 } },
-		{ "name": "RATE_LIMIT_NOTIFY", "namespace_id": "19007", "simple": { "limit": 1200, "period": 60 } }
+		{ "name": "RATE_LIMIT_NOTIFY", "namespace_id": "19007", "simple": { "limit": 1200, "period": 60 } },
+		// Better Auth's endpoints under /api/auth (task 13).
+		{ "name": "RATE_LIMIT_AUTH", "namespace_id": "19008", "simple": { "limit": 20, "period": 60 } }
 	]
 }

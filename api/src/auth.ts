@@ -12,8 +12,18 @@
 // - The bearer plugin hands the signed session token back in the
 //   `set-auth-token` response header; the phone keeps that value in the
 //   Keychain and sends it as `Authorization: Bearer <value>`. The `token` in
-//   the response body is the bare session token and is refused as a bearer. Routes read it through requireSession
-//   (src/lib/session.ts).
+//   the response body is the bare session token and is refused as a bearer.
+//   Routes read it through requireSession (src/lib/session.ts).
+// - Only three Better Auth endpoints are reachable, and only through
+//   src/routes/auth.ts: sign-in/social (with an ID token, Apple only),
+//   get-session and sign-out. That file also strips Cookie and Set-Cookie.
+// - An account is Apple's `sub` and nothing else (task 13 rework, after the
+//   security review). Better Auth matches a new sign-in to an existing user
+//   by email and can link accounts by it, so its `email` column never holds a
+//   real address: it is accountEmail(sub), unique per sub. Two Apple accounts
+//   that share an address are two users, and neither can reach the other's
+//   account. The address Apple sent is kept in our own `user.apple_email`
+//   column by recordAppleEmail. Account linking is also off.
 //
 // What Better Auth checks on the identity token itself (Apple provider in
 // @better-auth/core 1.7.28, verify-id-token.mjs, through jose's jwtVerify):
@@ -42,12 +52,51 @@ export type AuthBindings = Pick<CloudflareBindings, "DB" | "APPLE_APP_BUNDLE_ID"
 export const MIN_SECRET_LENGTH = 32;
 
 /**
- * The stand-in email for an Apple account whose very first identity token had
- * no email claim (Apple sends one when the app asks for the email scope). The
- * reserved `.invalid` domain can never receive mail. A returning user's stored
- * email is never replaced by it: later sign-ins do not override the user.
+ * The value in Better Auth's `user.email` for the Apple account `sub`: made
+ * from the sub alone, so it is unique per Apple account and can never match
+ * another account's. The reserved `.invalid` domain can never receive mail.
+ * Lower-cased as Better Auth stores emails.
  */
-export const placeholderEmail = (sub: string) => `${sub}@apple.placeholder.invalid`;
+export const accountEmail = (sub: string) => `${sub.toLowerCase()}@apple.seasign.invalid`;
+
+/** The longest address kept in `apple_email` (RFC 5321's path limit). */
+const MAX_EMAIL_LENGTH = 254;
+
+/**
+ * Keeps the email of an Apple identity token in `user.apple_email` if that
+ * user has none yet. Call it only after Better Auth answered 200 to a sign-in
+ * with this very token: the token was verified in that request, so its claims
+ * are Apple's. The user is found through the account row by `sub`, never by
+ * email. A first address is never replaced.
+ */
+export async function recordAppleEmail(db: D1Database, token: string): Promise<void> {
+  const claims = verifiedTokenClaims(token);
+  if (!claims) return;
+  const { sub, email } = claims;
+  if (typeof sub !== "string" || !sub || typeof email !== "string") return;
+  const address = email.trim().toLowerCase();
+  if (!address.includes("@") || address.length > MAX_EMAIL_LENGTH) return;
+  await db
+    .prepare(
+      "UPDATE user SET apple_email = ?1 WHERE apple_email IS NULL AND id = (SELECT user_id FROM account WHERE provider_id = 'apple' AND account_id = ?2)",
+    )
+    .bind(address, sub)
+    .run();
+}
+
+/** The payload of a JWT that has already been verified elsewhere, or null if it does not parse. */
+function verifiedTokenClaims(token: string): Record<string, unknown> | null {
+  const part = token.split(".")[1];
+  if (!part) return null;
+  try {
+    const binary = atob(part.replace(/-/g, "+").replace(/_/g, "/"));
+    const json = new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+    const value: unknown = JSON.parse(json);
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
 
 function buildAuth(env: AuthBindings, secret: string) {
   return betterAuth({
@@ -65,7 +114,9 @@ function buildAuth(env: AuthBindings, secret: string) {
         appBundleIdentifier: env.APPLE_APP_BUNDLE_ID,
         // Empty on purpose: the authorization-code flow needs one and must not run.
         clientSecret: "",
-        mapProfileToUser: (profile) => (profile.email ? {} : { email: placeholderEmail(profile.sub), emailVerified: false }),
+        // Every user's Better Auth email is made from the sub, whatever the
+        // token says (see accountEmail); the real one goes to apple_email.
+        mapProfileToUser: (profile) => ({ email: accountEmail(profile.sub), emailVerified: false }),
       },
     },
     // Only the signed token (set-auth-token) is accepted as a bearer: the bare
@@ -74,6 +125,9 @@ function buildAuth(env: AuthBindings, secret: string) {
     account: {
       // The account row is written once, at first sign-in, without tokens (below).
       updateAccountOnSignIn: false,
+      // Never attach an Apple account to an existing user. With emails made
+      // from the sub nothing could match anyway; this is the second lock.
+      accountLinking: { enabled: false },
     },
     databaseHooks: {
       account: {
@@ -93,8 +147,8 @@ function buildAuth(env: AuthBindings, secret: string) {
       ipAddress: { disableIpTracking: true },
     },
     // Better Auth's limiter keeps its counts in memory, which lasts one
-    // request here; a Workers Rate Limiting binding for /api/auth/* is the
-    // real answer (follow-up, not in task 13).
+    // request here; /api/auth/* is limited per client address by the
+    // RATE_LIMIT_AUTH binding instead (src/lib/rate-limit.ts).
     rateLimit: { enabled: false },
     telemetry: { enabled: false },
     logger: {
