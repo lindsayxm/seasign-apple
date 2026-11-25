@@ -112,14 +112,14 @@ function testEnv(extra: Record<string, unknown> = {}): CloudflareBindings {
 
 const db = () => drizzle(env.DB);
 
-function signIn(token: string, bindings: CloudflareBindings = testEnv(), extraBody: Record<string, unknown> = {}) {
+function signIn(token: string, bindings: CloudflareBindings = testEnv(), { nonce, base = BASE }: { nonce?: string; base?: string } = {}) {
   return app.request(
-    `${BASE}/api/auth/sign-in/social`,
+    `${base}/api/auth/sign-in/social`,
     {
       method: "POST",
       // A client address as Cloudflare and proxies give it, to show it is not kept.
       headers: { "content-type": "application/json", "user-agent": "Seasign/1 CFNetwork", "cf-connecting-ip": CLIENT_IP, "x-forwarded-for": CLIENT_IP },
-      body: JSON.stringify({ provider: "apple", idToken: { token }, ...extraBody }),
+      body: JSON.stringify({ provider: "apple", idToken: nonce === undefined ? { token } : { token, nonce } }),
     },
     bindings,
   );
@@ -249,20 +249,30 @@ describe("POST /api/auth/sign-in/social with an Apple ID token", () => {
     expect(await db().select().from(user).all()).toHaveLength(0);
   });
 
-  it("accepts a nonce the token carries when the client sends the same one, and refuses a different one", async () => {
+  it("checks the nonce when the phone sends one: the same nonce or its SHA-256 hex in the token passes, another is refused", async () => {
     mockApple();
-    const token = await idToken(claims({ nonce: "n-0S6_WzA2Mj" }));
-    expect((await signIn(token, testEnv(), {})).status).toBe(200);
-    const mismatch = await app.request(
-      `${BASE}/api/auth/sign-in/social`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ provider: "apple", idToken: { token, nonce: "a-different-nonce" } }),
-      },
-      testEnv(),
-    );
-    expect(mismatch.status).toBe(401);
+    const raw = "n-0S6_WzA2Mj";
+    const hashed = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw)))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    // Apple puts the SHA-256 of the app's nonce in the token when the app hashed it for the request.
+    expect((await signIn(await idToken(claims({ nonce: raw })), testEnv(), { nonce: raw })).status).toBe(200);
+    expect((await signIn(await idToken(claims({ nonce: hashed })), testEnv(), { nonce: raw })).status).toBe(200);
+    expect((await signIn(await idToken(claims({ nonce: raw })), testEnv(), { nonce: "a-different-nonce" })).status).toBe(401);
+    expect((await signIn(await idToken(), testEnv(), { nonce: raw })).status).toBe(401);
+  });
+
+  it("does not check a nonce the phone does not send", async () => {
+    mockApple();
+    expect((await signIn(await idToken(claims({ nonce: "n-0S6_WzA2Mj" })))).status).toBe(200);
+  });
+
+  it("works the same on the local dev origin the Debug app calls (http://localhost:8787)", async () => {
+    mockApple();
+    const response = await signIn(await idToken(), testEnv(), { base: "http://localhost:8787" });
+    expect(response.status).toBe(200);
+    const bearer = response.headers.get("set-auth-token")!;
+    expect(bearer).toBeTruthy();
+    const asked = await probe.request("http://localhost:8787/v1/probe", { headers: { authorization: `Bearer ${bearer}` } }, testEnv());
+    expect(asked.status).toBe(200);
   });
 
   it("offers no web redirect flow: without an ID token there is no authorize URL", async () => {
@@ -328,6 +338,14 @@ describe("requireSession", () => {
     const response = await askProbe({ authorization: `Bearer ${bearer}` });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ userId });
+  });
+
+  it("refuses the bare session token from the sign-in body: only the signed set-auth-token value counts", async () => {
+    const { rawToken, bearer } = await signedIn();
+    expect(bearer.startsWith(`${rawToken}.`)).toBe(true);
+    const response = await askProbe({ authorization: `Bearer ${rawToken}` });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual(UNAUTHORIZED);
   });
 
   it("answers 401 without an Authorization header", async () => {

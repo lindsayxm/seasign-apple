@@ -9,9 +9,10 @@
 //   against Apple's published keys and answers with a session. There is no web
 //   redirect flow: no Services ID and no client secret are configured, so a
 //   sign-in without an ID token is refused.
-// - The bearer plugin hands the session token back in the `set-auth-token`
-//   response header; the phone keeps it in the Keychain and sends it as
-//   `Authorization: Bearer <token>`. Routes read it through requireSession
+// - The bearer plugin hands the signed session token back in the
+//   `set-auth-token` response header; the phone keeps that value in the
+//   Keychain and sends it as `Authorization: Bearer <value>`. The `token` in
+//   the response body is the bare session token and is refused as a bearer. Routes read it through requireSession
 //   (src/lib/session.ts).
 //
 // What Better Auth checks on the identity token itself (Apple provider in
@@ -67,7 +68,9 @@ function buildAuth(env: AuthBindings, secret: string) {
         mapProfileToUser: (profile) => (profile.email ? {} : { email: placeholderEmail(profile.sub), emailVerified: false }),
       },
     },
-    plugins: [bearer()],
+    // Only the signed token (set-auth-token) is accepted as a bearer: the bare
+    // session token, as it sits in D1, is not enough without the secret.
+    plugins: [bearer({ requireSignature: true })],
     account: {
       // The account row is written once, at first sign-in, without tokens (below).
       updateAccountOnSignIn: false,
