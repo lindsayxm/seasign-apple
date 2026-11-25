@@ -228,8 +228,13 @@ import Testing
     @Test func seedingTurnsNothingOnForAI() throws {
         defer { cleanUp() }
         let context = try launch()
-        let settings = try context.fetch(FetchDescriptor<Settings>())
-        #expect(settings.allSatisfy { $0.aiModeRaw == nil && $0.aiInterestsText == nil })
+        // Seeding writes no settings row; the one the app makes on first
+        // read is Use My List with no interests.
+        #expect(try context.fetch(FetchDescriptor<Settings>()).isEmpty)
+        let settings = SkyStore(context: context).settings()
+        #expect(settings.aiModeRaw == nil)
+        #expect(settings.aiInterestsText == nil)
+        #expect(settings.zip == SkyStore.defaultZip)
         #expect(try context.fetch(FetchDescriptor<SearchCount>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<FeedItem>()).isEmpty)
     }
