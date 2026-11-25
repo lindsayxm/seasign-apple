@@ -1,11 +1,11 @@
 ---
 id: 218
 title: iOS subscription A4: fresh-install content: three starter sites, two list items, 'Add your calendar... ↑'
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [217]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-24T19:09:50Z
+updated: 2026-11-25T01:03:30Z
 ---
 
 ## Goal
@@ -32,3 +32,5 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 ## Log
 
 - 2026-11-24T19:09:50Z [li] created (backlog)
+- 2026-11-25T01:03:30Z [li] status: backlog → todo
+- 2026-11-25T01:03:30Z [implementer-1] status: todo → in-progress — claimed by implementer-1
