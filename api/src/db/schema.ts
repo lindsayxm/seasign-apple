@@ -155,3 +155,67 @@ export const verification = sqliteTable(
 
 export type User = typeof user.$inferSelect;
 export type Session = typeof session.$inferSelect;
+
+// ───────────────────────── Entitlements (task 221) ─────────────────────────
+
+/**
+ * One row per Apple auto-renewable subscription tied to an account (plan
+ * plans/2026-11-24-account-and-subscription.md, phase B2). Written only by
+ * `recordVerifiedSubscription` in src/lib/entitlements.ts, from facts that
+ * the (not yet built) Apple verification has already checked; never from
+ * anything the phone sends directly. Read only by `activeEntitlement`,
+ * scoped by the session's user ID.
+ *
+ * Only what the check and later notification handling need is kept: no
+ * price, currency, storefront, offer, auto-renew or app account token.
+ * Times are Unix milliseconds, as Apple gives them.
+ */
+export const entitlements = sqliteTable(
+  "entitlements",
+  {
+    /**
+     * Apple's `originalTransactionId`: the same for every renewal of one
+     * subscription, and what App Store Server Notifications and the App Store
+     * Server API name a subscription by. The primary key, so one Apple
+     * subscription can belong to one account only.
+     */
+    originalTransactionId: text("original_transaction_id").primaryKey(),
+    /** The account it belongs to. Deleting the user deletes its entitlements. Not unique: a user who rebuys under another Apple ID has a second row. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Apple's `productId` (today only technology.artisan.seasign.monthly), kept so a later second product or an upgrade can be told apart. */
+    productId: text("product_id").notNull(),
+    /**
+     * Apple's `environment`, "Sandbox" or "Production", in Apple's casing.
+     * The check ignores it (App Review buys in the sandbox against the
+     * production server); notification handling needs it to call the right
+     * App Store Server API host. Whether a sandbox row may count on the
+     * production server is the user's call, not made yet.
+     */
+    environment: text("environment").notNull(),
+    /**
+     * Our own word for the subscription's state: "active", "expired",
+     * "billing_retry", "grace_period" or "revoked" (Apple's status 1 to 5).
+     * Plain text on purpose: only "active" counts, and any other value,
+     * including one a later build writes and this one does not know, is not
+     * active.
+     */
+    state: text("state").notNull(),
+    /** Apple's `expiresDate`: when this period ends. Null when Apple gave none, which is never active. */
+    expiresAt: integer("expires_at"),
+    /** Apple's `revocationDate` (refund or revocation). Any value at all means not active. */
+    revokedAt: integer("revoked_at"),
+    /**
+     * Apple's `signedDate` of the data last applied. Notifications are
+     * retried and can arrive out of order; facts signed at or before this are
+     * ignored, so a late "active" cannot undo a revocation.
+     */
+    signedAt: integer("signed_at").notNull(),
+    /** When this server last wrote the row (the injected clock). */
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("entitlements_user_id").on(table.userId)],
+);
+
+export type Entitlement = typeof entitlements.$inferSelect;
