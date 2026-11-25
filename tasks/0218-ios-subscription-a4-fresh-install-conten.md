@@ -1,11 +1,11 @@
 ---
 id: 218
 title: iOS subscription A4: fresh-install content: three starter sites, two list items, 'Add your calendar... ↑'
-status: review
+status: in-progress
 owner: implementer-1
 depends_on: [217]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-25T02:08:11Z
+updated: 2026-11-25T02:14:15Z
 ---
 
 ## Goal
@@ -14,7 +14,7 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 
 ## Acceptance criteria
 
-- [ ] Tests: seeds written once when the store is first created and not again after removal; an existing store is not seeded; the events box text with and without a calendar and on the iPhone SE width
+- [x] Tests: seeds written once when the store is first created and not again after removal; an existing store is not seeded; the events box text with and without a calendar and on the iPhone SE width
 - [ ] Screenshot of a fresh install on a clean simulator against local wrangler dev: three sites' headlines on Today, the two list items, the calendar prompt
 - [ ] Suite passes on both runtimes
 
@@ -46,3 +46,7 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 - 2026-11-25T02:08:00Z [implementer-1] Correction to the screenshot note: shot 01's five headlines are not shown to include Wired. Today shows the five newest across the three sites (unchanged picker); at 20:04 snapshot_ui listed four Hacker News and one Ars Technica. Wired is evidenced by /private/tmp/claude-501/-Users-li-seasign-seasign-apple/9f3372c6-3fea-4cb1-8afe-f6224e28ebe8/scratchpad/shots218/12-history-science-wired-iphone17pro.png (Last 7 days filtered to Science: five Wired items, source 'Science Latest') and shot 07 (16 articles). Also retracted: the white launch-time covers on iOS 27.2 were a slow first render on a brand-new simulator; with a 30 s wait /private/tmp/claude-501/-Users-li-seasign-seasign-apple/9f3372c6-3fea-4cb1-8afe-f6224e28ebe8/scratchpad/shots218/04-settings-subscribed-iphone17pro.png shows Settings. Existing-install check in the running app: on 'T218 Test' (store created before seeding existed) /private/tmp/claude-501/-Users-li-seasign-seasign-apple/9f3372c6-3fea-4cb1-8afe-f6224e28ebe8/scratchpad/shots218/10-existing-store-today-T218Test.png shows 'Follow sites in Settings…' and the calendar prompt, /private/tmp/claude-501/-Users-li-seasign-seasign-apple/9f3372c6-3fea-4cb1-8afe-f6224e28ebe8/scratchpad/shots218/11-existing-store-lists-T218Test.png empty lists.
 - 2026-11-25T02:08:01Z [implementer-1] seedingTurnsNothingOnForAI tightened (it passed vacuously: seeding writes no Settings row): now asserts no row after seeding, then SkyStore.settings() gives aiModeRaw nil, no interests, default zip. StarterContentTests rerun: iPhone 17 27.2 '✔ Test run with 13 tests in 1 suite passed after 1.810 seconds.'; iPhone 16 18.3.1 '✔ Test run with 13 tests in 1 suite passed after 13.223 seconds.'; both '** TEST SUCCEEDED **'. VoiceOver: snapshot_ui reports both the prompt row and event rows by their drawn text, so the tool does not show the accessibility label; architecture.md says it is set, not checked with VoiceOver.
 - 2026-11-25T02:08:11Z [implementer-1] status: in-progress → review
+- 2026-11-25T02:13:41Z [implementer-1] criterion 1 met: Tests: seeds written once when the store is first created and not again after removal; an existing store is not seeded; the events box text with and without a calendar and on the iPhone SE width
+- 2026-11-25T02:13:41Z [implementer-1] review (reviewer, code read; xcodebuild not run per lead): no must-fix found. Ticked 1: StarterContentTests and TodayCalendarPromptTests exist and cover once-only seeding, no reseed after removal, existing/empty/pre-split stores, and the prompt with/without calendar, zip-wins, SE width (read, not run). Seeding: isNew from fileExists before any open; nothing else in the app (app delegate, cache, app groups: none) creates default.store earlier; the path was Application Support/default.store since before task 17, so any install that ever launched HEAD~ has the file and gets no seeds. Unreadable user store throws, nothing deleted (StoreErrorView retry finds the file, no seed); only the cache is ever recreated. Crash or failed save between file creation and seed save leaves the install empty for good, silently (seed() swallows the error). Rows match FeedModel.add / ListsModel.add shape. Hard rule: seeding writes no Settings row; AISearchModel.run returns unless mode == .aiSearch and AIRule.mayRun(fresh read); /v1/feed has no LLM import. Prompt: zip prompt branch excludes it; texts.isEmpty and eventCount==0 exclude prompt plus events. Unticked 2: the Today screenshot (01) shows HN and Ars headlines only; Wired is shown in History (12) and Settings (07), not on Today: lead decides. Unticked 3: suite not run by the reviewer (lead is running it). Follow-ups: aStoreInMemoryIsNotSeeded exercises nothing; no test pins SeasignApp calling StarterContent.open or TodayView passing showsCalendarPrompt (default false); no test on the cache-recreated/in-memory-cache paths with a new user store; hosted test runs on a clean simulator seed that simulator's real store and fetch the three feeds; VoiceOver label says 'in Settings' while a tap opens the day screen; -debugEventTitles none and -debugPlace (nil zip) now show the calendar prompt in DEBUG.
+- 2026-11-25T02:14:15Z [implementer-1] status: review → in-progress
+- 2026-11-25T02:14:15Z [implementer-1] Lead, after the review (code passes, no must-fix): small rework. (1) Seeded titles become the user's own names: 'Hacker News', 'Wired Science', 'Ars Technica Space' (resolve's page titles read badly and are cut off in Settings). (2) aStoreInMemoryIsNotSeeded tests nothing: make it test something or remove it. Lead's run before the rework at 45d7b00: iPhone 17 iOS 27.2 'Test run with 1026 tests in 110 suites passed after 92.087 seconds' + TEST SUCCEEDED, 0 ✘ lines. Criterion 2 (three sites' headlines on Today): Today shows the five newest across sites, an existing rule; Wired's headlines are shown in History and Settings (shots 12, 07); accepted by the lead, the user is told.
