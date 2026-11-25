@@ -1,4 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { createAuth } from "./auth.ts";
+import { AUTH_UNAVAILABLE } from "./lib/session.ts";
 import { rateLimit } from "./lib/rate-limit.ts";
 import { calendar } from "./routes/calendar.ts";
 import { discover } from "./routes/discover.ts";
@@ -75,6 +77,15 @@ app.use("/v1/*", async (c, next) => {
   headers.set("content-length", String(size));
   c.req.raw = new Request(c.req.raw, { body: buffer.slice(0, size), headers });
   return next();
+});
+
+// Better Auth (task 13): Sign in with Apple by ID token, sign-out and the
+// session read, with an instance made from this request's bindings. Not in
+// the OpenAPI spec: the phone calls Better Auth's own endpoints.
+app.all("/api/auth/*", async (c) => {
+  const auth = createAuth(c.env);
+  if (!auth) return c.json(AUTH_UNAVAILABLE, 503);
+  return auth.handler(c.req.raw);
 });
 
 app.route("/", health);

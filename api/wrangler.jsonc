@@ -21,7 +21,11 @@
 		// Where Google sends calendar change notifications (events.watch
 		// `address`, task 156). Must be https with a valid certificate; it is
 		// the deployed Worker's own /v1/google/notify. Not a secret.
-		"GOOGLE_WEBHOOK_URL": "https://api.seasign.app/v1/google/notify"
+		"GOOGLE_WEBHOOK_URL": "https://api.seasign.app/v1/google/notify",
+		// The deployed Worker's own origin, Better Auth's baseURL (src/auth.ts,
+		// task 13). The phone's ID-token sign-in makes no redirect, so this only
+		// names the cookie Better Auth sets internally. Not a secret.
+		"BETTER_AUTH_URL": "https://api.seasign.app"
 	},
 	// Placeholder IDs: enough for `wrangler dev` and the tests, which run locally.
 	// The real resources are created only with the user's go-ahead (see AGENTS.md).

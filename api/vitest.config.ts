@@ -12,7 +12,14 @@ export default defineConfig({
       // The test D1 starts empty: the migrations are read here, in Node, and a
       // test file that uses the database applies them with
       // applyD1Migrations(env.DB, env.TEST_MIGRATIONS).
-      miniflare: { bindings: { TEST_MIGRATIONS: await readD1Migrations(join(here, "migrations")) } },
+      // BETTER_AUTH_SECRET is a test-only value that exists nowhere else; the
+      // real one is set by the user at deploy (task 13).
+      miniflare: {
+        bindings: {
+          TEST_MIGRATIONS: await readD1Migrations(join(here, "migrations")),
+          BETTER_AUTH_SECRET: "test-only-better-auth-secret-not-used-anywhere-else-0123456789",
+        },
+      },
     })),
   ],
 });
