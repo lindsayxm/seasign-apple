@@ -1,11 +1,11 @@
 ---
 id: 218
 title: iOS subscription A4: fresh-install content: three starter sites, two list items, 'Add your calendar... ↑'
-status: review
+status: done
 owner: implementer-1
 depends_on: [217]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-25T02:17:35Z
+updated: 2026-11-25T02:29:59Z
 ---
 
 ## Goal
@@ -52,3 +52,5 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 - 2026-11-25T02:14:15Z [implementer-1] Lead, after the review (code passes, no must-fix): small rework. (1) Seeded titles become the user's own names: 'Hacker News', 'Wired Science', 'Ars Technica Space' (resolve's page titles read badly and are cut off in Settings). (2) aStoreInMemoryIsNotSeeded tests nothing: make it test something or remove it. Lead's run before the rework at 45d7b00: iPhone 17 iOS 27.2 'Test run with 1026 tests in 110 suites passed after 92.087 seconds' + TEST SUCCEEDED, 0 ✘ lines. Criterion 2 (three sites' headlines on Today): Today shows the five newest across sites, an existing rule; Wired's headlines are shown in History and Settings (shots 12, 07); accepted by the lead, the user is told.
 - 2026-11-25T02:17:35Z [implementer-1] Rework after review: seeded titles are now the user's names 'Hacker News', 'Wired Science', 'Ars Technica Space' (URLs, feed URLs, feed mode, categories unchanged); tests and architecture.md updated. Removed aStoreInMemoryIsNotSeeded (it checked an empty in-memory container, which nothing seeds, so it tested nothing); StarterContentTests now has 12 tests, so the full suite is 1025 tests in 110 suites. -only-testing StarterContentTests + TodayCalendarPromptTests: iPhone 17 27.2 '✔ Test run with 19 tests in 2 suites passed after 0.583 seconds.' + '** TEST SUCCEEDED **'; iPhone 16 18.3.1 '✔ Test run with 19 tests in 2 suites passed after 0.586 seconds.' + '** TEST SUCCEEDED **'; no '✘ Test' lines. Retook /private/tmp/claude-501/-Users-li-seasign-seasign-apple/9f3372c6-3fea-4cb1-8afe-f6224e28ebe8/scratchpad/shots218/07-settings-sites-removable-iphoneSE.png after erasing my own 'T218 iPhone SE' simulator (fresh install, local wrangler dev): HACKER NEWS / WIRED SCIENCE / ARS TECHNICA SPACE with REMOVE, 30/16/13 articles.
 - 2026-11-25T02:17:35Z [implementer-1] status: in-progress → review
+- 2026-11-25T02:29:59Z [implementer-1] Lead: reviewer passed the code (no must-fix); the rework f1c9514 (titles, one empty test removed) checked by the lead in the diff and in the retaken screenshot 07. Lead's runs at f1c9514: iPhone 17 iOS 27.2 'Test run with 1025 tests in 110 suites passed after 184.788 seconds' + TEST SUCCEEDED; iPhone 16 iOS 18.3.1 'Test run with 1025 tests in 110 suites passed after 407.978 seconds' + TEST SUCCEEDED; 0 ✘ lines in both (unanchored). Open with the user: the categories (Tech, Science, Space), the arrow 2-4 pt left of the settings icon, Today showing the five newest across sites (Wired may not appear).
+- 2026-11-25T02:29:59Z [implementer-1] status: review → done

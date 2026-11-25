@@ -5,7 +5,7 @@ status: backlog
 owner: 
 depends_on: []
 created: 2026-11-25T01:03:30Z
-updated: 2026-11-25T01:03:30Z
+updated: 2026-11-25T02:29:59Z
 ---
 
 ## Goal
@@ -29,3 +29,4 @@ Left from task 217's two reviews; none breaks the hard rule. (1) A lapsed person
 ## Log
 
 - 2026-11-25T01:03:30Z [li] created (backlog)
+- 2026-11-25T02:29:59Z [li] From task 218's review: no test that SeasignApp.start calls StarterContent.open() or that TodayView passes showsCalendarPrompt (screenshots only); a crash or failed save between creating the store file and the seed save leaves that install empty with no sign; seeded rows have random IDs and will duplicate across devices when sync lands (phase B/C needs stable IDs or a de-duplication rule); VoiceOver says 'Add your calendar in Settings' but a tap on the box opens the day screen.
