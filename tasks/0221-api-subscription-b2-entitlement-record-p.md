@@ -1,11 +1,11 @@
 ---
 id: 221
 title: API subscription B2: entitlement record per account and the one check the routes use
-status: backlog
-owner: 
+status: in-progress
+owner: implementer-1
 depends_on: [13]
 created: 2026-11-25T02:31:50Z
-updated: 2026-11-25T02:31:50Z
+updated: 2026-11-25T03:32:34Z
 ---
 
 ## Goal
@@ -30,3 +30,5 @@ Read plans/2026-11-24-account-and-subscription.md (phase B), memory/decisions/20
 ## Log
 
 - 2026-11-25T02:31:50Z [li] created (backlog)
+- 2026-11-25T03:32:34Z [li] status: backlog → todo
+- 2026-11-25T03:32:34Z [implementer-1] status: todo → in-progress — claimed by implementer-1

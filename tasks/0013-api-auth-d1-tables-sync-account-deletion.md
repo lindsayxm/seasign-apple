@@ -1,11 +1,11 @@
 ---
 id: 13
 title: API subscription B1: Better Auth with Sign in with Apple (native ID token), bearer sessions, D1 auth tables
-status: review
+status: done
 owner: implementer-1
 depends_on: []
 created: 2026-11-15T22:33:55Z
-updated: 2026-11-25T03:31:29Z
+updated: 2026-11-25T03:32:34Z
 ---
 
 ## Goal
@@ -56,3 +56,5 @@ npm test and npx tsc --noEmit pass; migration generated and applied locally; spe
 - 2026-11-25T03:25:59Z [implementer-1] Third round (second security review). Tests written first and run on bbe2637: 'does not lock the Apple ID out: the next valid sign-in succeeds' fails with AssertionError expected 401 to be 200 (account insert forced to fail, then a fresh valid sign-in); 'stores at most 256 characters of the User-Agent' fails with expected 60010 to be less than or equal to 256. Tests 3 failed | 54 passed (57) (the third failure was my own test bug: a 512-character nonce sent without the same nonce in the token; fixed).
 - 2026-11-25T03:31:29Z [implementer-1] Third round done (commits face6ab, and the race tests in the commit after it). Lockout: removeHalfMadeUser in mapProfileToUser (Better Auth calls it only after verifyProviderIdToken passed) runs one statement: DELETE FROM user WHERE email = accountEmail(sub) AND NOT EXISTS (account for that user). Safety: accountEmail is one-to-one, so only this sub's row can match; NOT EXISTS is checked in the same atomic statement, so a user with an account is never deleted; a concurrent first sign-in that loses its user fails once on the account foreign key (D1 enforces FKs by default: developers.cloudflare.com/d1/sql-api/foreign-keys/, plus a local test). Tests: account insert forced to fail, then the next sign-in 200 (failed first on bbe2637 with expected 401 to be 200); a sign-in paused between its inserts with a second one in the gap: second 200, first 401, one whole user/account/session, no dangling account, next 200; three simultaneous first sign-ins ended 200,401,401 in three runs; forged, wrong-audience, expired and alg-none tokens delete nothing (moving the cleanup before verification makes that test fail); other subs untouched; a failed cleanup still serves the sign-in. User-Agent cut to 256 (failed first: expected 60010 to be <= 256). New tests: no-store on every /api/auth answer, token > 8192 and nonce > 512 or empty refused before Better Auth (512 accepted), idToken.user/name/email/image dropped. Results: npm test 'Test Files  23 passed (23)', 'Tests  2062 passed (2062)'; tsc exit 0; spec unchanged. Invariant for later tasks: a user without an account row is deleted at that Apple ID's next sign-in.
 - 2026-11-25T03:31:29Z [implementer-1] status: in-progress → review
+- 2026-11-25T03:32:34Z [implementer-1] Lead: third round (face6ab, ff102be) checked by the lead, who did not write it: the source diff read (one guarded DELETE with NOT EXISTS in the same statement, called from mapProfileToUser only, so only for a token Better Auth has verified; User-Agent cut to 256), and the lead's run at ff102be: npm test 'Test Files 23 passed (23)', 'Tests 2062 passed (2062)', tsc exit 0. Two independent security reviews before it; both first-review holes confirmed closed by the second. Not verified by anyone: real Apple tokens, deployed D1, CPU time per request on Workers.
+- 2026-11-25T03:32:34Z [implementer-1] status: review → done
