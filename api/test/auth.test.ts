@@ -666,6 +666,39 @@ function dbFailing(fail: RegExp, times = 1) {
 
 const ACCOUNT_INSERT = /insert into "account"/i;
 
+/**
+ * env.DB, except that after the first statement matching `match` has
+ * finished, `between` runs before its result reaches the caller: a second
+ * request made to order in that gap.
+ */
+function dbPausingAfter(match: RegExp, between: () => Promise<void>) {
+  let paused = false;
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(statement, {
+      get(target, prop) {
+        if (prop === "bind") return (...values: unknown[]) => wrap(target.bind(...values));
+        if (prop === "run" || prop === "all" || prop === "first" || prop === "raw")
+          return async (...args: unknown[]) => {
+            const result = await (target[prop] as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+            if (!paused) {
+              paused = true;
+              await between();
+            }
+            return result;
+          };
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  return new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "prepare") return (sql: string) => (match.test(sql) ? wrap(target.prepare(sql)) : target.prepare(sql));
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 describe("a first sign-in cut off between the user and the account row", () => {
   it("D1 enforces the account's foreign key to user (the cleanup's safety rests on it)", async () => {
     await expect(
@@ -692,6 +725,42 @@ describe("a first sign-in cut off between the user and the account row", () => {
     const accounts = await db().select().from(account).all();
     expect(accounts).toHaveLength(1);
     expect(accounts[0]!.userId).toBe(body.user.id);
+  });
+
+  it("a first sign-in whose new user is removed by a second one in the middle fails once and leaves nothing half-made", async () => {
+    mockApple();
+    let second: Response | undefined;
+    const first = await signIn(
+      await idToken(),
+      testEnv({
+        DB: dbPausingAfter(/insert into "user"/i, async () => {
+          // In the gap between this request's user insert and its account insert.
+          expect(await db().select().from(account).all()).toHaveLength(0);
+          second = await signIn(await idToken());
+        }),
+      }),
+    );
+    expect(second!.status).toBe(200);
+    expect(first.status).not.toBe(200);
+    expect(first.headers.get("set-auth-token")).toBeNull();
+    const secondId = ((await second!.json()) as { user: { id: string } }).user.id;
+    expect((await db().select().from(user).all()).map((row) => row.id)).toEqual([secondId]);
+    expect((await db().select().from(account).all()).map((row) => row.userId)).toEqual([secondId]);
+    expect((await db().select().from(session).all()).map((row) => row.userId)).toEqual([secondId]);
+    const dangling = await env.DB.prepare("SELECT count(*) AS n FROM account WHERE user_id NOT IN (SELECT id FROM user)").first<{ n: number }>();
+    expect(dangling!.n).toBe(0);
+    const next = await signIn(await idToken());
+    expect(next.status).toBe(200);
+    expect(((await next.json()) as { user: { id: string } }).user.id).toBe(secondId);
+  });
+
+  it("a failed check for a half-made user still serves an ordinary sign-in, logging a fixed line", async () => {
+    mockApple();
+    const lines = captureConsole();
+    const response = await signIn(await idToken(), testEnv({ DB: dbFailing(/DELETE FROM user WHERE email/) }));
+    expect(response.status).toBe(200);
+    expect(lines).toContain("auth: could not check for a half-made user; sign-in continues");
+    expect(lines.join("\n")).not.toContain(EMAIL);
   });
 
   it("a forged or refused token for that sub deletes nothing", async () => {
