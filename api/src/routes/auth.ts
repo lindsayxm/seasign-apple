@@ -54,11 +54,15 @@ type AllowedPath = typeof SIGN_IN | typeof GET_SESSION | typeof SIGN_OUT;
 /** The request headers Better Auth may see. */
 const PASSED_HEADERS = ["authorization", "content-type", "user-agent"] as const;
 
+/** Better Auth stores the User-Agent with each session; only this much of it. */
+export const MAX_USER_AGENT_LENGTH = 256;
+
 function headersFor(from: Request): Headers {
   const headers = new Headers();
   for (const name of PASSED_HEADERS) {
     const value = from.headers.get(name);
-    if (value !== null) headers.set(name, value);
+    if (value === null) continue;
+    headers.set(name, name === "user-agent" ? value.slice(0, MAX_USER_AGENT_LENGTH) : value);
   }
   return headers;
 }

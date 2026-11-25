@@ -63,6 +63,43 @@ export const MIN_SECRET_LENGTH = 32;
  */
 export const accountEmail = (sub: string) => `${sub.replace(/[A-Z_]/g, (char) => `_${char.toLowerCase()}`)}@apple.seasign.invalid`;
 
+/**
+ * Removes the user row a first sign-in left behind if it stopped between
+ * Better Auth's two inserts (user, then account; the Drizzle adapter runs them
+ * without a transaction, and D1 has none to offer). Such a row holds
+ * accountEmail(sub), so Better Auth would match every later sign-in of that
+ * Apple ID to it and refuse to link: a lockout for good. Called only for a
+ * verified token, just before Better Auth looks the user up.
+ *
+ * Why it is safe, all in one statement (D1 runs each statement atomically
+ * and one at a time):
+ * - Only the row with this sub's own account email can match, and
+ *   accountEmail is one-to-one, so no other sub's user is ever touched.
+ * - A user with an account row is never deleted: NOT EXISTS is checked in the
+ *   same statement as the delete.
+ * - A concurrent first sign-in of the same sub that has inserted its user but
+ *   not yet its account can lose that user here. Its account insert then
+ *   fails on the foreign key to user (D1 enforces it; a test checks), so that
+ *   request fails once and leaves nothing behind, while this one goes on to
+ *   create the user. Every other interleaving ends with at most a one-time
+ *   401 or 500 for one request; any later sign-in finds either a whole
+ *   account or nothing in its way. Sessions belong to accounts' users only,
+ *   so none is lost.
+ *
+ * Never throws: on a D1 error the sign-in goes on (and may meet the lockout
+ * once more, until a later sign-in gets through).
+ */
+export async function removeHalfMadeUser(db: D1Database, sub: string): Promise<void> {
+  try {
+    await db
+      .prepare("DELETE FROM user WHERE email = ?1 AND NOT EXISTS (SELECT 1 FROM account WHERE account.user_id = user.id)")
+      .bind(accountEmail(sub))
+      .run();
+  } catch {
+    console.error("auth: could not check for a half-made user; sign-in continues");
+  }
+}
+
 /** The longest address kept in `apple_email` (RFC 5321's path limit). */
 const MAX_EMAIL_LENGTH = 254;
 
@@ -127,7 +164,14 @@ function buildAuth(env: AuthBindings, secret: string) {
         clientSecret: "",
         // Every user's Better Auth email is made from the sub, whatever the
         // token says (see accountEmail); the real one goes to apple_email.
-        mapProfileToUser: (profile) => ({ email: accountEmail(profile.sub), emailVerified: false }),
+        // Better Auth calls this from the sign-in only after the identity
+        // token has passed verification (sign-in.mjs: verifyProviderIdToken,
+        // then getUserInfo, which calls this), so the sub here is Apple's and
+        // a forged token never reaches the cleanup.
+        mapProfileToUser: async (profile) => {
+          await removeHalfMadeUser(env.DB, profile.sub);
+          return { email: accountEmail(profile.sub), emailVerified: false };
+        },
       },
     },
     // Only the signed token (set-auth-token) is accepted as a bearer: the bare

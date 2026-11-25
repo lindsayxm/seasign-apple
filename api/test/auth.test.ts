@@ -644,6 +644,172 @@ describe("/api/auth/* lets through only the phone's three calls", () => {
   });
 });
 
+/** env.DB, except that a statement whose SQL matches `fail` throws, `times` times. */
+function dbFailing(fail: RegExp, times = 1) {
+  let left = times;
+  const real = env.DB;
+  return new Proxy(real, {
+    get(target, prop) {
+      if (prop === "prepare")
+        return (sql: string) => {
+          if (left > 0 && fail.test(sql)) {
+            left--;
+            throw new Error("D1 failed (test)");
+          }
+          return target.prepare(sql);
+        };
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+const ACCOUNT_INSERT = /insert into "account"/i;
+
+describe("a first sign-in cut off between the user and the account row", () => {
+  it("D1 enforces the account's foreign key to user (the cleanup's safety rests on it)", async () => {
+    await expect(
+      env.DB.prepare("INSERT INTO account (id, account_id, provider_id, user_id, updated_at) VALUES ('a1', 'x', 'apple', 'no-such-user', 0)").run(),
+    ).rejects.toThrow(/FOREIGN KEY/i);
+  });
+
+  it("does not lock the Apple ID out: the next valid sign-in succeeds", async () => {
+    mockApple();
+    const cut = await signIn(await idToken(), testEnv({ DB: dbFailing(ACCOUNT_INSERT) }));
+    expect(cut.status).toBeGreaterThanOrEqual(400);
+    // The half-made state: a user with this sub's account email and no account.
+    expect(await db().select().from(user).all()).toHaveLength(1);
+    expect(await db().select().from(account).all()).toHaveLength(0);
+
+    const next = await signIn(await idToken());
+    expect(next.status).toBe(200);
+    const body = (await next.json()) as { user: { id: string } };
+    const users = await db().select().from(user).all();
+    expect(users).toHaveLength(1);
+    expect(users[0]!.id).toBe(body.user.id);
+    expect(users[0]!.email).toBe(accountEmail(SUB));
+    expect(users[0]!.appleEmail).toBe(EMAIL);
+    const accounts = await db().select().from(account).all();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]!.userId).toBe(body.user.id);
+  });
+
+  it("a forged or refused token for that sub deletes nothing", async () => {
+    mockApple();
+    await signIn(await idToken(), testEnv({ DB: dbFailing(ACCOUNT_INSERT) }));
+    const orphan = (await db().select().from(user).all())[0]!;
+    for (const token of [
+      await idToken(claims(), otherKey),
+      await idToken(claims({ aud: "technology.artisan.other" })),
+      await idToken(claims({ iat: nowSeconds() - 900, exp: nowSeconds() - 120 })),
+      `${jsonToBase64url({ alg: "none", kid: KID })}.${jsonToBase64url(claims())}.`,
+    ]) {
+      expect((await signIn(token)).status).toBe(401);
+      expect(await db().select().from(user).all()).toEqual([orphan]);
+    }
+  });
+
+  it("never touches another sub's user, half-made or whole", async () => {
+    mockApple();
+    const OTHER = "005555.0123456789abcdef0123456789abcdef.0101";
+    await signIn(await idToken(claims({ sub: OTHER })), testEnv({ DB: dbFailing(ACCOUNT_INSERT) }));
+    const whole = await signIn(await idToken(claims({ sub: "007777.fedcba9876543210fedcba9876543210.0202" })));
+    expect(whole.status).toBe(200);
+    const wholeId = ((await whole.json()) as { user: { id: string } }).user.id;
+    expect((await signIn(await idToken())).status).toBe(200);
+    const emails = (await db().select().from(user).all()).map((row) => row.email).sort();
+    expect(emails).toEqual([accountEmail(OTHER), accountEmail("007777.fedcba9876543210fedcba9876543210.0202"), accountEmail(SUB)].sort());
+    expect((await db().select().from(user).where(eq(user.id, wholeId)).all())).toHaveLength(1);
+  });
+
+  it("never deletes a user that has an account row, so a returning user keeps the same id", async () => {
+    mockApple();
+    const first = await signIn(await idToken());
+    const id = ((await first.json()) as { user: { id: string } }).user.id;
+    for (let i = 0; i < 3; i++) {
+      const again = await signIn(await idToken());
+      expect(((await again.json()) as { user: { id: string } }).user.id).toBe(id);
+    }
+    expect(await db().select().from(user).all()).toHaveLength(1);
+  });
+
+  it("concurrent first sign-ins of one sub end with one user and one account, and the next sign-in works", async () => {
+    mockApple();
+    const answers = await Promise.all([1, 2, 3].map(async () => signIn(await idToken())));
+    expect(answers.some((answer) => answer.status === 200)).toBe(true);
+    const next = await signIn(await idToken());
+    expect(next.status).toBe(200);
+    const id = ((await next.json()) as { user: { id: string } }).user.id;
+    const users = await db().select().from(user).all();
+    expect(users.map((row) => row.id)).toEqual([id]);
+    const accounts = await db().select().from(account).all();
+    expect(accounts.map((row) => row.userId)).toEqual([id]);
+  });
+});
+
+describe("limits and answers on /api/auth/*", () => {
+  it("every answer says Cache-Control: no-store", async () => {
+    mockApple();
+    const signedIn = await signIn(await idToken());
+    const bearer = signedIn.headers.get("set-auth-token")!;
+    const answers = [
+      signedIn,
+      await signIn(await idToken(claims(), otherKey)),
+      await post("/api/auth/sign-in/social", { provider: "apple" }),
+      await app.request(`${BASE}/api/auth/get-session`, { headers: { authorization: `Bearer ${bearer}` } }, testEnv()),
+      await app.request(`${BASE}/api/auth/ok`, {}, testEnv()),
+      await app.request(`${BASE}/api/auth/sign-out`, { method: "POST", headers: { authorization: `Bearer ${bearer}` } }, testEnv()),
+      await signIn(await idToken(), testEnv({ BETTER_AUTH_SECRET: undefined })),
+    ];
+    for (const answer of answers) expect(answer.headers.get("cache-control"), String(answer.status)).toBe("no-store");
+  });
+
+  it("refuses a token over 8192 characters and a nonce over 512 before Better Auth runs", async () => {
+    const apple = mockApple();
+    const before = await rowCounts();
+    const good = await idToken();
+    expect((await post("/api/auth/sign-in/social", { provider: "apple", idToken: { token: `${good}${"A".repeat(8193 - good.length)}` } })).status).toBe(400);
+    expect((await post("/api/auth/sign-in/social", { provider: "apple", idToken: { token: good, nonce: "n".repeat(513) } })).status).toBe(400);
+    expect((await post("/api/auth/sign-in/social", { provider: "apple", idToken: { token: good, nonce: "" } })).status).toBe(400);
+    expect(apple.calls).toHaveLength(0);
+    expect(await rowCounts()).toEqual(before);
+    // At the limits it is accepted.
+    const longNonce = "n".repeat(512);
+    expect((await post("/api/auth/sign-in/social", { provider: "apple", idToken: { token: await idToken(claims({ nonce: longNonce })), nonce: longNonce } })).status).toBe(200);
+  });
+
+  it("drops idToken.user and every other extra field: the name and email Apple did not sign are not stored", async () => {
+    mockApple();
+    const response = await post("/api/auth/sign-in/social", {
+      provider: "apple",
+      idToken: { token: await idToken(), user: { name: { firstName: "Mallory", lastName: "Spoof" }, email: "mallory@example.com" }, expiresAt: 1 },
+      name: "Mallory",
+      email: "mallory@example.com",
+      image: "https://evil.example/x.png",
+    });
+    expect(response.status).toBe(200);
+    const users = await db().select().from(user).all();
+    expect(users[0]!.name).toBe("");
+    expect(users[0]!.image).toBeNull();
+    expect(users[0]!.appleEmail).toBe(EMAIL);
+    expect(JSON.stringify(users)).not.toContain("Mallory");
+    expect(JSON.stringify(users)).not.toContain("mallory@");
+  });
+
+  it("stores at most 256 characters of the User-Agent", async () => {
+    mockApple();
+    const response = await app.request(
+      `${BASE}/api/auth/sign-in/social`,
+      { method: "POST", headers: { "content-type": "application/json", "user-agent": `Seasign/1 ${"x".repeat(60_000)}` }, body: JSON.stringify({ provider: "apple", idToken: { token: await idToken() } }) },
+      testEnv(),
+    );
+    expect(response.status).toBe(200);
+    const stored = (await db().select().from(session).all())[0]!.userAgent!;
+    expect(stored.length).toBeLessThanOrEqual(256);
+    expect(stored.startsWith("Seasign/1 ")).toBe(true);
+  });
+});
+
 describe("requireSession", () => {
   async function signedIn() {
     mockApple();
