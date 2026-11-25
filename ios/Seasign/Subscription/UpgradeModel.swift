@@ -123,11 +123,13 @@ final class UpgradeModel {
 
     // MARK: Purchase and restore
 
-    /// UPGRADE NOW. Runs the purchase only when the product loaded; on a
+    /// UPGRADE NOW. Runs the purchase only for Free or Lapsed (never for a
+    /// subscriber, nor for Unknown, which may be one; also refused before
+    /// any read has landed) and only when the product loaded; on a
     /// verified purchase reads the subscription until it says Subscribed,
     /// which opens Settings (`decision`). Cancel changes nothing.
     func upgrade(_ perform: @escaping PurchasePerformer) async {
-        guard busy == nil, case .available = offer else { return }
+        guard busy == nil, state == .free || state == .lapsed, case .available = offer else { return }
         busy = .purchasing
         note = nil
         let outcome = await activeStorefront.purchase(perform)

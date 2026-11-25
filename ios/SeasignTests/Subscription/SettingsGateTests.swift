@@ -271,6 +271,27 @@ final class SequenceSubscriptionStore: SubscriptionStore, @unchecked Sendable {
         #expect(!UpgradeNote.purchaseUnverified.text.contains("Nothing was charged"))
     }
 
+    /// UPGRADE NOW is refused by the model itself, not only by the popup's
+    /// buttons: a subscriber must not buy twice, and Unknown may be one.
+    @Test(arguments: [SubscriptionState.unknown, .subscribed])
+    func noPurchaseUnlessFreeOrLapsed(_ state: SubscriptionState) async {
+        let (gate, _, storefront) = await gate(state)
+        await gate.loadOffer()
+        #expect(gate.offer == .available(StoreOffer(displayPrice: "$2.99")))
+        await gate.upgrade { _ in throw CancellationError() }
+        #expect(storefront.purchases == 0)
+        #expect(gate.note == nil)
+        #expect(gate.busy == nil)
+    }
+
+    /// Before any read has landed the state is the starting Unknown: no purchase either.
+    @Test func noPurchaseBeforeTheFirstRead() async {
+        let (gate, _, storefront) = await gate(.free, read: false)
+        await gate.loadOffer()
+        await gate.upgrade { _ in throw CancellationError() }
+        #expect(storefront.purchases == 0)
+    }
+
     @Test func noPurchaseWithoutALoadedProduct() async {
         let storefront = ScriptedStorefront()
         storefront.offer = nil
@@ -329,11 +350,13 @@ final class SequenceSubscriptionStore: SubscriptionStore, @unchecked Sendable {
     /// subscription, and that everything works when Subscribed.
     @Test func theReadOnlyRule() {
         let usable: Set<SettingsAction> = [
-            .changeZip, .changeHUDColour, .disconnectGoogle, .removeCalendarLink,
+            .changeZip, .disconnectGoogle, .removeCalendarLink,
             .removeSite, .refreshHeadlines, .restorePurchases, .manageSubscription,
         ]
+        // The HUD colour is locked too: only the zip code changes without
+        // a subscription (the user's rule; lead, after the #217 review).
         let locked: Set<SettingsAction> = [
-            .connectGoogle, .chooseGoogleCalendars, .chooseNewEventsCalendar,
+            .changeHUDColour, .connectGoogle, .chooseGoogleCalendars, .chooseNewEventsCalendar,
             .addCalendarLink, .followSite, .aiSearch, .chooseVoice,
         ]
         #expect(usable.union(locked) == Set(SettingsAction.allCases))
@@ -358,6 +381,8 @@ final class SequenceSubscriptionStore: SubscriptionStore, @unchecked Sendable {
         #expect(gate.settingsAccess.allows(.removeSite))
         #expect(!gate.settingsAccess.allows(.followSite))
         #expect(UpgradeWords.readOnlyNote(gate.state).hasPrefix("Your subscription isn't active"))
+        #expect(!UpgradeWords.readOnlyNote(gate.state).contains("HUD"))
+        #expect(!gate.settingsAccess.allows(.changeHUDColour))
         store.reading = FixedSubscriptionStore.reading(for: .subscribed)
         await gate.refreshSubscription()
         #expect(gate.settingsAccess == .full)

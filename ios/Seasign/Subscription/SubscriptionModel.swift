@@ -12,7 +12,8 @@ protocol SubscriptionSource: AnyObject {
     /// starting `unknown`, which allows nothing but is not an answer.
     var hasAnswered: Bool { get }
     /// Reads again and returns the state judged from a read that started
-    /// after this call (this one, or a later one that landed first).
+    /// after this call (this one, or a later one that landed first); Unknown,
+    /// with the state held left as it was, if the calling task is cancelled.
     @discardableResult func refresh() async -> SubscriptionAccess
     /// Calls `handler` with the state after every read that lands, whether
     /// or not it changed (a first read that fails is still Unknown).
@@ -74,6 +75,13 @@ final class SubscriptionModel: SubscriptionSource {
         readsStarted += 1
         let number = readsStarted
         let reading = await store.read()
+        // A read whose task was cancelled (the popup closed during it) is
+        // not an answer: StoreKit's store turns the cancellation into
+        // `.failed`, which must not replace the state already held. Its
+        // caller is told Unknown, which allows nothing (task 217 review).
+        guard !Task.isCancelled else {
+            return SubscriptionAccess(state: .unknown, isSignedIn: isSignedIn)
+        }
         guard number > latestUsed else { return access }
         latestUsed = number
         state = SubscriptionRules.state(from: reading, now: now())

@@ -50,8 +50,10 @@ enum SettingsAction: CaseIterable, Sendable {
 }
 
 /// What Settings allows: everything while Subscribed; otherwise read-only,
-/// where everything stays visible and only removing, the zip code, the HUD
-/// colour and the subscription's own controls work. Removing costs nothing,
+/// where everything stays visible and only the zip code, removing, a free
+/// headline refresh and the subscription's own controls work. The HUD
+/// colour is locked too: only the zip code changes without a subscription
+/// (the user's rule; lead, after the task 217 review). Removing costs nothing,
 /// and a lapsed person must never be trapped with data they want gone.
 /// Fails closed: the environment's default is read-only.
 struct SettingsAccess: Equatable, Sendable {
@@ -72,7 +74,6 @@ struct SettingsAccess: Equatable, Sendable {
     /// What stays usable when read-only.
     static let usableWhenReadOnly: Set<SettingsAction> = [
         .changeZip,
-        .changeHUDColour,
         .disconnectGoogle,
         .removeCalendarLink,
         .removeSite,
@@ -258,7 +259,7 @@ enum UpgradeWords {
     static func readOnlyNote(_ state: SubscriptionState) -> String {
         switch state {
         case .lapsed:
-            "Your subscription isn't active, so these settings are read-only. You can still change your zip code and the HUD color, remove calendars, sites and Google, and restore or manage your subscription."
+            "Your subscription isn't active, so these settings are read-only. You can still change your zip code, remove calendars, sites and Google, and restore or manage your subscription."
         case .unknown:
             "We couldn't check your subscription, so these settings are read-only for now."
         case .free, .subscribed:

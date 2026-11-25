@@ -257,7 +257,7 @@ private final class TestBundleMarker {}
     /// date: IDs start again at 0 after `clearTransactions`, and an earlier
     /// test's transaction whose finishing failed (under a simulated error)
     /// stays in this process's unfinished list.
-    private static func isUnfinished(_ transaction: Transaction) async -> Bool {
+    static func isUnfinished(_ transaction: Transaction) async -> Bool {
         for await result in Transaction.unfinished {
             if let other = try? result.payloadValue,
                other.id == transaction.id, other.purchaseDate == transaction.purchaseDate {

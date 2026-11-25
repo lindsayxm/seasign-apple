@@ -414,6 +414,19 @@ import Testing
         #expect(!HUDColourTouch.takesPart(touchDownAt: CGPoint(x: CGFloat.nan, y: 1), size: size))
     }
 
+    /// Read-only Settings (task 217): a disabled block takes no tap and its
+    /// press takes no touch, inside or out, so every touch scrolls and
+    /// nothing is written.
+    @Test func aDisabledBlockTakesNoTouch() {
+        for point in [CGPoint(x: 120, y: 70), CGPoint(x: 10, y: 0), CGPoint(x: 360, y: 100), CGPoint(x: 200, y: -14)] {
+            #expect(!HUDColourTouch.takesPart(touchDownAt: point, size: size, enabled: false))
+            #expect(HUDColourTouch.tap(at: point, size: size, enabled: false) == .none)
+        }
+        // Enabled, as before.
+        #expect(HUDColourTouch.takesPart(touchDownAt: CGPoint(x: 120, y: 70), size: size, enabled: true))
+        #expect(HUDColourTouch.tap(at: CGPoint(x: 0, y: 100), size: size, enabled: true) == .set(pick(0, 0), save: true))
+    }
+
     /// UIKit ends a press once, with `.ended` or with `.cancelled`/`.failed`;
     /// whichever comes, the colour is saved once and the next touch starts
     /// clean.

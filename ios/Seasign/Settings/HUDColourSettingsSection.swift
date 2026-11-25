@@ -122,8 +122,9 @@ struct HUDColourTouch: Equatable {
     /// A tap at `point` in a block of `size`: the colour there, saved. A
     /// tap that SwiftUI hands over from just outside the block (a finger
     /// has some area) writes nothing.
-    static func tap(at point: CGPoint, size: CGSize) -> Write {
-        guard HUDColourField.contains(point, size: size) else { return .none }
+    /// Disabled (read-only Settings, task 217): nothing.
+    static func tap(at point: CGPoint, size: CGSize, enabled: Bool = true) -> Write {
+        guard enabled, HUDColourField.contains(point, size: size) else { return .none }
         return .set(HUDColourField.pick(at: point, size: size), save: true)
     }
 
@@ -132,8 +133,10 @@ struct HUDColourTouch: Equatable {
     /// The press is offered touches outside the block too (just outside it,
     /// and on iOS 18 anywhere on the screen); those are left to the scroll
     /// view, which would otherwise wait for the press.
-    static func takesPart(touchDownAt point: CGPoint, size: CGSize) -> Bool {
-        HUDColourField.contains(point, size: size)
+    /// Disabled (read-only Settings, task 217): never, so no press begins
+    /// and every touch scrolls.
+    static func takesPart(touchDownAt point: CGPoint, size: CGSize, enabled: Bool = true) -> Bool {
+        enabled && HUDColourField.contains(point, size: size)
     }
 }
 
@@ -400,6 +403,9 @@ struct HUDColourSettingsSection: View {
 private struct HUDColourBlock: View {
     var hue: Double?
     var lightness: Double?
+    /// Off in read-only Settings (task 217): no tap, press, drag or
+    /// VoiceOver adjustment, and the block is dimmed.
+    @Environment(\.isEnabled) private var isEnabled
     /// A new hue and lightness, and whether the change is finished (save it).
     var set: (Double?, Double?, Bool) -> Void
     /// Saves a colour written during a touch that never ended.
@@ -448,10 +454,11 @@ private struct HUDColourBlock: View {
             }
             .frame(width: size.width, height: size.height)
             .contentShape(Rectangle())
+            .opacity(isEnabled ? 1 : 0.4)
             .onTapGesture(coordinateSpace: .local) { location in
-                apply(HUDColourTouch.tap(at: location, size: size))
+                apply(HUDColourTouch.tap(at: location, size: size, enabled: isEnabled))
             }
-            .gesture(HUDColourFieldPress(size: size, apply: apply))
+            .gesture(HUDColourFieldPress(size: size, enabled: isEnabled, apply: apply))
             .accessibilityHidden(true)
             .overlay { voiceOverElements }
         }
@@ -469,6 +476,7 @@ private struct HUDColourBlock: View {
                 .accessibilityLabel("HUD color hue")
                 .accessibilityValue(HUDColourField.spokenHue(hue))
                 .accessibilityAdjustableAction { direction in
+                    guard isEnabled else { return }
                     switch direction {
                     case .increment: set(HUDColourField.adjustedHue(hue, up: true), lightness, true)
                     case .decrement: set(HUDColourField.adjustedHue(hue, up: false), lightness, true)
@@ -481,6 +489,7 @@ private struct HUDColourBlock: View {
                 .accessibilityLabel("HUD color lightness")
                 .accessibilityValue(HUDColourField.spokenLightness(lightness))
                 .accessibilityAdjustableAction { direction in
+                    guard isEnabled else { return }
                     switch direction {
                     case .increment: set(hue, HUDColourField.adjustedLightness(lightness, up: true), true)
                     case .decrement: set(hue, HUDColourField.adjustedLightness(lightness, up: false), true)
@@ -503,15 +512,19 @@ private struct HUDColourBlock: View {
 /// reports goes through `HUDColourTouch.handle`, which says what to write.
 private struct HUDColourFieldPress: UIGestureRecognizerRepresentable {
     var size: CGSize
+    /// Off in read-only Settings: the recognizer is disabled and takes no touch.
+    var enabled: Bool
     var apply: (HUDColourTouch.Write) -> Void
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var touch = HUDColourTouch()
         var size: CGSize
+        var enabled: Bool
         let converter: CoordinateSpaceConverter
 
-        init(size: CGSize, converter: CoordinateSpaceConverter) {
+        init(size: CGSize, enabled: Bool, converter: CoordinateSpaceConverter) {
             self.size = size
+            self.enabled = enabled
             self.converter = converter
         }
 
@@ -522,7 +535,7 @@ private struct HUDColourFieldPress: UIGestureRecognizerRepresentable {
         /// The touch-down point is read from the touch itself: on iOS 18
         /// the converter's `localTranslation` is not a usable vector.
         func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            HUDColourTouch.takesPart(touchDownAt: converter.convert(globalPoint: touch.location(in: nil)), size: size)
+            HUDColourTouch.takesPart(touchDownAt: converter.convert(globalPoint: touch.location(in: nil)), size: size, enabled: enabled)
         }
 
         /// The scroll view's pan waits for this one to fail.
@@ -535,11 +548,13 @@ private struct HUDColourFieldPress: UIGestureRecognizerRepresentable {
     }
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
-        Coordinator(size: size, converter: converter)
+        Coordinator(size: size, enabled: enabled, converter: converter)
     }
 
     func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
         context.coordinator.size = size
+        context.coordinator.enabled = enabled
+        recognizer.isEnabled = enabled
     }
 
     func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
@@ -547,6 +562,7 @@ private struct HUDColourFieldPress: UIGestureRecognizerRepresentable {
         press.delegate = context.coordinator
         press.minimumPressDuration = HUDColourTouch.pressDuration
         press.allowableMovement = HUDColourTouch.allowableMovement
+        press.isEnabled = enabled
         return press
     }
 

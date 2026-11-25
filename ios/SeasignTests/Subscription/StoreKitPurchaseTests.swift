@@ -33,18 +33,6 @@ extension StoreKitSubscriptionTests {
         return false
     }
 
-    /// Unfinished transactions for the product bought at or after `since`.
-    private static func unfinished(since: Date) async -> Int {
-        var count = 0
-        for await result in Transaction.unfinished {
-            if let transaction = try? result.payloadValue,
-               transaction.productID == productID, transaction.purchaseDate >= since.addingTimeInterval(-1) {
-                count += 1
-            }
-        }
-        return count
-    }
-
     @Test func storeKitPurchaseUnlocksSettingsAndFinishesTheTransaction() async throws {
         try await withSession { _, _ in
             let gate = storeKitGate()
@@ -53,14 +41,15 @@ extension StoreKitSubscriptionTests {
             #expect(gate.offer == .available(StoreOffer(displayPrice: "$2.99")))
             #expect(gate.content.buttons.first == .upgradeNow)
 
-            let started = Date()
             await gate.upgrade(Self.buy)
             #expect(gate.decision == .settings)
             #expect(gate.note == nil)
             if Self.unfinishedIsReliable {
                 // Finished by the purchase code itself, not by a listener
-                // (none runs here).
-                #expect(await Self.unfinished(since: started) == 0)
+                // (none runs here). Matched on this purchase's ID and date:
+                // a time window also caught an earlier test's transaction.
+                let bought = try #require(await Transaction.latest(for: Self.productID)).payloadValue
+                #expect(await Self.isUnfinished(bought) == false)
             }
         }
     }
@@ -115,7 +104,11 @@ extension StoreKitSubscriptionTests {
         }
     }
 
-    /// A transaction that does not verify unlocks nothing.
+    /// A transaction that does not verify unlocks nothing. That it is left
+    /// unfinished is not checked here: with a simulated verification error,
+    /// the transaction stayed in `Transaction.unfinished` even when the code
+    /// was changed to finish it (task 217 rework, iOS 27.2), so the check
+    /// could not tell the two apart.
     @Test func storeKitPurchaseUnverifiedUnlocksNothing() async throws {
         try await withSession { session, _ in
             let gate = storeKitGate()
