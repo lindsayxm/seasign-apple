@@ -15,7 +15,7 @@
 // Store Server API with a key the user sets) is not decided. The Apple work
 // will call `recordVerifiedSubscription` with facts it has already verified;
 // nothing in production calls it yet.
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { createMiddleware } from "hono/factory";
 import { entitlements, type Entitlement } from "../db/schema.ts";
@@ -53,20 +53,40 @@ export const ENTITLEMENT_UNAVAILABLE = { error: "entitlement_unavailable" as con
 /** The columns the check reads. */
 export type EntitlementCheckFields = Pick<Entitlement, "state" | "expiresAt" | "revokedAt">;
 
-const isTime = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+/**
+ * Times are whole Unix milliseconds. Anything outside this range is a
+ * mistake in units (seconds, microseconds) or a bogus value, and is refused:
+ * 1e12 is September 2001, 1e13 is the year 2286.
+ */
+const MIN_MS = 1e12;
+const MAX_MS = 1e13;
+/**
+ * The earliest clock the check trusts (2020-09-13). A clock below it (0,
+ * negative, or seconds) would make every expiry look ahead, so it is never
+ * used to say "active".
+ */
+const MIN_CLOCK_MS = 1.6e12;
+/** How far Apple's `signedDate` may be ahead of this server's clock (clocks differ a little). */
+const SIGNED_AT_SKEW_MS = 5 * 60_000;
+
+const isMsTime = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= MIN_MS && value < MAX_MS;
+
+/** A clock reading the check may use: whole milliseconds, not before MIN_CLOCK_MS. */
+const isUsableClock = (now: unknown): now is number => isMsTime(now) && now >= MIN_CLOCK_MS;
 
 /**
- * True only when the state is exactly "active", the expiry is a real time
- * later than `now`, and there is no revocation. No row, any other state
- * (including one this build does not know), a missing or odd expiry, any
- * revocation value, or an unusable clock is false.
+ * True only when the state is exactly "active", the expiry is a whole
+ * millisecond time later than `now`, and there is no revocation. No row, any
+ * other state (including one this build does not know), a missing or odd
+ * expiry, any revocation value (anything but null), or a clock that is not
+ * milliseconds after MIN_CLOCK_MS is false.
  */
 export function isActive(row: EntitlementCheckFields | undefined, now: number): boolean {
   if (!row) return false;
-  if (!isTime(now)) return false;
+  if (!isUsableClock(now)) return false;
   if (row.state !== SUBSCRIBED) return false;
   if (row.revokedAt !== null) return false;
-  if (!isTime(row.expiresAt)) return false;
+  if (!isMsTime(row.expiresAt)) return false;
   return row.expiresAt > now;
 }
 
@@ -77,10 +97,16 @@ export type EntitlementCheck = { status: "active"; entitlement: Entitlement } | 
  * Whether `userId` (the session's user ID, never client input) has an
  * active subscription at `now`. Active when any of the user's rows passes
  * `isActive` (a user who rebought under another Apple ID has two). Never
- * throws: a D1 error is "unreadable", logged as a fixed line with no user ID
- * and no error text.
+ * throws: a D1 error, or a clock that is not milliseconds after
+ * MIN_CLOCK_MS, is "unreadable", logged as a fixed line with no user ID and
+ * no error text.
  */
 export async function activeEntitlement(db: DrizzleD1Database, userId: string, now: number): Promise<EntitlementCheck> {
+  // A clock that is not milliseconds means the state cannot be checked.
+  if (!isUsableClock(now)) {
+    console.error("entitlements: clock unusable");
+    return { status: "unreadable" };
+  }
   let rows: Entitlement[];
   try {
     rows = await db.select().from(entitlements).where(eq(entitlements.userId, userId));
@@ -111,15 +137,16 @@ export type VerifiedSubscriptionFacts = {
 };
 
 /**
- * stored: written. stale: facts signed at or before what is stored, ignored.
+ * stored: written. stale: facts signed before what is stored, or signed at
+ * the same time and not more closed than what is stored; ignored.
  * other_account: this Apple subscription belongs to another account, nothing
  * changed. invalid: the facts are not well formed, nothing written.
  */
 export type RecordOutcome = { outcome: "stored" | "stale" | "other_account" | "invalid" };
 
-const isOptionalTime = (value: unknown): value is number | null => value === null || isTime(value);
+const isOptionalMsTime = (value: unknown): value is number | null => value === null || isMsTime(value);
 
-function wellFormed(facts: VerifiedSubscriptionFacts): boolean {
+function wellFormed(facts: VerifiedSubscriptionFacts, now: number): boolean {
   return (
     typeof facts.originalTransactionId === "string" &&
     facts.originalTransactionId.length > 0 &&
@@ -127,9 +154,11 @@ function wellFormed(facts: VerifiedSubscriptionFacts): boolean {
     facts.productId === SUBSCRIPTION_PRODUCT_ID &&
     (APPLE_ENVIRONMENTS as readonly unknown[]).includes(facts.environment) &&
     (ENTITLEMENT_STATES as readonly unknown[]).includes(facts.state) &&
-    isOptionalTime(facts.expiresAt) &&
-    isOptionalTime(facts.revokedAt) &&
-    isTime(facts.signedAt)
+    isOptionalMsTime(facts.expiresAt) &&
+    isOptionalMsTime(facts.revokedAt) &&
+    isMsTime(facts.signedAt) &&
+    // A signedAt far ahead would pin the row: every later real fact would be stale.
+    facts.signedAt <= now + SIGNED_AT_SKEW_MS
   );
 }
 
@@ -141,16 +170,28 @@ function wellFormed(facts: VerifiedSubscriptionFacts): boolean {
  *
  * - a new original transaction ID is inserted for `userId`;
  * - an existing one is updated only when it already belongs to `userId` and
- *   the facts are signed later than what is stored; `user_id` is never
- *   changed, so a subscription never moves to another account.
+ *   the facts are signed later than what is stored, or signed at the same
+ *   time and closing access (not active, or carrying a revocation) where the
+ *   stored row is active or carries no revocation: a tie fails closed. An
+ *   identical retry changes nothing. `user_id` is never changed, so a
+ *   subscription never moves to another account.
  *
- * A D1 error (including a `userId` with no user row) is thrown to the caller,
- * which should answer Apple with an error so Apple retries. The caller must
+ * Refused as invalid, nothing written: times that are not whole Unix
+ * milliseconds between 1e12 and 1e13, a signedAt more than five minutes
+ * ahead of `now`, or a `now` that is not a usable clock.
+ *
+ * A D1 error (including a `userId` with no user row) is thrown to the caller
+ * as the fixed Error "entitlements: write failed" with no cause (Drizzle's
+ * own error carries the statement's values, the user and transaction IDs,
+ * and Hono's default error handler would log it). The caller should answer
+ * Apple with an error so Apple retries. The caller must
  * pass the session's user ID, or for a notification the owner found by the
  * original transaction ID; never an ID from the request body.
  */
 export async function recordVerifiedSubscription(db: DrizzleD1Database, userId: string, facts: VerifiedSubscriptionFacts, now: number): Promise<RecordOutcome> {
-  if (!wellFormed(facts) || !isTime(now)) return { outcome: "invalid" };
+  if (!isUsableClock(now) || !wellFormed(facts, now)) return { outcome: "invalid" };
+  // Facts that close access win a tie on signedAt.
+  const closesAccess = facts.state !== SUBSCRIBED || facts.revokedAt !== null;
   const values = {
     originalTransactionId: facts.originalTransactionId,
     userId,
@@ -162,30 +203,47 @@ export async function recordVerifiedSubscription(db: DrizzleD1Database, userId: 
     signedAt: facts.signedAt,
     updatedAt: now,
   };
-  const written = await db
-    .insert(entitlements)
-    .values(values)
-    .onConflictDoUpdate({
-      target: entitlements.originalTransactionId,
-      set: {
-        productId: values.productId,
-        environment: values.environment,
-        state: values.state,
-        expiresAt: values.expiresAt,
-        revokedAt: values.revokedAt,
-        signedAt: values.signedAt,
-        updatedAt: values.updatedAt,
-      },
-      setWhere: and(eq(entitlements.userId, userId), sql`${entitlements.signedAt} < ${facts.signedAt}`),
-    })
-    .returning({ userId: entitlements.userId });
-  if (written.length > 0) return { outcome: "stored" };
-  // Nothing written: the row exists and either is another account's or is newer.
-  const [existing] = await db
-    .select({ userId: entitlements.userId })
-    .from(entitlements)
-    .where(eq(entitlements.originalTransactionId, facts.originalTransactionId));
-  return { outcome: existing && existing.userId === userId ? "stale" : "other_account" };
+  try {
+    const written = await db
+      .insert(entitlements)
+      .values(values)
+      .onConflictDoUpdate({
+        target: entitlements.originalTransactionId,
+        set: {
+          productId: values.productId,
+          environment: values.environment,
+          state: values.state,
+          expiresAt: values.expiresAt,
+          revokedAt: values.revokedAt,
+          signedAt: values.signedAt,
+          updatedAt: values.updatedAt,
+        },
+        setWhere: and(
+          eq(entitlements.userId, userId),
+          or(
+            lt(entitlements.signedAt, facts.signedAt),
+            closesAccess
+              ? and(
+                  eq(entitlements.signedAt, facts.signedAt),
+                  or(eq(entitlements.state, SUBSCRIBED), facts.revokedAt !== null ? isNull(entitlements.revokedAt) : sql`0`),
+                )
+              : sql`0`,
+          ),
+        ),
+      })
+      .returning({ userId: entitlements.userId });
+    if (written.length > 0) return { outcome: "stored" };
+    // Nothing written: the row exists and is either this user's (newer, or a
+    // tie that would not close anything) or another account's. Scoped by
+    // the user ID too, so this read never sees another account's row.
+    const own = await db
+      .select({ userId: entitlements.userId })
+      .from(entitlements)
+      .where(and(eq(entitlements.originalTransactionId, facts.originalTransactionId), eq(entitlements.userId, userId)));
+    return { outcome: own.length > 0 ? "stale" : "other_account" };
+  } catch {
+    throw new Error("entitlements: write failed");
+  }
 }
 
 /**
@@ -194,8 +252,8 @@ export async function recordVerifiedSubscription(db: DrizzleD1Database, userId: 
  * - 401 `unauthorized` when no session user is on the context (mounted
  *   without requireSession): refuse rather than guess;
  * - 403 `subscription_required` when the user's subscription is not active;
- * - 503 `entitlement_unavailable` when it could not be read (D1 error or a
- *   clock that throws).
+ * - 503 `entitlement_unavailable` when it could not be read (D1 error, or a
+ *   clock that throws or is not milliseconds after MIN_CLOCK_MS).
  * The route runs only on "active". Every answer is fixed and `no-store`, and
  * the check reads only the session user's rows.
  */

@@ -482,17 +482,19 @@ describe("requireEntitlement (middleware)", () => {
     expect(handled).toBe(0);
   });
 
-  it("refuses when the clock gives something unusable", async () => {
+  it("answers 503 when the clock gives something unusable or throws (the state cannot be checked)", async () => {
     const { bearer, userId } = await signInAs("001111.aaaa.0001");
     await db().insert(entitlements).values(row({ userId }));
     const { state, ask } = paidRoute(entitlementGate(() => Number.NaN));
-    expect((await ask({ authorization: `Bearer ${bearer}` })).status).toBe(403);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const nan = await ask({ authorization: `Bearer ${bearer}` });
+    expect(nan.status).toBe(503);
+    expect(await nan.json()).toEqual(ENTITLEMENT_UNAVAILABLE);
     const throwing = paidRoute(
       entitlementGate(() => {
         throw new Error("clock broke");
       }),
     );
-    vi.spyOn(console, "error").mockImplementation(() => {});
     expect((await throwing.ask({ authorization: `Bearer ${bearer}` })).status).toBe(503);
     expect(state.handled + throwing.state.handled).toBe(0);
   });
@@ -504,5 +506,196 @@ describe("requireEntitlement (middleware)", () => {
     expect((await live.ask({ authorization: `Bearer ${bearer}` })).status).toBe(200);
     await db().update(entitlements).set({ expiresAt: Date.now() - 1000 });
     expect((await live.ask({ authorization: `Bearer ${bearer}` })).status).toBe(403);
+  });
+});
+
+// ───────────────────────── review of the first part (task 221 rework) ─────────────────────────
+
+/** A D1 binding that records each statement's SQL and bound values, then runs it on env.DB. */
+function recordingDB(): { db: D1Database; statements: { query: string; params: unknown[] }[] } {
+  const statements: { query: string; params: unknown[] }[] = [];
+  const real = env.DB;
+  const db = new Proxy(real, {
+    get(target, property) {
+      if (property === "prepare") {
+        return (query: string) => {
+          const entry = { query, params: [] as unknown[] };
+          statements.push(entry);
+          const statement = target.prepare(query);
+          return new Proxy(statement, {
+            get(s, p) {
+              if (p === "bind") return (...params: unknown[]) => ((entry.params = params), s.bind(...params));
+              const value = Reflect.get(s, p, s);
+              return typeof value === "function" ? value.bind(s) : value;
+            },
+          });
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { db, statements };
+}
+
+describe("rework: clocks that are not milliseconds", () => {
+  it("isActive refuses a clock of 0, a negative clock or a clock in seconds, for a row that expired an hour ago", () => {
+    const expired = row({ expiresAt: NOW - HOUR });
+    for (const now of [0, -1, Math.floor(NOW / 1000), 1_599_999_999_999]) {
+      expect(isActive(expired, now), String(now)).toBe(false);
+    }
+    // Also for a row that is active by the real clock: a clock that is not milliseconds is never trusted.
+    expect(isActive(row(), Math.floor(NOW / 1000))).toBe(false);
+  });
+
+  it("isActive refuses an expiry that is not a millisecond time (microseconds, seconds, fractions)", () => {
+    expect(isActive(row({ expiresAt: (NOW + HOUR) * 1000 }), NOW)).toBe(false);
+    expect(isActive(row({ expiresAt: NOW + HOUR + 0.5 }), NOW)).toBe(false);
+  });
+
+  it("isActive treats an undefined revocation as odd data, not as no revocation", () => {
+    expect(isActive(row({ revokedAt: undefined as unknown as null }), NOW)).toBe(false);
+  });
+
+  it("the gate answers 503 for a clock of 0, negative or in seconds, and the route does not run", async () => {
+    const { bearer, userId } = await signInAs("001111.aaaa.0001");
+    await db().insert(entitlements).values(row({ userId, expiresAt: NOW - HOUR }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const now of [0, -1, Math.floor(NOW / 1000)]) {
+      const { state, ask } = paidRoute(entitlementGate(() => now));
+      const response = await ask({ authorization: `Bearer ${bearer}` });
+      expect(response.status, String(now)).toBe(503);
+      expect(await response.json()).toEqual(ENTITLEMENT_UNAVAILABLE);
+      expect(state.handled).toBe(0);
+    }
+  });
+});
+
+describe("rework: every entitlement query is scoped by the user ID", () => {
+  it("activeEntitlement asks D1 for this user's rows only", async () => {
+    await makeUser("user-a");
+    await makeUser("user-b");
+    await db().insert(entitlements).values(row({ userId: "user-b" }));
+    const { db: recorded, statements } = recordingDB();
+    expect(await activeEntitlement(drizzle(recorded), "user-a", NOW)).toEqual({ status: "inactive" });
+    const reads = statements.filter((s) => /from "entitlements"/i.test(s.query));
+    expect(reads).toHaveLength(1);
+    expect(reads[0]!.query).toMatch(/where "entitlements"\."user_id" = \?$/i);
+    expect(reads[0]!.params).toEqual(["user-a"]);
+  });
+
+  it("recordVerifiedSubscription's follow-up read is scoped by user ID and transaction ID, with the same outcomes", async () => {
+    await makeUser("user-a");
+    await makeUser("user-b");
+    await recordVerifiedSubscription(db(), "user-a", facts(), NOW);
+    const { db: recorded, statements } = recordingDB();
+    expect(await recordVerifiedSubscription(drizzle(recorded), "user-a", facts(), NOW + 5)).toEqual({ outcome: "stale" });
+    expect(await recordVerifiedSubscription(drizzle(recorded), "user-b", facts({ signedAt: NOW }), NOW + 5)).toEqual({ outcome: "other_account" });
+    const selects = statements.filter((s) => /^select/i.test(s.query.trim()));
+    expect(selects).toHaveLength(2);
+    for (const [index, owner] of ["user-a", "user-b"].entries()) {
+      expect(selects[index]!.query).toMatch(/"entitlements"\."original_transaction_id" = \?/i);
+      expect(selects[index]!.query).toMatch(/"entitlements"\."user_id" = \?/i);
+      expect(selects[index]!.params).toEqual(expect.arrayContaining(["2000000123456789", owner]));
+    }
+  });
+});
+
+describe("rework: recordVerifiedSubscription refuses times it cannot trust", () => {
+  it("refuses times outside the millisecond range, fractional or negative, and a signedAt later than now plus a small skew", async () => {
+    await makeUser("user-a");
+    const YEAR = 365 * 24 * HOUR;
+    const bad: Partial<VerifiedSubscriptionFacts>[] = [
+      { expiresAt: (NOW + HOUR) * 1000 }, // microseconds
+      { expiresAt: Math.floor((NOW + HOUR) / 1000) }, // seconds
+      { expiresAt: NOW + HOUR + 0.5 },
+      { expiresAt: -1 },
+      { revokedAt: 0 },
+      { revokedAt: -1 },
+      { revokedAt: Math.floor(NOW / 1000) },
+      { revokedAt: (NOW - HOUR) * 1000 },
+      { signedAt: Math.floor(NOW / 1000) },
+      { signedAt: NOW * 1000 },
+      { signedAt: NOW - 0.5 },
+      { signedAt: -1 },
+      { signedAt: 0 },
+      { signedAt: NOW + YEAR },
+      { signedAt: NOW + 10 * 60_000 },
+    ];
+    for (const extra of bad) {
+      expect(await recordVerifiedSubscription(db(), "user-a", facts(extra), NOW), JSON.stringify(extra)).toEqual({ outcome: "invalid" });
+    }
+    expect(await db().select().from(entitlements)).toEqual([]);
+    // A signedAt a moment ahead of this server's clock (Apple's clock and ours differ a little) is accepted.
+    expect(await recordVerifiedSubscription(db(), "user-a", facts({ signedAt: NOW + 30_000 }), NOW)).toEqual({ outcome: "stored" });
+  });
+
+  it("refuses an unusable clock of its own", async () => {
+    await makeUser("user-a");
+    for (const now of [Number.NaN, 0, -1, Math.floor(NOW / 1000)]) {
+      expect(await recordVerifiedSubscription(db(), "user-a", facts({ signedAt: 1_700_000_000_000 }), now), String(now)).toEqual({ outcome: "invalid" });
+    }
+    expect(await db().select().from(entitlements)).toEqual([]);
+  });
+});
+
+describe("rework: an equal signedAt fails closed", () => {
+  it("revoked facts with the same signedAt as stored active ones win", async () => {
+    await makeUser("user-a");
+    await recordVerifiedSubscription(db(), "user-a", facts(), NOW);
+    expect(await recordVerifiedSubscription(db(), "user-a", facts({ state: "revoked", revokedAt: NOW - HOUR }), NOW + 5)).toEqual({ outcome: "stored" });
+    expect((await db().select().from(entitlements))[0]).toMatchObject({ state: "revoked", revokedAt: NOW - HOUR, updatedAt: NOW + 5 });
+    expect((await activeEntitlement(db(), "user-a", NOW)).status).toBe("inactive");
+  });
+
+  it("a revocation date alone, or any state that is not active, with the same signedAt wins over active", async () => {
+    await makeUser("user-a");
+    for (const extra of [{ revokedAt: NOW - HOUR }, { state: "expired" as const }, { state: "billing_retry" as const }, { state: "grace_period" as const }]) {
+      await db().delete(entitlements);
+      await recordVerifiedSubscription(db(), "user-a", facts(), NOW);
+      expect(await recordVerifiedSubscription(db(), "user-a", facts(extra), NOW + 5), JSON.stringify(extra)).toEqual({ outcome: "stored" });
+      expect((await activeEntitlement(db(), "user-a", NOW)).status, JSON.stringify(extra)).toBe("inactive");
+    }
+  });
+
+  it("a revocation with the same signedAt wins over a stored lapse that carries none", async () => {
+    await makeUser("user-a");
+    await recordVerifiedSubscription(db(), "user-a", facts({ state: "expired" }), NOW);
+    expect(await recordVerifiedSubscription(db(), "user-a", facts({ state: "revoked", revokedAt: NOW - HOUR }), NOW + 5)).toEqual({ outcome: "stored" });
+    expect((await db().select().from(entitlements))[0]).toMatchObject({ state: "revoked", revokedAt: NOW - HOUR });
+  });
+
+  it("active facts with the same signedAt never undo stored inactive ones, and an identical retry changes nothing", async () => {
+    await makeUser("user-a");
+    await recordVerifiedSubscription(db(), "user-a", facts({ state: "revoked", revokedAt: NOW - HOUR }), NOW);
+    expect(await recordVerifiedSubscription(db(), "user-a", facts(), NOW + 5)).toEqual({ outcome: "stale" });
+    // The identical revoked facts again: nothing changes, not even updated_at.
+    expect(await recordVerifiedSubscription(db(), "user-a", facts({ state: "revoked", revokedAt: NOW - HOUR }), NOW + 9)).toEqual({ outcome: "stale" });
+    expect((await db().select().from(entitlements))[0]).toMatchObject({ state: "revoked", updatedAt: NOW });
+    // And identical active facts again.
+    await db().delete(entitlements);
+    await recordVerifiedSubscription(db(), "user-a", facts(), NOW);
+    expect(await recordVerifiedSubscription(db(), "user-a", facts(), NOW + 5)).toEqual({ outcome: "stale" });
+    expect((await db().select().from(entitlements))[0]).toMatchObject({ state: "active", updatedAt: NOW });
+  });
+});
+
+describe("rework: D1 errors leave recordVerifiedSubscription as a fixed error", () => {
+  it("throws a fixed message with no user ID, no transaction ID and no cause, for a foreign key failure and for a broken D1", async () => {
+    const failures: unknown[] = [];
+    await recordVerifiedSubscription(db(), "nobody-7f3a", facts(), NOW).catch((error: unknown) => failures.push(error));
+    await makeUser("user-a");
+    await recordVerifiedSubscription(drizzle(brokenEntitlementsDB("execute")), "user-a", facts(), NOW).catch((error: unknown) => failures.push(error));
+    await recordVerifiedSubscription(drizzle(brokenEntitlementsDB("prepare")), "user-a", facts(), NOW).catch((error: unknown) => failures.push(error));
+    expect(failures).toHaveLength(3);
+    for (const error of failures) {
+      expect(error).toBeInstanceOf(Error);
+      const { message, cause, stack } = error as Error;
+      expect(message).toBe("entitlements: write failed");
+      expect(cause).toBeUndefined();
+      for (const secret of ["nobody-7f3a", "user-a", "2000000123456789", "simulated", "insert", "select"]) {
+        expect(`${message} ${stack ?? ""}`, secret).not.toContain(secret);
+      }
+    }
   });
 });
