@@ -81,7 +81,7 @@ Native iOS app talking to a JSON API on Cloudflare. Business logic (weather, cal
 | Project | XcodeGen (`ios/project.yml`) |
 | Local store | SwiftData; the UI reads local data first, then syncs from the API |
 | Auth | AuthenticationServices (Sign in with Apple) → Apple ID token sent to Better Auth → session token stored in the Keychain. Offered only straight after a successful subscription purchase |
-| Subscription | StoreKit (Apple in-app purchase), one monthly auto-renewing product; tested locally with a StoreKit test configuration. Not built yet |
+| Subscription | StoreKit (Apple in-app purchase), one monthly auto-renewing product; tested locally with a StoreKit test configuration (`SKTestSession`, test bundle only). Built on the phone since 2026-11-24 (the gate on Settings, purchase, restore, the AI rule); the product does not exist in App Store Connect yet, so a real read is Unknown and Debug builds set the gate with `-debugSubscription` or the Debug chips. The account and the server's entitlement check are not built |
 | Identity | Bundle ID and team ID come from `app-identity.xcconfig` at the repository root, loaded by `ios/project.yml`. `api/wrangler.jsonc` repeats the bundle ID; a check in `npm test` fails if they differ |
 | Secrets on device | Keychain for the session token and the user's LLM API key |
 | Fonts | The app's design is v12 (`plans/2026-11-23-v12-in-the-app.md`): the system mono face for every screen's labels and buttons, and the system serif face for the read view's title and summary. Bundled from the v11 design and falling out of use as screens are restyled: Jost and PT Sans Narrow (not removed without the user's say). `fonts/` at the repository root is the user's own folder; never commit it |

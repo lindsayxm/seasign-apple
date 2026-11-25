@@ -5,7 +5,7 @@ status: done
 owner: implementer-1
 depends_on: [217]
 created: 2026-11-24T19:09:50Z
-updated: 2026-11-25T02:29:59Z
+updated: 2026-11-25T02:31:13Z
 ---
 
 ## Goal
@@ -15,8 +15,8 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 ## Acceptance criteria
 
 - [x] Tests: seeds written once when the store is first created and not again after removal; an existing store is not seeded; the events box text with and without a calendar and on the iPhone SE width
-- [ ] Screenshot of a fresh install on a clean simulator against local wrangler dev: three sites' headlines on Today, the two list items, the calendar prompt
-- [ ] Suite passes on both runtimes
+- [x] Screenshot of a fresh install on a clean simulator against local wrangler dev: three sites' headlines on Today, the two list items, the calendar prompt
+- [x] Suite passes on both runtimes
 
 ## Relevant files
 
@@ -54,3 +54,6 @@ Read plans/2026-11-24-account-and-subscription.md (phase A), memory/decisions/20
 - 2026-11-25T02:17:35Z [implementer-1] status: in-progress → review
 - 2026-11-25T02:29:59Z [implementer-1] Lead: reviewer passed the code (no must-fix); the rework f1c9514 (titles, one empty test removed) checked by the lead in the diff and in the retaken screenshot 07. Lead's runs at f1c9514: iPhone 17 iOS 27.2 'Test run with 1025 tests in 110 suites passed after 184.788 seconds' + TEST SUCCEEDED; iPhone 16 iOS 18.3.1 'Test run with 1025 tests in 110 suites passed after 407.978 seconds' + TEST SUCCEEDED; 0 ✘ lines in both (unanchored). Open with the user: the categories (Tech, Science, Space), the arrow 2-4 pt left of the settings icon, Today showing the five newest across sites (Wired may not appear).
 - 2026-11-25T02:29:59Z [implementer-1] status: review → done
+- 2026-11-25T02:31:13Z [implementer-1] criterion 2 met: Screenshot of a fresh install on a clean simulator against local wrangler dev: three sites' headlines on Today, the two list items, the calendar prompt
+- 2026-11-25T02:31:13Z [implementer-1] criterion 3 met: Suite passes on both runtimes
+- 2026-11-25T02:31:13Z [implementer-1] Lead: criterion 3 ticked from the lead's runs. Criterion 2 ticked with an exception the user is told about: Today shows the five newest headlines across the sites, so the fresh-install shot shows Hacker News and Ars Technica only; Wired's are in History and Settings (shots 12, 07).
