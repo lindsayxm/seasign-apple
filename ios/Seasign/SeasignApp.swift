@@ -54,7 +54,9 @@ struct SeasignApp: App {
         }
         #endif
         do {
-            let container = try LocalStore.open().container
+            // A fresh install gets the starter sites and list items here,
+            // before any model reads the store (task 218, `StarterContent`).
+            let container = try StarterContent.open().container
             #if DEBUG
             // `-debugNoZip YES`: Today and Settings on a store held in memory
             // with no zip, so neither the user's zip, its place nor its

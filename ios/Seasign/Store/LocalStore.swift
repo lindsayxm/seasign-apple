@@ -51,6 +51,10 @@ enum LocalStore {
     struct Opened {
         var container: ModelContainer
         var cache: CacheState
+        /// The user store's file did not exist before this open created it:
+        /// a fresh install (task 218, `StarterContent`). False for every store
+        /// an earlier launch or build wrote, whatever it holds.
+        var userStoreIsNew: Bool
     }
 
     /// The user store would not open. Nothing was deleted.
@@ -60,12 +64,14 @@ enum LocalStore {
 
     static func open(_ files: Files = .standard) throws(UserStoreUnreadable) -> Opened {
         let manager = FileManager.default
+        // Asked before anything below can create the file.
+        let isNew = !manager.fileExists(atPath: files.user.path(percentEncoded: false))
         for url in [files.user, files.cache] {
             try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         }
 
         if let container = try? container(files, cacheInMemory: false) {
-            return Opened(container: container, cache: .kept)
+            return Opened(container: container, cache: .kept, userStoreIsNew: isNew)
         }
 
         // Something will not open. Find out whether it is the user store by
@@ -84,11 +90,11 @@ enum LocalStore {
         // The user store is fine, so the cache file is the problem.
         removeCache(files)
         if let container = try? container(files, cacheInMemory: false) {
-            return Opened(container: container, cache: .recreated)
+            return Opened(container: container, cache: .recreated, userStoreIsNew: isNew)
         }
         // No cache file can be made (a full disk, say). The container that
         // already opened serves for this launch.
-        return Opened(container: withoutCacheFile, cache: .inMemory)
+        return Opened(container: withoutCacheFile, cache: .inMemory, userStoreIsNew: isNew)
     }
 
     private static func userConfiguration(_ files: Files) -> ModelConfiguration {

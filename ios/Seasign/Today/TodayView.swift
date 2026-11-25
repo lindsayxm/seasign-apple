@@ -295,6 +295,11 @@ struct TodayView: View {
                 size: proxy.size,
                 labels: labels,
                 showsZipPrompt: showsZipPrompt,
+                showsCalendarPrompt: TodayOverlayLayout.showsCalendarPrompt(
+                    linkCount: events.links.count,
+                    google: google.connection,
+                    eventCount: labels.count
+                ),
                 cornerRadius: Self.screenCornerRadius(proxy)
             )
             let shown = HeadlinesColumn.shown(candidates, layout: layout)

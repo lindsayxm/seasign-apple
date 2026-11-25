@@ -4,6 +4,8 @@ import SwiftUI
 /// dark panel beside the date tile, with the next three events as rows of
 /// mono text (`EventRowText`, laid out by `TodayOverlayLayout`). With no
 /// zip saved, the last row is the zip prompt, which opens Settings. With no
+/// calendar at all (and a zip) the one row is "Add your calendar... ↑"
+/// (task 218), plain text pointing at the settings button. With no
 /// events the box stays, empty, so the grid under the top row keeps its
 /// shape.
 ///

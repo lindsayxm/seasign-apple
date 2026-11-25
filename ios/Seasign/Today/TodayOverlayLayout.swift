@@ -108,6 +108,22 @@ struct TodayOverlayLayout {
     /// still says `zipPromptText`.
     static let shortZipPromptText = "Set zip code in Settings"
 
+    /// The events box with no calendar at all (task 218, the user's words):
+    /// the arrow points up at the settings button, which stands right above
+    /// the box's right end, where the row's text ends. Short enough to be
+    /// whole on every phone (it needs 26 columns; the iPhone SE has 27).
+    static let calendarPromptText = "Add your calendar... ↑"
+    /// What VoiceOver says for that row.
+    static let calendarPromptSpoken = "Add your calendar in Settings"
+
+    /// Whether the box shows `calendarPromptText`: no calendar link, Google
+    /// never connected (an expired connection is a calendar the person has;
+    /// Settings asks them to connect again), and no event rows to show (the
+    /// DEBUG mockup events have no calendar behind them).
+    static func showsCalendarPrompt(linkCount: Int, google: GoogleConnection, eventCount: Int) -> Bool {
+        linkCount == 0 && google == .notConnected && eventCount == 0
+    }
+
     /// The prompt to draw in a row of `columns` characters: the full text
     /// when it fits whole (in the cut form's room, a dash and the slash),
     /// otherwise the short one.
@@ -133,7 +149,8 @@ struct TodayOverlayLayout {
     /// How many characters a row of the box holds (29 at 393 points; the
     /// mockup's smaller type held 34).
     let eventColumns: Int
-    /// The rows as drawn, at most three: events, then the zip prompt.
+    /// The rows as drawn, at most three: events, then the zip prompt; or,
+    /// with no events, no calendar and a zip set, the calendar prompt alone.
     let eventRows: [EventRow]
     /// The zip prompt's row index in `eventRows`, if shown.
     let promptIndex: Int?
@@ -177,10 +194,13 @@ struct TodayOverlayLayout {
     ///   - labels: the next events, soonest first; at most three are shown,
     ///     two when the zip prompt takes the last row.
     ///   - showsZipPrompt: no zip is set yet.
+    ///   - showsCalendarPrompt: no calendar (`showsCalendarPrompt(linkCount:google:eventCount:)`).
+    ///     Shown only with no events and no zip prompt: while no zip is set
+    ///     the zip prompt is the one prompt (task 205's rule, unchanged).
     ///   - cornerRadius: the rim's corner radius, when the system reports
     ///     the screen's own (`concentricCornerRadii`); the mockup's 39
     ///     otherwise.
-    init(size: CGSize, labels: [EventLabel], showsZipPrompt: Bool, cornerRadius: CGFloat? = nil) {
+    init(size: CGSize, labels: [EventLabel], showsZipPrompt: Bool, showsCalendarPrompt: Bool = false, cornerRadius: CGFloat? = nil) {
         typealias M = Mockup
         self.size = size
         let width = size.width
@@ -229,6 +249,14 @@ struct TodayOverlayLayout {
             texts.append((EventRowText.message(Self.zipPrompt(columns: columns), columns: columns, maxWidth: maxWidth, measure: measure), nil))
         } else {
             promptIndex = nil
+            if showsCalendarPrompt, texts.isEmpty {
+                // Right-aligned like the zip prompt, so the arrow ends up
+                // under the settings button.
+                texts.append((
+                    EventRowText.message(Self.calendarPromptText, columns: columns, maxWidth: maxWidth, measure: measure),
+                    Self.calendarPromptSpoken
+                ))
+            }
         }
         let firstLine = eventsBox.minY + M.tileBorder + M.eventsPaddingTop
         eventRows = texts.enumerated().map { index, entry in
