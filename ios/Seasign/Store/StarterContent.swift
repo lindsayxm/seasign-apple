@@ -19,12 +19,14 @@ import SwiftData
 /// install simply starts empty: the safe side.
 @MainActor
 enum StarterContent {
-    /// A site as `POST /v1/sites/resolve` gives it for the page address,
-    /// plus the category the person would type.
+    /// A site as `POST /v1/sites/resolve` gives it for the page address
+    /// (address, mode, feed), with the user's own name for it as the title
+    /// (resolve's page titles read badly and are cut off in Settings) and
+    /// the category the person would type.
     struct StarterSite: Sendable, Equatable {
         /// The page address in resolve's normal form.
         var url: String
-        /// Resolve's title for the page.
+        /// The user's name for the site (the plan's wording).
         var title: String
         var category: String
         /// Feed mode always; the feed the API reads.
@@ -46,13 +48,13 @@ enum StarterContent {
         ),
         StarterSite(
             url: "https://www.wired.com/category/science/",
-            title: "Science News: Health, Robotics, Climate Change, Space News | WIRED",
+            title: "Wired Science",
             category: "Science",
             feedUrl: "https://www.wired.com/feed/category/science/latest/rss"
         ),
         StarterSite(
             url: "https://arstechnica.com/space/",
-            title: "Category: Space - Ars Technica",
+            title: "Ars Technica Space",
             category: "Space",
             feedUrl: "https://arstechnica.com/space/feed/"
         ),

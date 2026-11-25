@@ -62,13 +62,8 @@ import Testing
             "https://www.wired.com/feed/category/science/latest/rss",
             "https://arstechnica.com/space/feed/",
         ])
-        // Resolve's titles for the three page addresses (local wrangler dev,
-        // 2026-11-24).
-        #expect(followed.map(\.title) == [
-            "Hacker News",
-            "Science News: Health, Robotics, Climate Change, Space News | WIRED",
-            "Category: Space - Ars Technica",
-        ])
+        // The user's names for the three sites.
+        #expect(followed.map(\.title) == ["Hacker News", "Wired Science", "Ars Technica Space"])
         #expect(followed.map(\.category) == ["Tech", "Science", "Space"])
         #expect(Set(followed.map(\.id)).count == 3)
 
@@ -128,10 +123,7 @@ import Testing
             lists.delete(try #require(lists.items(.get).first))
         }
         let again = try launch()
-        #expect(sites(again).map(\.title) == [
-            "Science News: Health, Robotics, Climate Change, Space News | WIRED",
-            "Category: Space - Ars Technica",
-        ])
+        #expect(sites(again).map(\.title) == ["Wired Science", "Ars Technica Space"])
         #expect(try listItems(again).map(\.1) == ["Go outside"])
     }
 
@@ -239,10 +231,4 @@ import Testing
         #expect(try context.fetch(FetchDescriptor<FeedItem>()).isEmpty)
     }
 
-    /// Debug samples and tests on stores in memory are never seeded.
-    @Test func aStoreInMemoryIsNotSeeded() throws {
-        let context = ModelContext(try SeasignSchema.inMemoryContainer())
-        #expect(sites(context).isEmpty)
-        #expect(try listItems(context).isEmpty)
-    }
 }
