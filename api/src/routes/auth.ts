@@ -46,6 +46,11 @@ const SignIn = z.object({
   }),
 });
 
+const SIGN_IN = "/api/auth/sign-in/social";
+const GET_SESSION = "/api/auth/get-session";
+const SIGN_OUT = "/api/auth/sign-out";
+type AllowedPath = typeof SIGN_IN | typeof GET_SESSION | typeof SIGN_OUT;
+
 /** The request headers Better Auth may see. */
 const PASSED_HEADERS = ["authorization", "content-type", "user-agent"] as const;
 
@@ -59,13 +64,16 @@ function headersFor(from: Request): Headers {
 }
 
 /** Hands a rebuilt request to Better Auth and takes Set-Cookie off its answer. */
-async function toBetterAuth(c: Context<Env>, init: { method: "GET" | "POST"; body?: string }): Promise<Response> {
+async function toBetterAuth(c: Context<Env>, init: { path: AllowedPath; method: "GET" | "POST"; body?: string }): Promise<Response> {
   const auth = createAuth(c.env);
   if (!auth) return c.json(AUTH_UNAVAILABLE, 503);
   const headers = headersFor(c.req.raw);
   if (init.body === undefined) headers.delete("content-type");
   else headers.set("content-type", "application/json");
-  const answer = await auth.handler(new Request(c.req.url, { method: init.method, headers, body: init.body }));
+  // The address Better Auth routes on is this origin plus a fixed path: the
+  // caller's own spelling of the path and any query string never reach it.
+  const url = new URL(init.path, c.req.url).toString();
+  const answer = await auth.handler(new Request(url, { method: init.method, headers, body: init.body }));
   const response = new Response(answer.body, answer);
   response.headers.delete("set-cookie");
   return response;
@@ -73,7 +81,7 @@ async function toBetterAuth(c: Context<Env>, init: { method: "GET" | "POST"; bod
 
 export const authRoutes = new Hono<Env>();
 
-authRoutes.post("/api/auth/sign-in/social", async (c) => {
+authRoutes.post(SIGN_IN, async (c) => {
   const invalid = () => c.json(AUTH_INVALID_REQUEST, 400);
   if (!/^application\/json\b/i.test(c.req.header("content-type") ?? "")) return invalid();
   let parsed: z.infer<typeof SignIn>;
@@ -86,15 +94,15 @@ authRoutes.post("/api/auth/sign-in/social", async (c) => {
   }
   const { token, nonce } = parsed.idToken;
   const body = JSON.stringify({ provider: "apple", idToken: nonce === undefined ? { token } : { token, nonce } });
-  const response = await toBetterAuth(c, { method: "POST", body });
+  const response = await toBetterAuth(c, { path: SIGN_IN, method: "POST", body });
   // A 200 means Better Auth verified this token in this request.
   if (response.status === 200) await recordAppleEmail(c.env.DB, token);
   return response;
 });
 
-authRoutes.get("/api/auth/get-session", (c) => toBetterAuth(c, { method: "GET" }));
+authRoutes.get(GET_SESSION, (c) => toBetterAuth(c, { path: GET_SESSION, method: "GET" }));
 
-authRoutes.post("/api/auth/sign-out", (c) => toBetterAuth(c, { method: "POST", body: "{}" }));
+authRoutes.post(SIGN_OUT, (c) => toBetterAuth(c, { path: SIGN_OUT, method: "POST", body: "{}" }));
 
 authRoutes.all("/api/auth", (c) => c.json(AUTH_NOT_FOUND, 404));
 authRoutes.all("/api/auth/*", (c) => c.json(AUTH_NOT_FOUND, 404));

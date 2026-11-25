@@ -274,13 +274,14 @@ describe("POST /api/auth/sign-in/social with an Apple ID token", () => {
   for (const [name, make] of refused) {
     it(`refuses ${name} with 401 and creates nothing`, async () => {
       const apple = mockApple();
+      const before = await rowCounts();
       const response = await signIn(await make());
       expect(response.status).toBe(401);
       expect(response.headers.get("set-auth-token")).toBeNull();
       expect(apple.keyFetches()).toBe(1);
       expect(await db().select().from(user).all()).toHaveLength(0);
-      expect(await db().select().from(account).all()).toHaveLength(0);
-      expect(await db().select().from(session).all()).toHaveLength(0);
+      // Nothing in any table, verification included.
+      expect(await rowCounts()).toEqual(before);
     });
   }
 
@@ -405,6 +406,60 @@ describe("an account is Apple's sub, never the email", () => {
       expect(sessions.filter((row) => row.userId === firstUser)).toHaveLength(1);
     });
   }
+
+  it("two subs that differ only in letter case are two users", async () => {
+    mockApple();
+    const lower = "001234.abcdef0123456789abcdef0123456789.0420";
+    const upper = "001234.ABCDEF0123456789abcdef0123456789.0420";
+    expect(accountEmail(lower)).not.toBe(accountEmail(upper));
+    const first = await signIn(await idToken(claims({ sub: lower })));
+    const second = await signIn(await idToken(claims({ sub: upper })));
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const firstId = ((await first.json()) as { user: { id: string } }).user.id;
+    const secondId = ((await second.json()) as { user: { id: string } }).user.id;
+    expect(secondId).not.toBe(firstId);
+    expect(await db().select().from(user).all()).toHaveLength(2);
+  });
+
+  it("the stored Apple email is never sent back: not on a later sign-in, not by get-session", async () => {
+    mockApple();
+    expect((await signIn(await idToken())).status).toBe(200);
+    expect((await db().select().from(user).all())[0]!.appleEmail).toBe(EMAIL);
+    const { email: _email, email_verified: _verified, is_private_email: _private, ...withoutEmail } = claims();
+    const again = await signIn(await idToken(withoutEmail));
+    const bearer = again.headers.get("set-auth-token")!;
+    expect(await again.text()).not.toContain(EMAIL);
+    const read = await app.request(`${BASE}/api/auth/get-session`, { headers: { authorization: `Bearer ${bearer}` } }, testEnv());
+    expect(read.status).toBe(200);
+    expect(await read.text()).not.toContain(EMAIL);
+  });
+
+  it("a failed write of the Apple email still serves the sign-in, logging a fixed line without the address", async () => {
+    mockApple();
+    const lines = captureConsole();
+    const real = env.DB;
+    const failing = new Proxy(real, {
+      get(target, prop) {
+        if (prop === "prepare")
+          return (sql: string) => {
+            if (sql.includes("SET apple_email")) throw new Error("D1 is down");
+            return target.prepare(sql);
+          };
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const response = await signIn(await idToken(), testEnv({ DB: failing }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-auth-token")).toBeTruthy();
+    expect((await db().select().from(user).all())[0]!.appleEmail).toBeNull();
+    expect(lines).toContain("auth: could not record the Apple email; sign-in served");
+    expect(lines.join("\n")).not.toContain(EMAIL);
+    // The next sign-in with an email fills it in.
+    expect((await signIn(await idToken())).status).toBe(200);
+    expect((await db().select().from(user).all())[0]!.appleEmail).toBe(EMAIL);
+  });
 });
 
 describe("Apple's key list and token header", () => {
@@ -515,6 +570,30 @@ describe("/api/auth/* lets through only the phone's three calls", () => {
       }
     }
     expect(await rowCounts()).toEqual(before);
+  });
+
+  it("routes on the exact path: other spellings are 404, and Better Auth only ever sees the fixed path", async () => {
+    mockApple();
+    const token = await idToken();
+    const body = { provider: "apple", idToken: { token } };
+    const before = await rowCounts();
+    for (const path of ["/api/auth/sign-in/social/", "/api/auth//sign-in/social", "/api/auth/sign-in%2Fsocial", "/api/auth/sign-in/social;x"]) {
+      const response = await post(path, body);
+      expect(response.status, path).toBe(404);
+      expect(await response.json()).toEqual(AUTH_NOT_FOUND);
+    }
+    expect(await rowCounts()).toEqual(before);
+    // `%2D` is `-` by URL rules (an encoded unreserved character), so Hono
+    // routes it to the sign-in handler, which forwards the fixed path: the plain sign-in.
+    expect((await post("/api/auth/sign%2Din/social", body)).status).toBe(200);
+    // A query string is dropped on the way to Better Auth: the plain sign-in happens.
+    const withQuery = await post("/api/auth/sign-in/social?callbackURL=https://evil.example/&disableRedirect=false", body);
+    expect(withQuery.status).toBe(200);
+    expect(withQuery.headers.get("location")).toBeNull();
+    const bearer = withQuery.headers.get("set-auth-token")!;
+    const read = await app.request(`${BASE}/api/auth/get-session?disableCookieCache=true&disableRefresh=true`, { headers: { authorization: `Bearer ${bearer}` } }, testEnv());
+    expect(read.status).toBe(200);
+    expect(await read.json()).not.toBeNull();
   });
 
   it("refuses a body over 64 KB with the fixed 400 before it reaches Better Auth", async () => {

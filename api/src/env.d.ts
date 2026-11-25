@@ -18,8 +18,9 @@ interface CloudflareBindings {
   /**
    * Better Auth's signing secret (task 13): signs the session token the phone
    * holds and keys Better Auth's internal encryption. At least 32 random
-   * characters; without it, or shorter, /api/auth/* and every route behind
-   * requireSession answer 503 (src/auth.ts). The tests set a test-only value
+   * characters; without it, or shorter, the three Better Auth calls under
+   * /api/auth and every route behind requireSession answer 503 (src/auth.ts);
+   * the rest of /api/auth is 404 either way. The tests set a test-only value
    * in vitest.config.ts.
    */
   BETTER_AUTH_SECRET?: string;

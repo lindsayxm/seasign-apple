@@ -54,10 +54,14 @@ export const MIN_SECRET_LENGTH = 32;
 /**
  * The value in Better Auth's `user.email` for the Apple account `sub`: made
  * from the sub alone, so it is unique per Apple account and can never match
- * another account's. The reserved `.invalid` domain can never receive mail.
- * Lower-cased as Better Auth stores emails.
+ * another account's. Better Auth lower-cases emails, so each capital letter
+ * (and `_`, the escape) is written as `_` plus its lower-case form first:
+ * two subs that differ only in letter case still get two values. Apple's subs
+ * are digits, lower-case hex and dots, so in practice this is the sub as it
+ * is. The reserved `.invalid` domain can never receive mail. Not an address
+ * to show anyone or to look a user up by.
  */
-export const accountEmail = (sub: string) => `${sub.toLowerCase()}@apple.seasign.invalid`;
+export const accountEmail = (sub: string) => `${sub.replace(/[A-Z_]/g, (char) => `_${char.toLowerCase()}`)}@apple.seasign.invalid`;
 
 /** The longest address kept in `apple_email` (RFC 5321's path limit). */
 const MAX_EMAIL_LENGTH = 254;
@@ -67,7 +71,8 @@ const MAX_EMAIL_LENGTH = 254;
  * user has none yet. Call it only after Better Auth answered 200 to a sign-in
  * with this very token: the token was verified in that request, so its claims
  * are Apple's. The user is found through the account row by `sub`, never by
- * email. A first address is never replaced.
+ * email. A first address is never replaced. Never throws: a failed write is
+ * logged with a fixed line (no address) and the sign-in still succeeds.
  */
 export async function recordAppleEmail(db: D1Database, token: string): Promise<void> {
   const claims = verifiedTokenClaims(token);
@@ -76,12 +81,18 @@ export async function recordAppleEmail(db: D1Database, token: string): Promise<v
   if (typeof sub !== "string" || !sub || typeof email !== "string") return;
   const address = email.trim().toLowerCase();
   if (!address.includes("@") || address.length > MAX_EMAIL_LENGTH) return;
-  await db
-    .prepare(
-      "UPDATE user SET apple_email = ?1 WHERE apple_email IS NULL AND id = (SELECT user_id FROM account WHERE provider_id = 'apple' AND account_id = ?2)",
-    )
-    .bind(address, sub)
-    .run();
+  try {
+    await db
+      .prepare(
+        "UPDATE user SET apple_email = ?1 WHERE apple_email IS NULL AND id = (SELECT user_id FROM account WHERE provider_id = 'apple' AND account_id = ?2)",
+      )
+      .bind(address, sub)
+      .run();
+  } catch {
+    // The sign-in itself has succeeded and its session exists; the address
+    // is tried again on the next sign-in whose token carries one.
+    console.error("auth: could not record the Apple email; sign-in served");
+  }
 }
 
 /** The payload of a JWT that has already been verified elsewhere, or null if it does not parse. */
